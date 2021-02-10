@@ -23,6 +23,7 @@
 // This file needs to be included first to ensure it is processed with the VMA_IMPLEMENTATION directive, in case it is
 // indirectly included by other include files.
 #define VMA_IMPLEMENTATION
+#define VMA_DYNAMIC_VULKAN_FUNCTIONS 0
 #include "vk_mem_alloc.h"
 
 #include "decode/vulkan_rebind_allocator.h"
@@ -1029,7 +1030,7 @@ VkResult VulkanRebindAllocator::UpdateMappedMemoryRange(
     ResourceAllocInfo* resource_alloc_info,
     VkDeviceSize       oiriginal_start,
     VkDeviceSize       original_end,
-    void (*update_func)(VmaAllocator, VmaAllocation, VkDeviceSize, VkDeviceSize))
+    VkResult (*update_func)(VmaAllocator, VmaAllocation, VkDeviceSize, VkDeviceSize))
 {
     VkResult     result     = VK_SUCCESS;
     VkDeviceSize src_offset = 0;
@@ -1046,7 +1047,7 @@ VkResult VulkanRebindAllocator::UpdateMappedMemoryRange(
 
         if (result == VK_SUCCESS)
         {
-            update_func(allocator_, resource_alloc_info->allocation, dst_offset, data_size);
+            result = update_func(allocator_, resource_alloc_info->allocation, dst_offset, data_size);
         }
     }
 
@@ -1057,7 +1058,7 @@ VkResult VulkanRebindAllocator::UpdateMappedMemoryRanges(
     uint32_t                   memory_range_count,
     const VkMappedMemoryRange* memory_ranges,
     const MemoryData*          allocator_datas,
-    void (*update_func)(VmaAllocator, VmaAllocation, VkDeviceSize, VkDeviceSize))
+    VkResult (*update_func)(VmaAllocator, VmaAllocation, VkDeviceSize, VkDeviceSize))
 {
     VkResult result = VK_SUCCESS;
 
