@@ -70,6 +70,10 @@
     "vkGetPhysicalDeviceWaylandPresentationSupportKHR": "OverrideGetPhysicalDeviceWaylandPresentationSupportKHR",
     "vkDestroySurfaceKHR": "OverrideDestroySurfaceKHR",
     "vkCreateAccelerationStructureKHR": "OverrideCreateAccelerationStructureKHR",
-    "vkCreateRayTracingPipelinesKHR": "OverrideCreateRayTracingPipelinesKHR"
+    "vkCreateRayTracingPipelinesKHR": "OverrideCreateRayTracingPipelinesKHR",
+    "vkGetBufferDeviceAddress": "OverrideGetBufferDeviceAddress",
+    "vkGetBufferDeviceAddressKHR": "OverrideGetBufferDeviceAddress",
+    "vkGetAccelerationStructureDeviceAddressKHR": "OverrideGetAccelerationStructureDeviceAddressKHR",
+    "vkGetRayTracingShaderGroupHandlesKHR": "OverrideGetRayTracingShaderGroupHandlesKHR"
   }
 }
