@@ -488,36 +488,39 @@ GetScreenshotRanges(const gfxrecon::util::ArgumentParser& arg_parser)
     return ranges;
 }
 
-static gfxrecon::decode::CreateResourceAllocator
-GetCreateResourceAllocatorFunc(const gfxrecon::util::ArgumentParser&           arg_parser,
-                               const std::string&                              filename,
-                               const gfxrecon::decode::ReplayOptions&          replay_options,
-                               gfxrecon::decode::VulkanTrackedObjectInfoTable* tracked_object_info_table)
+// Set replay_options.resource_allocator_type and replay_options.create_resource_allocator
+static void GetResourceAllocatorReplayOptions(const gfxrecon::util::ArgumentParser&           arg_parser,
+                                              const std::string&                              filename,
+                                              gfxrecon::decode::VulkanTrackedObjectInfoTable* tracked_object_info_table,
+                                              gfxrecon::decode::ReplayOptions&                replay_options)
 {
-    gfxrecon::decode::CreateResourceAllocator func  = CreateDefaultAllocator;
-    const auto&                               value = arg_parser.GetArgumentValue(kMemoryPortabilityShortOption);
+    replay_options.resource_allocator_type   = gfxrecon::decode::ResourceAllocatorType::kDefault;
+    replay_options.create_resource_allocator = CreateDefaultAllocator;
+    const auto& value                        = arg_parser.GetArgumentValue(kMemoryPortabilityShortOption);
 
     if (!value.empty())
     {
         if (gfxrecon::util::platform::StringCompareNoCase(kMemoryTranslationRebind, value.c_str()) == 0)
         {
-            func = CreateRebindAllocator;
+            replay_options.resource_allocator_type   = gfxrecon::decode::ResourceAllocatorType::kRebind;
+            replay_options.create_resource_allocator = CreateRebindAllocator;
         }
         else if (gfxrecon::util::platform::StringCompareNoCase(kMemoryTranslationRemap, value.c_str()) == 0)
         {
-            func = CreateRemapAllocator;
+            replay_options.resource_allocator_type   = gfxrecon::decode::ResourceAllocatorType::kRemap;
+            replay_options.create_resource_allocator = CreateRemapAllocator;
         }
         else if (gfxrecon::util::platform::StringCompareNoCase(kMemoryTranslationRealign, value.c_str()) == 0)
         {
-            func = InitRealignAllocatorCreateFunc(filename, replay_options, tracked_object_info_table);
+            replay_options.resource_allocator_type = gfxrecon::decode::ResourceAllocatorType::kRealign;
+            replay_options.create_resource_allocator =
+                InitRealignAllocatorCreateFunc(filename, replay_options, tracked_object_info_table);
         }
         else if (gfxrecon::util::platform::StringCompareNoCase(kMemoryTranslationNone, value.c_str()) != 0)
         {
             GFXRECON_LOG_WARNING("Ignoring unrecognized memory translation option \"%s\"", value.c_str());
         }
     }
-
-    return func;
 }
 
 static gfxrecon::decode::ReplayOptions
@@ -556,8 +559,8 @@ GetReplayOptions(const gfxrecon::util::ArgumentParser&           arg_parser,
     }
 
     replay_options.replace_dir = arg_parser.GetArgumentValue(kShaderReplaceArgument);
-    replay_options.create_resource_allocator =
-        GetCreateResourceAllocatorFunc(arg_parser, filename, replay_options, tracked_object_info_table);
+
+    GetResourceAllocatorReplayOptions(arg_parser, filename, tracked_object_info_table, replay_options);
 
     replay_options.screenshot_ranges      = GetScreenshotRanges(arg_parser);
     replay_options.screenshot_format      = GetScreenshotFormat(arg_parser);

@@ -52,6 +52,15 @@ struct ScreenshotRange
     uint32_t last{ 0 };  // Last frame to capture.
 };
 
+enum class ResourceAllocatorType
+{
+    kUnknown,
+    kDefault,
+    kRebind,
+    kRemap,
+    kRealign
+};
+
 struct ReplayOptions
 {
     bool                         sync_queue_submissions{ false };
@@ -60,6 +69,7 @@ struct ReplayOptions
     bool                         remove_unsupported_features{ false };
     int32_t                      override_gpu_index{ -1 };
     int32_t                      surface_index{ -1 };
+    ResourceAllocatorType        resource_allocator_type;
     CreateResourceAllocator      create_resource_allocator;
     ScreenshotFormat             screenshot_format{ ScreenshotFormat::kBmp };
     std::vector<ScreenshotRange> screenshot_ranges;
