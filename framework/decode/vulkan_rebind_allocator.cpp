@@ -22,9 +22,17 @@
 
 // This file needs to be included first to ensure it is processed with the VMA_IMPLEMENTATION directive, in case it is
 // indirectly included by other include files.
+#if defined(__ANDROID__)
+// suppress nullability-completeness warnings on Android
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wnullability-completeness"
+#endif
 #define VMA_IMPLEMENTATION
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 0
 #include "vk_mem_alloc.h"
+#if defined(__ANDROID__)
+#pragma GCC diagnostic pop
+#endif
 
 #include "decode/vulkan_rebind_allocator.h"
 
