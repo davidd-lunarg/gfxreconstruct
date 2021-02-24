@@ -193,26 +193,32 @@ CaptureSettings::CaptureSettings() {}
 
 CaptureSettings::~CaptureSettings() {}
 
-void CaptureSettings::LoadSettings(CaptureSettings* settings)
+void CaptureSettings::LoadLogSettings()
 {
-    if (settings != nullptr)
+    if (!options_map_loaded_)
     {
-        OptionsMap capture_settings;
+        ReadSettings();
+    }
+    ProcessLogOptions(&options_map_, this);
+}
 
-        LoadOptionsFile(&capture_settings);
-        LoadOptionsEnvVar(&capture_settings);
-        ProcessOptions(&capture_settings, settings);
+void CaptureSettings::LoadSettings()
+{
+    if (!options_map_loaded_)
+    {
+        ReadSettings();
+    }
+    ProcessOptions(&options_map_, this);
 
-        // Valid options are removed as they are read from the OptionsMap.  Therefore, if anything
-        // is remaining in it after we're done, it's an invalid setting.
-        if (!capture_settings.empty())
+    // Valid options are removed as they are read from the OptionsMap.  Therefore, if anything
+    // is remaining in it after we're done, it's an invalid setting.
+    if (!options_map_.empty())
+    {
+        for (auto iter = options_map_.begin(); iter != options_map_.end(); ++iter)
         {
-            for (auto iter = capture_settings.begin(); iter != capture_settings.end(); ++iter)
-            {
-                GFXRECON_LOG_WARNING("Settings Loader: Ignoring unrecognized option \"%s\" with value \"%s\"",
-                                     iter->first.c_str(),
-                                     iter->second.c_str());
-            }
+            GFXRECON_LOG_WARNING("Settings Loader: Ignoring unrecognized option \"%s\" with value \"%s\"",
+                                 iter->first.c_str(),
+                                 iter->second.c_str());
         }
     }
 }
@@ -293,9 +299,44 @@ void CaptureSettings::LoadOptionsFile(OptionsMap* options)
     }
 }
 
+void CaptureSettings::ProcessLogOptions(OptionsMap* options, CaptureSettings* settings)
+{
+    assert(settings != nullptr);
+
+    // Log options
+    settings->log_settings_.use_indent =
+        ParseBoolString(FindOption(options, kOptionKeyLogAllowIndents), settings->log_settings_.use_indent);
+    settings->log_settings_.break_on_error =
+        ParseBoolString(FindOption(options, kOptionKeyLogBreakOnError), settings->log_settings_.break_on_error);
+    settings->log_settings_.output_detailed_log_info =
+        ParseBoolString(FindOption(options, kOptionKeyLogDetailed), settings->log_settings_.output_detailed_log_info);
+    settings->log_settings_.file_name = FindOption(options, kOptionKeyLogFile, settings->log_settings_.file_name);
+    settings->log_settings_.create_new =
+        ParseBoolString(FindOption(options, kOptionKeyLogFileCreateNew), settings->log_settings_.create_new);
+    settings->log_settings_.flush_after_write = ParseBoolString(FindOption(options, kOptionKeyLogFileFlushAfterWrite),
+                                                                settings->log_settings_.flush_after_write);
+    settings->log_settings_.leave_file_open =
+        ParseBoolString(FindOption(options, kOptionKeyLogFileKeepOpen), settings->log_settings_.leave_file_open);
+    settings->log_settings_.output_errors_to_stderr = ParseBoolString(FindOption(options, kOptionKeyLogErrorsToStderr),
+                                                                      settings->log_settings_.output_errors_to_stderr);
+    settings->log_settings_.write_to_console =
+        ParseBoolString(FindOption(options, kOptionKeyLogOutputToConsole), settings->log_settings_.write_to_console);
+    settings->log_settings_.output_to_os_debug_string = ParseBoolString(
+        FindOption(options, kOptionKeyLogOutputToOsDebugString), settings->log_settings_.output_to_os_debug_string);
+    settings->log_settings_.min_severity =
+        ParseLogLevelString(FindOption(options, kOptionKeyLogLevel), settings->log_settings_.min_severity);
+
+    settings->log_options_processed_ = true;
+}
+
 void CaptureSettings::ProcessOptions(OptionsMap* options, CaptureSettings* settings)
 {
     assert(settings != nullptr);
+
+    if (!settings->log_options_processed_)
+    {
+        ProcessLogOptions(options, settings);
+    }
 
     // Capture file options
     settings->trace_settings_.capture_file_options.compression_type =
@@ -344,29 +385,6 @@ void CaptureSettings::ProcessOptions(OptionsMap* options, CaptureSettings* setti
         FindOption(options, kOptionKeyPageGuardTrackAhbMemory), settings->trace_settings_.page_guard_track_ahb_memory);
     settings->trace_settings_.page_guard_external_memory = ParseBoolString(
         FindOption(options, kOptionKeyPageGuardExternalMemory), settings->trace_settings_.page_guard_external_memory);
-
-    // Log options
-    settings->log_settings_.use_indent =
-        ParseBoolString(FindOption(options, kOptionKeyLogAllowIndents), settings->log_settings_.use_indent);
-    settings->log_settings_.break_on_error =
-        ParseBoolString(FindOption(options, kOptionKeyLogBreakOnError), settings->log_settings_.break_on_error);
-    settings->log_settings_.output_detailed_log_info =
-        ParseBoolString(FindOption(options, kOptionKeyLogDetailed), settings->log_settings_.output_detailed_log_info);
-    settings->log_settings_.file_name = FindOption(options, kOptionKeyLogFile, settings->log_settings_.file_name);
-    settings->log_settings_.create_new =
-        ParseBoolString(FindOption(options, kOptionKeyLogFileCreateNew), settings->log_settings_.create_new);
-    settings->log_settings_.flush_after_write = ParseBoolString(FindOption(options, kOptionKeyLogFileFlushAfterWrite),
-                                                                settings->log_settings_.flush_after_write);
-    settings->log_settings_.leave_file_open =
-        ParseBoolString(FindOption(options, kOptionKeyLogFileKeepOpen), settings->log_settings_.leave_file_open);
-    settings->log_settings_.output_errors_to_stderr = ParseBoolString(FindOption(options, kOptionKeyLogErrorsToStderr),
-                                                                      settings->log_settings_.output_errors_to_stderr);
-    settings->log_settings_.write_to_console =
-        ParseBoolString(FindOption(options, kOptionKeyLogOutputToConsole), settings->log_settings_.write_to_console);
-    settings->log_settings_.output_to_os_debug_string = ParseBoolString(
-        FindOption(options, kOptionKeyLogOutputToOsDebugString), settings->log_settings_.output_to_os_debug_string);
-    settings->log_settings_.min_severity =
-        ParseLogLevelString(FindOption(options, kOptionKeyLogLevel), settings->log_settings_.min_severity);
 }
 
 std::string CaptureSettings::FindOption(OptionsMap* options, const std::string& key, const std::string& default_value)
@@ -636,6 +654,16 @@ std::string CaptureSettings::ParseTrimKeyString(const std::string& value_string)
         GFXRECON_LOG_WARNING("Settings Loader: Ignoring invalid trim trigger key \"%s\"", trim_key.c_str());
     }
     return trim_key;
+}
+
+void CaptureSettings::ReadSettings()
+{
+    assert(!options_map_loaded_);
+
+    LoadOptionsFile(&options_map_);
+    LoadOptionsEnvVar(&options_map_);
+
+    options_map_loaded_ = true;
 }
 
 GFXRECON_END_NAMESPACE(encode)

@@ -90,9 +90,17 @@ class CaptureSettings
 
     const TraceSettings& GetTraceSettings() const { return trace_settings_; }
 
-    const util::Log::Settings& GetLogSettings() const { return log_settings_; }
+    const util::Log::Settings& GetLogSettings() const
+    {
+        assert(log_options_processed_);
+        return log_settings_;
+    }
 
-    static void LoadSettings(CaptureSettings* settings);
+    // Load settings for logging.
+    void LoadLogSettings();
+
+    // Load all settings. Logging settings will be skipped if LoadLogSettings() was already called.
+    void LoadSettings();
 
   private:
     typedef std::unordered_map<std::string, std::string> OptionsMap;
@@ -104,6 +112,8 @@ class CaptureSettings
     static void LoadOptionsEnvVar(OptionsMap* options);
 
     static void LoadOptionsFile(OptionsMap* options);
+
+    static void ProcessLogOptions(OptionsMap* options, CaptureSettings* settings);
 
     static void ProcessOptions(OptionsMap* options, CaptureSettings* settings);
 
@@ -123,9 +133,15 @@ class CaptureSettings
 
     static std::string ParseTrimKeyString(const std::string& value_string);
 
+    // Read capture settings from config file or environment variables.
+    void ReadSettings();
+
   private:
     TraceSettings       trace_settings_;
     util::Log::Settings log_settings_;
+    bool                options_map_loaded_{ false };
+    OptionsMap          options_map_;
+    bool                log_options_processed_{ false };
 };
 
 GFXRECON_END_NAMESPACE(encode)
