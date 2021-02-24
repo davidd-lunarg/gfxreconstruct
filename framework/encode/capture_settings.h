@@ -92,40 +92,56 @@ class CaptureSettings
 
     const util::Log::Settings& GetLogSettings() const { return log_settings_; }
 
-    static void LoadSettings(CaptureSettings* settings);
+    // Load capture settings from file and/or env vars. All log messages are cached and can be printed with
+    // LogCachedMessages(), e.g. after the log is initialized with the desired settings.
+    void Load();
+
+    // Log messages that were cached during Load()
+    void LogCachedMessages();
 
   private:
     typedef std::unordered_map<std::string, std::string> OptionsMap;
 
+    struct CachedLogMessage
+    {
+        util::Log::Severity severity;
+        std::string         message;
+    };
+
   private:
-    static void
-    LoadSingleOptionEnvVar(OptionsMap* options, const std::string& environment_variable, const std::string& option_key);
+    void
+    LoadSingleOptionEnvVar(const std::string& environment_variable, const std::string& option_key);
 
-    static void LoadOptionsEnvVar(OptionsMap* options);
+    void LoadOptionsEnvVar();
 
-    static void LoadOptionsFile(OptionsMap* options);
+    void LoadOptionsFile();
 
-    static void ProcessOptions(OptionsMap* options, CaptureSettings* settings);
+    void ProcessOptions();
 
-    static std::string FindOption(OptionsMap* options, const std::string& key, const std::string& default_value = "");
+    std::string FindOption(const std::string& key, const std::string& default_value = "");
 
-    static bool ParseBoolString(const std::string& value_string, bool default_value);
+    bool ParseBoolString(const std::string& value_string, bool default_value);
 
-    static MemoryTrackingMode ParseMemoryTrackingModeString(const std::string& value_string,
-                                                            MemoryTrackingMode default_value);
+    MemoryTrackingMode ParseMemoryTrackingModeString(const std::string& value_string,
+                                                     MemoryTrackingMode default_value);
 
-    static format::CompressionType ParseCompressionTypeString(const std::string&      value_string,
-                                                              format::CompressionType default_value);
+    format::CompressionType ParseCompressionTypeString(const std::string&      value_string,
+                                                       format::CompressionType default_value);
 
-    static util::Log::Severity ParseLogLevelString(const std::string& value_string, util::Log::Severity default_value);
+    util::Log::Severity ParseLogLevelString(const std::string& value_string, util::Log::Severity default_value);
 
-    static void ParseTrimRangeString(const std::string& value_string, std::vector<CaptureSettings::TrimRange>* ranges);
+    void ParseTrimRangeString(const std::string& value_string, std::vector<CaptureSettings::TrimRange>* ranges);
 
-    static std::string ParseTrimKeyString(const std::string& value_string);
+    std::string ParseTrimKeyString(const std::string& value_string);
 
   private:
     TraceSettings       trace_settings_;
     util::Log::Settings log_settings_;
+    OptionsMap          options_map_;
+
+    // Cache settings loading log messages so that they can be printed after the log is initialized with the discovered
+    // settings.
+    std::vector<CachedLogMessage> cached_log_messages_;
 };
 
 GFXRECON_END_NAMESPACE(encode)

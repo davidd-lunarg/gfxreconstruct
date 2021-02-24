@@ -193,84 +193,110 @@ CaptureSettings::CaptureSettings() {}
 
 CaptureSettings::~CaptureSettings() {}
 
-void CaptureSettings::LoadSettings(CaptureSettings* settings)
+void CaptureSettings::Load()
 {
-    if (settings != nullptr)
+    options_map_.clear();
+
+    LoadOptionsFile();
+    LoadOptionsEnvVar();
+    ProcessOptions();
+
+    // Valid options are removed as they are read from the OptionsMap.  Therefore, if anything
+    // is remaining in it after we're done, it's an invalid setting.
+    if (!options_map_.empty())
     {
-        OptionsMap capture_settings;
-
-        LoadOptionsFile(&capture_settings);
-        LoadOptionsEnvVar(&capture_settings);
-        ProcessOptions(&capture_settings, settings);
-
-        // Valid options are removed as they are read from the OptionsMap.  Therefore, if anything
-        // is remaining in it after we're done, it's an invalid setting.
-        if (!capture_settings.empty())
+        for (auto iter = options_map_.begin(); iter != options_map_.end(); ++iter)
         {
-            for (auto iter = capture_settings.begin(); iter != capture_settings.end(); ++iter)
-            {
-                GFXRECON_LOG_WARNING("Settings Loader: Ignoring unrecognized option \"%s\" with value \"%s\"",
-                                     iter->first.c_str(),
-                                     iter->second.c_str());
-            }
+            cached_log_messages_.push_back({ util::Log::Severity::kWarningSeverity,
+                                             "Settings Loader: Ignoring unrecognized option \"" + iter->first +
+                                                 "\" with value \"" + iter->second + "\"" });
         }
     }
 }
 
-void CaptureSettings::LoadSingleOptionEnvVar(OptionsMap*        options,
-                                             const std::string& environment_variable,
+void CaptureSettings::LogCachedMessages()
+{
+    for (const CachedLogMessage& msg : cached_log_messages_)
+    {
+        switch (msg.severity)
+        {
+            case util::Log::Severity::kDebugSeverity:
+                GFXRECON_LOG_DEBUG(msg.message.c_str());
+                break;
+            case util::Log::Severity::kInfoSeverity:
+                GFXRECON_LOG_INFO(msg.message.c_str());
+                break;
+            case util::Log::Severity::kWarningSeverity:
+                GFXRECON_LOG_WARNING(msg.message.c_str());
+                break;
+            case util::Log::Severity::kErrorSeverity:
+                GFXRECON_LOG_ERROR(msg.message.c_str());
+                break;
+            case util::Log::Severity::kFatalSeverity:
+                GFXRECON_LOG_FATAL(msg.message.c_str());
+                break;
+            default:
+                assert(false);
+                break;
+        }
+    }
+    cached_log_messages_.clear();
+}
+
+void CaptureSettings::LoadSingleOptionEnvVar(const std::string& environment_variable,
                                              const std::string& option_key)
 {
     std::string value = util::platform::GetEnv(environment_variable.c_str());
     if (!value.empty())
     {
         std::string entry = util::settings::RemoveQuotes(value);
-        GFXRECON_LOG_INFO(
-            "Settings Loader: Found option \"%s\" with value \"%s\"", environment_variable.c_str(), entry.c_str());
-        (*options)[option_key] = entry;
+        cached_log_messages_.push_back(
+            { util::Log::Severity::kInfoSeverity,
+              "Settings Loader: Found option \"" + environment_variable + "\" with value \"" + entry + "\"" });
+        options_map_[option_key] = entry;
     }
 }
 
-void CaptureSettings::LoadOptionsEnvVar(OptionsMap* options)
+void CaptureSettings::LoadOptionsEnvVar()
 {
     assert(options != nullptr);
 
     // Capture file environment variables
-    LoadSingleOptionEnvVar(options, kCaptureFileNameEnvVar, kOptionKeyCaptureFile);
-    LoadSingleOptionEnvVar(options, kCaptureFileUseTimestampEnvVar, kOptionKeyCaptureFileUseTimestamp);
-    LoadSingleOptionEnvVar(options, kCaptureCompressionTypeEnvVar, kOptionKeyCaptureCompressionType);
-    LoadSingleOptionEnvVar(options, kCaptureFileFlushEnvVar, kOptionKeyCaptureFileForceFlush);
+    LoadSingleOptionEnvVar(kCaptureFileNameEnvVar, kOptionKeyCaptureFile);
+    LoadSingleOptionEnvVar(kCaptureFileUseTimestampEnvVar, kOptionKeyCaptureFileUseTimestamp);
+    LoadSingleOptionEnvVar(kCaptureCompressionTypeEnvVar, kOptionKeyCaptureCompressionType);
+    LoadSingleOptionEnvVar(kCaptureFileFlushEnvVar, kOptionKeyCaptureFileForceFlush);
 
     // Logging environment variables
-    LoadSingleOptionEnvVar(options, kLogAllowIndentsEnvVar, kOptionKeyLogAllowIndents);
-    LoadSingleOptionEnvVar(options, kLogBreakOnErrorEnvVar, kOptionKeyLogBreakOnError);
-    LoadSingleOptionEnvVar(options, kLogDetailedEnvVar, kOptionKeyLogDetailed);
-    LoadSingleOptionEnvVar(options, kLogErrorsToStderrEnvVar, kOptionKeyLogErrorsToStderr);
-    LoadSingleOptionEnvVar(options, kLogFileNameEnvVar, kOptionKeyLogFile);
-    LoadSingleOptionEnvVar(options, kLogFileCreateNewEnvVar, kOptionKeyLogFileCreateNew);
-    LoadSingleOptionEnvVar(options, kLogFileFlushAfterWriteEnvVar, kOptionKeyLogFileFlushAfterWrite);
-    LoadSingleOptionEnvVar(options, kLogFileKeepFileOpenEnvVar, kOptionKeyLogFileKeepOpen);
-    LoadSingleOptionEnvVar(options, kLogLevelEnvVar, kOptionKeyLogLevel);
-    LoadSingleOptionEnvVar(options, kLogOutputToConsoleEnvVar, kOptionKeyLogOutputToConsole);
-    LoadSingleOptionEnvVar(options, kLogOutputToOsDebugStringEnvVar, kOptionKeyLogOutputToOsDebugString);
+    LoadSingleOptionEnvVar(kLogAllowIndentsEnvVar, kOptionKeyLogAllowIndents);
+    LoadSingleOptionEnvVar(kLogBreakOnErrorEnvVar, kOptionKeyLogBreakOnError);
+    LoadSingleOptionEnvVar(kLogDetailedEnvVar, kOptionKeyLogDetailed);
+    LoadSingleOptionEnvVar(kLogErrorsToStderrEnvVar, kOptionKeyLogErrorsToStderr);
+    LoadSingleOptionEnvVar(kLogFileNameEnvVar, kOptionKeyLogFile);
+    LoadSingleOptionEnvVar(kLogFileCreateNewEnvVar, kOptionKeyLogFileCreateNew);
+    LoadSingleOptionEnvVar(kLogFileFlushAfterWriteEnvVar, kOptionKeyLogFileFlushAfterWrite);
+    LoadSingleOptionEnvVar(kLogFileKeepFileOpenEnvVar, kOptionKeyLogFileKeepOpen);
+    LoadSingleOptionEnvVar(kLogLevelEnvVar, kOptionKeyLogLevel);
+    LoadSingleOptionEnvVar(kLogOutputToConsoleEnvVar, kOptionKeyLogOutputToConsole);
+    LoadSingleOptionEnvVar(kLogOutputToOsDebugStringEnvVar, kOptionKeyLogOutputToOsDebugString);
 
     // Memory environment variables
-    LoadSingleOptionEnvVar(options, kMemoryTrackingModeEnvVar, kOptionKeyMemoryTrackingMode);
+    LoadSingleOptionEnvVar(kMemoryTrackingModeEnvVar, kOptionKeyMemoryTrackingMode);
 
     // Trimming environment variables
-    LoadSingleOptionEnvVar(options, kCaptureFramesEnvVar, kOptionKeyCaptureFrames);
-    LoadSingleOptionEnvVar(options, kCaptureTriggerEnvVar, kOptionKeyCaptureTrigger);
+    LoadSingleOptionEnvVar(kCaptureFramesEnvVar, kOptionKeyCaptureFrames);
+    LoadSingleOptionEnvVar(kCaptureTriggerEnvVar, kOptionKeyCaptureTrigger);
 
     // Page guard environment variables
-    LoadSingleOptionEnvVar(options, kPageGuardCopyOnMapEnvVar, kOptionKeyPageGuardCopyOnMap);
-    LoadSingleOptionEnvVar(options, kPageGuardSeparateReadEnvVar, kOptionKeyPageGuardSeparateRead);
-    LoadSingleOptionEnvVar(options, kPageGuardPersistentMemoryEnvVar, kOptionKeyPageGuardPersistentMemory);
-    LoadSingleOptionEnvVar(options, kPageGuardAlignBufferSizesEnvVar, kOptionKeyPageGuardAlignBufferSizes);
-    LoadSingleOptionEnvVar(options, kPageGuardTrackAhbMemoryEnvVar, kOptionKeyPageGuardTrackAhbMemory);
-    LoadSingleOptionEnvVar(options, kPageGuardExternalMemoryEnvVar, kOptionKeyPageGuardExternalMemory);
+    LoadSingleOptionEnvVar(kPageGuardCopyOnMapEnvVar, kOptionKeyPageGuardCopyOnMap);
+    LoadSingleOptionEnvVar(kPageGuardSeparateReadEnvVar, kOptionKeyPageGuardSeparateRead);
+    LoadSingleOptionEnvVar(kPageGuardPersistentMemoryEnvVar, kOptionKeyPageGuardPersistentMemory);
+    LoadSingleOptionEnvVar(kPageGuardAlignBufferSizesEnvVar, kOptionKeyPageGuardAlignBufferSizes);
+    LoadSingleOptionEnvVar(kPageGuardTrackAhbMemoryEnvVar, kOptionKeyPageGuardTrackAhbMemory);
+    LoadSingleOptionEnvVar(kPageGuardExternalMemoryEnvVar, kOptionKeyPageGuardExternalMemory);
 }
 
-void CaptureSettings::LoadOptionsFile(OptionsMap* options)
+void CaptureSettings::LoadOptionsFile()
 {
     assert(options != nullptr);
 
@@ -278,112 +304,118 @@ void CaptureSettings::LoadOptionsFile(OptionsMap* options)
 
     if (!settings_filename.empty())
     {
-        GFXRECON_LOG_INFO("Found layer settings file: %s", settings_filename.c_str());
+        cached_log_messages_.push_back(
+            { util::Log::Severity::kInfoSeverity, "Found layer settings file: " + settings_filename });
 
-        int32_t result = util::settings::LoadLayerSettingsFile(settings_filename, kSettingsFilter, options);
+        int32_t result = util::settings::LoadLayerSettingsFile(settings_filename, kSettingsFilter, &options_map_);
 
         if (result == 0)
         {
-            GFXRECON_LOG_INFO("Successfully loaded settings from file");
+            cached_log_messages_.push_back(
+                { util::Log::Severity::kInfoSeverity, "Successfully loaded settings from file" });
         }
         else
         {
-            GFXRECON_LOG_INFO("Failed to load settings from file (errno = %d)", result);
+            cached_log_messages_.push_back(
+                { util::Log::Severity::kInfoSeverity,
+                  "Failed to load settings from file (errno = " + std::to_string(result) + ")" });
         }
     }
 }
 
-void CaptureSettings::ProcessOptions(OptionsMap* options, CaptureSettings* settings)
+void CaptureSettings::ProcessOptions()
 {
-    assert(settings != nullptr);
-
     // Capture file options
-    settings->trace_settings_.capture_file_options.compression_type =
-        ParseCompressionTypeString(FindOption(options, kOptionKeyCaptureCompressionType), kDefaultCompressionType);
-    settings->trace_settings_.capture_file =
-        FindOption(options, kOptionKeyCaptureFile, settings->trace_settings_.capture_file);
-    settings->trace_settings_.time_stamp_file = ParseBoolString(FindOption(options, kOptionKeyCaptureFileUseTimestamp),
-                                                                settings->trace_settings_.time_stamp_file);
-    settings->trace_settings_.force_flush =
-        ParseBoolString(FindOption(options, kOptionKeyCaptureFileForceFlush), settings->trace_settings_.force_flush);
+    trace_settings_.capture_file_options.compression_type =
+        ParseCompressionTypeString(FindOption(kOptionKeyCaptureCompressionType), kDefaultCompressionType);
+    trace_settings_.capture_file =
+        FindOption(kOptionKeyCaptureFile, trace_settings_.capture_file);
+    trace_settings_.time_stamp_file = ParseBoolString(FindOption(kOptionKeyCaptureFileUseTimestamp),
+                                                                trace_settings_.time_stamp_file);
+    trace_settings_.force_flush =
+        ParseBoolString(FindOption(kOptionKeyCaptureFileForceFlush), trace_settings_.force_flush);
 
     // Memory tracking options
-    settings->trace_settings_.memory_tracking_mode = ParseMemoryTrackingModeString(
-        FindOption(options, kOptionKeyMemoryTrackingMode), settings->trace_settings_.memory_tracking_mode);
+    trace_settings_.memory_tracking_mode = ParseMemoryTrackingModeString(
+        FindOption(kOptionKeyMemoryTrackingMode), trace_settings_.memory_tracking_mode);
 
     // Trimming options:
     // trim ranges and trim hotkey are exclusive
     // with trim key will be parsed only
     // if trim ranges is empty, else it will be ignored
-    ParseTrimRangeString(FindOption(options, kOptionKeyCaptureFrames), &settings->trace_settings_.trim_ranges);
-    std::string trim_key_option = FindOption(options, kOptionKeyCaptureTrigger);
+    ParseTrimRangeString(FindOption(kOptionKeyCaptureFrames), &trace_settings_.trim_ranges);
+    std::string trim_key_option = FindOption(kOptionKeyCaptureTrigger);
     if (!trim_key_option.empty())
     {
-        if (settings->trace_settings_.trim_ranges.empty())
+        if (trace_settings_.trim_ranges.empty())
         {
-            settings->trace_settings_.trim_key = ParseTrimKeyString(trim_key_option);
+            trace_settings_.trim_key = ParseTrimKeyString(trim_key_option);
         }
         else
         {
-            GFXRECON_LOG_WARNING("Settings Loader: Ignore trim key setting as trim ranges has been specified.");
+            cached_log_messages_.push_back(
+                { util::Log::Severity::kWarningSeverity,
+                  "Settings Loader: Ignore trim key setting as trim ranges has been specified." });
         }
     }
 
     // Page guard environment variables
-    settings->trace_settings_.page_guard_copy_on_map = ParseBoolString(
-        FindOption(options, kOptionKeyPageGuardCopyOnMap), settings->trace_settings_.page_guard_copy_on_map);
-    settings->trace_settings_.page_guard_separate_read = ParseBoolString(
-        FindOption(options, kOptionKeyPageGuardSeparateRead), settings->trace_settings_.page_guard_separate_read);
-    settings->trace_settings_.page_guard_persistent_memory =
-        ParseBoolString(FindOption(options, kOptionKeyPageGuardPersistentMemory),
-                        settings->trace_settings_.page_guard_persistent_memory);
-    settings->trace_settings_.page_guard_align_buffer_sizes =
-        ParseBoolString(FindOption(options, kOptionKeyPageGuardAlignBufferSizes),
-                        settings->trace_settings_.page_guard_align_buffer_sizes);
-    settings->trace_settings_.page_guard_track_ahb_memory = ParseBoolString(
-        FindOption(options, kOptionKeyPageGuardTrackAhbMemory), settings->trace_settings_.page_guard_track_ahb_memory);
-    settings->trace_settings_.page_guard_external_memory = ParseBoolString(
-        FindOption(options, kOptionKeyPageGuardExternalMemory), settings->trace_settings_.page_guard_external_memory);
+    trace_settings_.page_guard_copy_on_map = ParseBoolString(
+        FindOption(kOptionKeyPageGuardCopyOnMap), trace_settings_.page_guard_copy_on_map);
+    trace_settings_.page_guard_separate_read = ParseBoolString(
+        FindOption(kOptionKeyPageGuardSeparateRead), trace_settings_.page_guard_separate_read);
+    trace_settings_.page_guard_persistent_memory =
+        ParseBoolString(FindOption(kOptionKeyPageGuardPersistentMemory),
+                        trace_settings_.page_guard_persistent_memory);
+    trace_settings_.page_guard_align_buffer_sizes =
+        ParseBoolString(FindOption(kOptionKeyPageGuardAlignBufferSizes),
+                        trace_settings_.page_guard_align_buffer_sizes);
+    trace_settings_.page_guard_track_ahb_memory = ParseBoolString(
+        FindOption(kOptionKeyPageGuardTrackAhbMemory), trace_settings_.page_guard_track_ahb_memory);
+    trace_settings_.page_guard_external_memory = ParseBoolString(
+        FindOption(kOptionKeyPageGuardExternalMemory), trace_settings_.page_guard_external_memory);
 
     // Log options
-    settings->log_settings_.use_indent =
-        ParseBoolString(FindOption(options, kOptionKeyLogAllowIndents), settings->log_settings_.use_indent);
-    settings->log_settings_.break_on_error =
-        ParseBoolString(FindOption(options, kOptionKeyLogBreakOnError), settings->log_settings_.break_on_error);
-    settings->log_settings_.output_detailed_log_info =
-        ParseBoolString(FindOption(options, kOptionKeyLogDetailed), settings->log_settings_.output_detailed_log_info);
-    settings->log_settings_.file_name = FindOption(options, kOptionKeyLogFile, settings->log_settings_.file_name);
-    settings->log_settings_.create_new =
-        ParseBoolString(FindOption(options, kOptionKeyLogFileCreateNew), settings->log_settings_.create_new);
-    settings->log_settings_.flush_after_write = ParseBoolString(FindOption(options, kOptionKeyLogFileFlushAfterWrite),
-                                                                settings->log_settings_.flush_after_write);
-    settings->log_settings_.leave_file_open =
-        ParseBoolString(FindOption(options, kOptionKeyLogFileKeepOpen), settings->log_settings_.leave_file_open);
-    settings->log_settings_.output_errors_to_stderr = ParseBoolString(FindOption(options, kOptionKeyLogErrorsToStderr),
-                                                                      settings->log_settings_.output_errors_to_stderr);
-    settings->log_settings_.write_to_console =
-        ParseBoolString(FindOption(options, kOptionKeyLogOutputToConsole), settings->log_settings_.write_to_console);
-    settings->log_settings_.output_to_os_debug_string = ParseBoolString(
-        FindOption(options, kOptionKeyLogOutputToOsDebugString), settings->log_settings_.output_to_os_debug_string);
-    settings->log_settings_.min_severity =
-        ParseLogLevelString(FindOption(options, kOptionKeyLogLevel), settings->log_settings_.min_severity);
+    log_settings_.use_indent =
+        ParseBoolString(FindOption(kOptionKeyLogAllowIndents), log_settings_.use_indent);
+    log_settings_.break_on_error =
+        ParseBoolString(FindOption(kOptionKeyLogBreakOnError), log_settings_.break_on_error);
+    log_settings_.output_detailed_log_info =
+        ParseBoolString(FindOption(kOptionKeyLogDetailed), log_settings_.output_detailed_log_info);
+    log_settings_.file_name = FindOption(kOptionKeyLogFile, log_settings_.file_name);
+    log_settings_.create_new =
+        ParseBoolString(FindOption(kOptionKeyLogFileCreateNew), log_settings_.create_new);
+    log_settings_.flush_after_write = ParseBoolString(FindOption(kOptionKeyLogFileFlushAfterWrite),
+                                                                log_settings_.flush_after_write);
+    log_settings_.leave_file_open =
+        ParseBoolString(FindOption(kOptionKeyLogFileKeepOpen), log_settings_.leave_file_open);
+    log_settings_.output_errors_to_stderr = ParseBoolString(FindOption(kOptionKeyLogErrorsToStderr),
+                                                                      log_settings_.output_errors_to_stderr);
+    log_settings_.write_to_console =
+        ParseBoolString(FindOption(kOptionKeyLogOutputToConsole), log_settings_.write_to_console);
+    log_settings_.output_to_os_debug_string = ParseBoolString(
+        FindOption(kOptionKeyLogOutputToOsDebugString), log_settings_.output_to_os_debug_string);
+    log_settings_.min_severity =
+        ParseLogLevelString(FindOption(kOptionKeyLogLevel), log_settings_.min_severity);
 }
 
-std::string CaptureSettings::FindOption(OptionsMap* options, const std::string& key, const std::string& default_value)
+std::string CaptureSettings::FindOption(const std::string& key, const std::string& default_value)
 {
     assert(options != nullptr);
 
     std::string result = default_value;
 
-    auto entry = options->find(key);
-    if (entry != options->end())
+    auto entry = options_map_.find(key);
+    if (entry != options_map_.end())
     {
         result = entry->second;
-        GFXRECON_LOG_DEBUG("Settings Loader: Found option \"%s\" with value \"%s\"", key.c_str(), result.c_str());
+        cached_log_messages_.push_back(
+            { util::Log::Severity::kDebugSeverity,
+              "Settings Loader: Found option \"" + key + "\" with value \"" + result + "\"" });
 
         // Erase the option as it comes in so that we should have no valid options remaining in the
         // map when we're done.
-        options->erase(key);
+        options_map_.erase(key);
     }
 
     return result;
@@ -406,8 +438,9 @@ bool CaptureSettings::ParseBoolString(const std::string& value_string, bool defa
     {
         if (!value_string.empty())
         {
-            GFXRECON_LOG_WARNING("Settings Loader: Ignoring unrecognized Boolean option value \"%s\"",
-                                 value_string.c_str());
+            cached_log_messages_.push_back(
+                { util::Log::Severity::kWarningSeverity,
+                  "Settings Loader: Ignoring unrecognized Boolean option value \"" + value_string + "\"" });
         }
     }
 
@@ -436,8 +469,10 @@ CaptureSettings::ParseMemoryTrackingModeString(const std::string&               
     {
         if (!value_string.empty())
         {
-            GFXRECON_LOG_WARNING("Settings Loader: Ignoring unrecognized memory tracking mode option value \"%s\"",
-                                 value_string.c_str());
+            cached_log_messages_.push_back(
+                { util::Log::Severity::kWarningSeverity,
+                  "Settings Loader: Ignoring unrecognized memory tracking mode option value \"" + value_string +
+                      "\"" });
         }
     }
 
@@ -469,8 +504,9 @@ format::CompressionType CaptureSettings::ParseCompressionTypeString(const std::s
     {
         if (!value_string.empty())
         {
-            GFXRECON_LOG_WARNING("Settings Loader: Ignoring unrecognized compression type option value \"%s\"",
-                                 value_string.c_str());
+            cached_log_messages_.push_back(
+                { util::Log::Severity::kWarningSeverity,
+                  "Settings Loader: Ignoring unrecognized compression type option value \"" + value_string + "\"" });
         }
     }
 
@@ -487,8 +523,9 @@ util::Log::Severity CaptureSettings::ParseLogLevelString(const std::string&  val
         result = default_value;
         if (!value_string.empty())
         {
-            GFXRECON_LOG_WARNING("Settings Loader: Ignoring unrecognized log level option value \"%s\"",
-                                 value_string.c_str());
+            cached_log_messages_.push_back(
+                { util::Log::Severity::kWarningSeverity,
+                  "Settings Loader: Ignoring unrecognized log level option value \"" + value_string + "\"" });
         }
     }
 
@@ -509,7 +546,9 @@ void CaptureSettings::ParseTrimRangeString(const std::string&                   
         {
             if (range.empty() || (std::count(range.begin(), range.end(), '-') > 1))
             {
-                GFXRECON_LOG_WARNING("Settings Loader: Ignoring invalid capture frame range \"%s\"", range.c_str());
+                cached_log_messages_.push_back(
+                    { util::Log::Severity::kWarningSeverity,
+                      "Settings Loader: Ignoring invalid capture frame range \"" + range + "\"" });
                 continue;
             }
 
@@ -537,9 +576,9 @@ void CaptureSettings::ParseTrimRangeString(const std::string&                   
                 }
                 else
                 {
-                    GFXRECON_LOG_WARNING("Settings Loader: Ignoring invalid capture frame range \"%s\", which contains "
-                                         "non-numeric values",
-                                         range.c_str());
+                    cached_log_messages_.push_back({ util::Log::Severity::kWarningSeverity,
+                                                     "Settings Loader: Ignoring invalid capture frame range \"" +
+                                                         range + "\", which contains non-numeric values" });
                     invalid = true;
                     break;
                 }
@@ -558,8 +597,9 @@ void CaptureSettings::ParseTrimRangeString(const std::string&                   
                     }
                     else
                     {
-                        GFXRECON_LOG_WARNING("Settings Loader: Ignoring invalid capture frame range \"%s\"",
-                                             range.c_str());
+                        cached_log_messages_.push_back(
+                            { util::Log::Severity::kWarningSeverity,
+                              "Settings Loader: Ignoring invalid capture frame range \"" + range + "\"" });
                         continue;
                     }
                 }
@@ -574,25 +614,28 @@ void CaptureSettings::ParseTrimRangeString(const std::string&                   
                     }
                     else
                     {
-                        GFXRECON_LOG_WARNING(
-                            "Settings Loader: Ignoring invalid capture frame range \"%s\", where first "
-                            "frame is greater than last frame",
-                            range.c_str());
+                        cached_log_messages_.push_back({
+                            util::Log::Severity::kWarningSeverity,
+                            "Settings Loader: Ignoring invalid capture frame range \"" + range +
+                                "\", where first frame is greater than last frame",
+                        });
                         continue;
                     }
                 }
                 else
                 {
-                    GFXRECON_LOG_WARNING("Settings Loader: Ignoring invalid capture frame range \"%s\"", range.c_str());
+                    cached_log_messages_.push_back(
+                        { util::Log::Severity::kWarningSeverity,
+                          "Settings Loader: Ignoring invalid capture frame range \"" + range + "\"" });
                     continue;
                 }
 
                 // Check for invalid start frame of 0.
                 if (trim_range.first == 0)
                 {
-                    GFXRECON_LOG_WARNING(
-                        "Settings Loader: Ignoring invalid capture frame range \"%s\", with first frame equal to zero",
-                        range.c_str());
+                    cached_log_messages_.push_back({ util::Log::Severity::kWarningSeverity,
+                                                     "Settings Loader: Ignoring invalid capture frame range \"" +
+                                                         range + "\", with first frame equal to zero" });
                     continue;
                 }
 
@@ -611,11 +654,11 @@ void CaptureSettings::ParseTrimRangeString(const std::string&                   
                 }
                 else
                 {
-                    GFXRECON_LOG_WARNING("Settings Loader: Ignoring invalid capture frame range \"%s\", "
-                                         "where start frame precedes the end of the previous range \"%u-%u\"",
-                                         range.c_str(),
-                                         ranges->back().first,
-                                         (next_allowed - 1));
+                    cached_log_messages_.push_back(
+                        { util::Log::Severity::kWarningSeverity,
+                          "Settings Loader: Ignoring invalid capture frame range \"" + range +
+                              "\", where start frame precedes the end of the previous range \"" +
+                              std::to_string(ranges->back().first) + "-" + std::to_string(next_allowed - 1) + "\"" });
                 }
             }
         }
@@ -633,7 +676,8 @@ std::string CaptureSettings::ParseTrimKeyString(const std::string& value_string)
     }
     else
     {
-        GFXRECON_LOG_WARNING("Settings Loader: Ignoring invalid trim trigger key \"%s\"", trim_key.c_str());
+        cached_log_messages_.push_back({ util::Log::Severity::kWarningSeverity,
+                                         "Settings Loader: Ignoring invalid trim trigger key \"" + trim_key + "\"" });
     }
     return trim_key;
 }
