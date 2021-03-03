@@ -4943,7 +4943,11 @@ VulkanReplayConsumerBase::OverrideQueuePresentKHR(PFN_vkQueuePresentKHR         
             if ((swapchain_info != nullptr) && (swapchain_info->surface != VK_NULL_HANDLE))
             {
                 valid_swapchains.push_back(swapchain_info->handle);
+#if defined(__ANDROID__)
                 modified_image_indices.push_back(swapchain_info->acquired_indices[present_info->pImageIndices[i]]);
+#else
+                modified_image_indices.push_back(present_info->pImageIndices[i]);
+#endif
             }
             else
             {
@@ -5044,6 +5048,7 @@ VulkanReplayConsumerBase::OverrideQueuePresentKHR(PFN_vkQueuePresentKHR         
         modified_present_info.pSwapchains    = valid_swapchains.data();
         modified_present_info.pImageIndices  = modified_image_indices.data();
     }
+#if defined(__ANDROID__)
     else
     {
         // Need to match the last acquired image index from replay to avoid OUT_OF_DATE errors from present.
@@ -5065,6 +5070,7 @@ VulkanReplayConsumerBase::OverrideQueuePresentKHR(PFN_vkQueuePresentKHR         
 
         modified_present_info.pImageIndices = modified_image_indices.data();
     }
+#endif // defined(__ANDROID__)
 
     // Only attempt to find imported or shadow semaphores if we know at least one around.
     if ((!have_imported_semaphores_) && (shadow_semaphores_.empty()) && (modified_present_info.swapchainCount != 0))
