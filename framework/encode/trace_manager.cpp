@@ -1221,6 +1221,9 @@ VkResult TraceManager::OverrideCreateInstance(const VkInstanceCreateInfo*  pCrea
 
     if (CreateInstance())
     {
+        GFXRECON_LOG_ERROR("app name: %s", pCreateInfo->pApplicationInfo->pApplicationName);
+        const_cast<VkApplicationInfo*>(pCreateInfo->pApplicationInfo)->pApplicationName = "test_app_name";
+        GFXRECON_LOG_ERROR("temp app name: %s", pCreateInfo->pApplicationInfo->pApplicationName);
         if (instance_->page_guard_memory_mode_ == kMemoryModeExternal)
         {
             assert(pCreateInfo != nullptr);
@@ -2159,6 +2162,8 @@ void TraceManager::PreProcess_vkCreateSwapchain(VkDevice                        
     GFXRECON_UNREFERENCED_PARAMETER(device);
     GFXRECON_UNREFERENCED_PARAMETER(pAllocator);
     GFXRECON_UNREFERENCED_PARAMETER(pSwapchain);
+
+    GFXRECON_LOG_INFO("Capture swapchain pCreateInfo->minImageCount %" PRIu32, pCreateInfo->minImageCount);
 
     assert(pCreateInfo != nullptr);
 

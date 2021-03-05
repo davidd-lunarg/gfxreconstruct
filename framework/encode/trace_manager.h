@@ -395,6 +395,10 @@ class TraceManager
         {
             assert(state_tracker_ != nullptr);
             state_tracker_->TrackPhysicalDeviceSurfaceCapabilities(physicalDevice, surface, *pSurfaceCapabilities);
+            GFXRECON_LOG_INFO("Capture pSurfaceCapabilities->minImageCount: %" PRIu32,
+                              pSurfaceCapabilities->minImageCount);
+            GFXRECON_LOG_INFO("Capture pSurfaceCapabilities->maxImageCount: %" PRIu32,
+                              pSurfaceCapabilities->maxImageCount);
         }
     }
 

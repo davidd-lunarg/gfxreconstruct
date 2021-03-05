@@ -673,7 +673,10 @@ void VulkanReplayConsumerBase::ProcessSetSwapchainImageStateCommand(
             assert(image_info.size() == image_count);
 
             // Determine if it is possible to acquire all images at the same time.
-            assert(image_count >= surface_caps.minImageCount);
+            GFXRECON_LOG_INFO("image_count: %" PRIu32 ", surface_caps.minImageCount: %" PRIu32,
+                              image_count,
+                              surface_caps.minImageCount);
+            // assert(image_count >= surface_caps.minImageCount);
             uint32_t max_acquired_images = (image_count - surface_caps.minImageCount) + 1;
 
             if (image_count > max_acquired_images)
@@ -819,6 +822,8 @@ void VulkanReplayConsumerBase::ProcessSetSwapchainImageStatePreAcquire(
                         // TODO: Handle case where image acquired at replay does not match image acquired at
                         // capture.
                         assert(image_index == i);
+
+                        GFXRECON_LOG_INFO("Preacquired index %" PRIu32 ": %" PRIu32, (uint32_t)i, image_index);
 
                         result =
                             table->WaitForFences(device, 1, &acquire_fence, true, std::numeric_limits<uint64_t>::max());
@@ -1021,6 +1026,8 @@ void VulkanReplayConsumerBase::ProcessSetSwapchainImageStateQueueSubmit(
                     // TODO: Handle case where image acquired at replay does not match image acquired at capture.
                     assert(image_index == i);
 
+                    GFXRECON_LOG_INFO("Queue submit 1 index %" PRIu32 ": %" PRIu32, (uint32_t)i, image_index);
+
                     result = table->WaitForFences(device, 1, &wait_fence, true, std::numeric_limits<uint64_t>::max());
 
                     if (result == VK_SUCCESS)
@@ -1114,6 +1121,8 @@ void VulkanReplayConsumerBase::ProcessSetSwapchainImageStateQueueSubmit(
                 {
                     // TODO: Handle case where image acquired at replay does not match image acquired at capture.
                     assert(image_index == i);
+
+                    GFXRECON_LOG_INFO("Queue submit 2 index %" PRIu32 ": %" PRIu32, (uint32_t)i, image_index);
 
                     result = table->WaitForFences(device, 1, &wait_fence, true, std::numeric_limits<uint64_t>::max());
 
@@ -4480,6 +4489,9 @@ VkResult VulkanReplayConsumerBase::OverrideCreateSwapchainKHR(
     auto     swapchain_info     = reinterpret_cast<SwapchainKHRInfo*>(pSwapchain->GetConsumerData(0));
     assert(swapchain_info != nullptr);
 
+    GFXRECON_LOG_INFO("replay_create_info->presentMode: %" PRIu32, (uint32_t)replay_create_info->presentMode);
+    GFXRECON_LOG_INFO("replay_create_info->minImageCount: %" PRIu32, replay_create_info->minImageCount);
+
     // Ignore swapchain creation if surface creation was skipped when rendering is restricted to a specific surface.
     if (replay_create_info->surface != VK_NULL_HANDLE)
     {
@@ -4772,7 +4784,8 @@ VkResult VulkanReplayConsumerBase::OverrideAcquireNextImageKHR(PFN_vkAcquireNext
 
             result = func(device, swapchain, timeout, semaphore, fence, replay_index);
 
-            // Track the index that was acquired on replay, which may be different than the captured index.
+            GFXRECON_LOG_INFO("Acquired index KHR %" PRIu32 ": %" PRIu32, captured_index, (*replay_index));
+
             swapchain_info->acquired_indices[captured_index] = (*replay_index);
         }
     }
@@ -4867,6 +4880,8 @@ VkResult VulkanReplayConsumerBase::OverrideAcquireNextImage2KHR(
             assert(replay_index != nullptr);
 
             result = func(device, replay_acquire_info, replay_index);
+
+            GFXRECON_LOG_INFO("Acquired index KHR2 %" PRIu32 ": %" PRIu32, captured_index, (*replay_index));
 
             // Track the index that was acquired on replay, which may be different than the captured index.
             swapchain_info->acquired_indices[captured_index] = (*replay_index);
@@ -5060,6 +5075,10 @@ VulkanReplayConsumerBase::OverrideQueuePresentKHR(PFN_vkQueuePresentKHR         
             if (swapchain_info != nullptr)
             {
                 modified_image_indices[i] = swapchain_info->acquired_indices[present_info->pImageIndices[i]];
+
+                GFXRECON_LOG_INFO("Queue present index %" PRIu32 ": %" PRIu32,
+                                  present_info->pImageIndices[i],
+                                  modified_image_indices[i]);
             }
         }
 
