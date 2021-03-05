@@ -2160,6 +2160,8 @@ void TraceManager::PreProcess_vkCreateSwapchain(VkDevice                        
     GFXRECON_UNREFERENCED_PARAMETER(pAllocator);
     GFXRECON_UNREFERENCED_PARAMETER(pSwapchain);
 
+    GFXRECON_LOG_INFO("Capture swapchain pCreateInfo->minImageCount %" PRIu32, pCreateInfo->minImageCount);
+
     assert(pCreateInfo != nullptr);
 
     if (pCreateInfo)
