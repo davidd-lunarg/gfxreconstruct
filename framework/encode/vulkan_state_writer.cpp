@@ -150,7 +150,7 @@ void VulkanStateWriter::WriteState(const VulkanStateTable& state_table, uint64_t
     StandardCreateWrite<ShaderModuleWrapper>(state_table);
     StandardCreateWrite<DescriptorSetLayoutWrapper>(state_table);
     WritePipelineLayoutState(state_table);
-    StandardCreateWrite<PipelineCacheWrapper>(state_table);
+    WritePipelineCacheState(state_table);
     WritePipelineState(state_table);
     StandardCreateWrite<AccelerationStructureKHRWrapper>(state_table);
     StandardCreateWrite<AccelerationStructureNVWrapper>(state_table);
@@ -484,6 +484,52 @@ void VulkanStateWriter::WritePipelineLayoutState(const VulkanStateTable& state_t
     {
         DestroyTemporaryDeviceObject(format::ApiCall_vkDestroyDescriptorSetLayout, entry.first, entry.second);
     }
+}
+
+void VulkanStateWriter::WritePipelineCacheState(const VulkanStateTable& state_table)
+{
+    state_table.VisitWrappers([&](const PipelineCacheWrapper* wrapper) {
+        assert(wrapper != nullptr);
+
+        // get device table
+        DeviceWrapper* device_wrapper = wrapper->device;
+        DeviceTable    device_table   = device_wrapper->layer_table;
+
+        // getpipelinecachedata
+        size_t cache_data_size = 0;
+        device_table.GetPipelineCacheData(wrapper->device->handle, wrapper->handle, &cache_data_size, nullptr);
+
+        if (cache_data_size != 0)
+        {
+            std::unique_ptr<uint8_t[]> cache_data = std::make_unique<uint8_t[]>(cache_data_size);
+            device_table.GetPipelineCacheData(wrapper->device->handle, wrapper->handle, &cache_data_size, cache_data.get());
+
+            // encode pipeline create parameters
+            VkPipelineCacheCreateInfo create_info;
+            create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+            create_info.pNext = nullptr;
+            create_info.flags = wrapper->create_flags;
+            // create_info.initialDataSize = 0;
+            create_info.initialDataSize = cache_data_size;
+            // create_info.pInitialData    = nullptr;
+            create_info.pInitialData = cache_data.get();
+
+            const VkAllocationCallbacks* allocator = nullptr;
+
+            encoder_.EncodeHandleValue(wrapper->device);
+            EncodeStructPtr(&encoder_, &create_info);
+            EncodeStructPtr(&encoder_, allocator);
+            encoder_.EncodeHandlePtr((const VkPipelineCache*)(&wrapper));
+            encoder_.EncodeEnumValue(VK_SUCCESS);
+
+            WriteFunctionCall(wrapper->create_call_id, &parameter_stream_);
+            parameter_stream_.Reset();
+        }
+        else
+        {
+            WriteFunctionCall(wrapper->create_call_id, wrapper->create_parameters.get());
+        }
+    });
 }
 
 void VulkanStateWriter::WritePipelineState(const VulkanStateTable& state_table)

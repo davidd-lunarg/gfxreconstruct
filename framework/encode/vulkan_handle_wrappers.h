@@ -69,7 +69,6 @@ struct HandleWrapper
 
 // clang-format off
 struct ShaderModuleWrapper                  : public HandleWrapper<VkShaderModule> {};
-struct PipelineCacheWrapper                 : public HandleWrapper<VkPipelineCache> {};
 struct SamplerWrapper                       : public HandleWrapper<VkSampler> {};
 struct SamplerYcbcrConversionWrapper        : public HandleWrapper<VkSamplerYcbcrConversion> {};
 struct DebugReportCallbackEXTWrapper        : public HandleWrapper<VkDebugReportCallbackEXT> {};
@@ -303,6 +302,12 @@ struct PipelineWrapper : public HandleWrapper<VkPipeline>
 
     // TODO: Base pipeline
     // TODO: Pipeline cache
+};
+
+struct PipelineCacheWrapper : public HandleWrapper<VkPipelineCache>
+{
+    DeviceWrapper*             device{ nullptr };
+    VkPipelineCacheCreateFlags create_flags{ 0 };
 };
 
 struct DescriptorUpdateTemplateWrapper : public HandleWrapper<VkDescriptorUpdateTemplate>

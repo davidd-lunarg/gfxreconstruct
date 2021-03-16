@@ -2045,6 +2045,41 @@ void TraceManager::ReleaseAndroidHardwareBuffer(AHardwareBuffer* hardware_buffer
 #endif
 }
 
+//PipelineCacheWrapper* TraceManager::GetTrackedStatePipelineCache(VkDevice device)
+//{
+//    PipelineCacheWrapper* result = nullptr;
+//    assert((capture_mode_ & kModeTrack) == kModeTrack);
+//    if ((capture_mode_ & kModeTrack) == kModeTrack)
+//    {
+//        auto device_wrapper = reinterpret_cast<DeviceWrapper*>(device);
+//
+//        if (pipeline_cache_wrappers_.find(device_wrapper->handle_id) != pipeline_cache_wrappers_.end())
+//        {}
+//        else
+//        {
+//            const DeviceTable& device_table   = device_wrapper->layer_table;
+//            VkPipelineCache    pipeline_cache = VK_NULL_HANDLE;
+//
+//            VkPipelineCacheCreateInfo create_info;
+//            create_info.sType           = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+//            create_info.pNext           = nullptr;
+//            create_info.initialDataSize = 0;
+//            create_info.pInitialData    = nullptr;
+//            create_info.flags           = 0;
+//
+//            VkResult create_result =
+//                device_table.CreatePipelineCache(device_wrapper->handle, &create_info, nullptr, &pipeline_cache);
+//
+//            if (create_result == VK_SUCCESS && pipeline_cache != VK_NULL_HANDLE)
+//            {
+//                CreateWrappedHandle<DeviceWrapper, NoParentWrapper, PipelineCacheWrapper>(
+//                    device, NoParentWrapper::kHandleValue, &pipeline_cache, TraceManager::GetUniqueId);
+//            }
+//        }
+//    }
+//    return result;
+//}
+
 void TraceManager::PostProcess_vkEnumeratePhysicalDevices(VkResult          result,
                                                           VkInstance        instance,
                                                           uint32_t*         pPhysicalDeviceCount,
@@ -2575,6 +2610,21 @@ void TraceManager::PreProcess_vkGetRayTracingShaderGroupHandlesKHR(
             "The application is using vkGetRayTracingShaderGroupHandlesKHR, which may require the "
             "rayTracingPipelineShaderGroupHandleCaptureReplay feature for accurate capture and replay. The capture "
             "device does not support this feature, so replay of the captured file may fail.");
+    }
+}
+
+void TraceManager::PostProcess_vkCreatePipelineCache(VkResult                         result,
+                                                     VkDevice                         device,
+                                                     const VkPipelineCacheCreateInfo* pCreateInfo,
+                                                     const VkAllocationCallbacks*     pAllocator,
+                                                     VkPipelineCache*                 pPipelineCache)
+{
+    GFXRECON_UNREFERENCED_PARAMETER(result);
+    GFXRECON_UNREFERENCED_PARAMETER(pAllocator);
+
+    if ((capture_mode_ & kModeTrack) == kModeTrack)
+    {
+        state_tracker_->TrackPipelineCacheCreateInfo(device, *pPipelineCache, pCreateInfo->flags);
     }
 }
 

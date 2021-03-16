@@ -710,6 +710,16 @@ struct CustomEncoderPreCall<format::ApiCallId::ApiCall_vkGetRayTracingShaderGrou
     }
 };
 
+template <>
+struct CustomEncoderPostCall<format::ApiCallId::ApiCall_vkCreatePipelineCache>
+{
+    template <typename... Args>
+    static void Dispatch(TraceManager* manager, Args... args)
+    {
+        manager->PostProcess_vkCreatePipelineCache(args...);
+    }
+};
+
 GFXRECON_END_NAMESPACE(encode)
 GFXRECON_END_NAMESPACE(gfxrecon)
 

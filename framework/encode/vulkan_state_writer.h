@@ -115,6 +115,8 @@ class VulkanStateWriter
 
     void WritePipelineLayoutState(const VulkanStateTable& state_table);
 
+    void WritePipelineCacheState(const VulkanStateTable& state_table);
+
     void WritePipelineState(const VulkanStateTable& state_table);
 
     void WriteDescriptorSetState(const VulkanStateTable& state_table);

@@ -920,6 +920,12 @@ class TraceManager
     void OverrideGetPhysicalDeviceSurfacePresentModesKHR(uint32_t* pPresentModeCount, VkPresentModeKHR* pPresentModes);
 #endif
 
+    void PostProcess_vkCreatePipelineCache(VkResult                         result,
+                                           VkDevice                         device,
+                                           const VkPipelineCacheCreateInfo* pCreateInfo,
+                                           const VkAllocationCallbacks*     pAllocator,
+                                           VkPipelineCache*                 pPipelineCache);
+
   protected:
     TraceManager();
 
@@ -1037,6 +1043,8 @@ class TraceManager
     void ProcessImportAndroidHardwareBuffer(VkDevice device, VkDeviceMemory memory, AHardwareBuffer* hardware_buffer);
     void ReleaseAndroidHardwareBuffer(AHardwareBuffer* hardware_buffer);
 
+    //PipelineCacheWrapper* GetTrackedStatePipelineCache(VkDevice device);
+
   private:
     static TraceManager*                            instance_;
     static uint32_t                                 instance_count_;
@@ -1067,6 +1075,7 @@ class TraceManager
     HardwareBufferMap                               hardware_buffers_;
     util::Keyboard                                  keyboard_;
     bool                                            previous_hotkey_state_;
+    //std::map<format::HandleId, PipelineCacheWrapper> pipeline_cache_wrappers_;
 };
 
 GFXRECON_END_NAMESPACE(encode)

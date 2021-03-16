@@ -371,6 +371,8 @@ class VulkanStateTracker
 
     void TrackRayTracingShaderGroupHandles(VkDevice device, VkPipeline pipeline, size_t data_size, const void* data);
 
+    void TrackPipelineCacheCreateInfo(VkDevice device, VkPipelineCache pipeline_cache, VkPipelineCacheCreateFlags create_flags);
+
   private:
     template <typename ParentHandle, typename SecondaryHandle, typename Wrapper, typename CreateInfo>
     void AddGroupHandles(ParentHandle                  parent_handle,
