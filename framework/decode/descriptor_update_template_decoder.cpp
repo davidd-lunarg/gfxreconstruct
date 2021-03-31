@@ -56,14 +56,10 @@ size_t DescriptorUpdateTemplateDecoder::Decode(const uint8_t* buffer, size_t buf
             ValueDecoder::DecodeSizeTValue((buffer + bytes_read), (buffer_size - bytes_read), &buffer_info_count_);
         bytes_read += ValueDecoder::DecodeSizeTValue(
             (buffer + bytes_read), (buffer_size - bytes_read), &texel_buffer_view_count_);
-        bytes_read += ValueDecoder::DecodeSizeTValue(
-            (buffer + bytes_read), (buffer_size - bytes_read), &acceleration_structure_khr_count_);
 
         size_t buffer_info_offset       = image_info_count_ * sizeof(VkDescriptorImageInfo);
         size_t texel_buffer_view_offset = buffer_info_offset + (buffer_info_count_ * sizeof(VkDescriptorBufferInfo));
-        size_t accel_struct_offset      = texel_buffer_view_offset + (texel_buffer_view_count_ * sizeof(VkBufferView));
-        size_t total_size =
-            accel_struct_offset + (acceleration_structure_khr_count_ * sizeof(VkAccelerationStructureKHR));
+        size_t total_size               = texel_buffer_view_offset + (texel_buffer_view_count_ * sizeof(VkBufferView));
 
         assert(template_memory_ == nullptr);
         template_memory_ = DecodeAllocator::Allocate<uint8_t>(total_size);
@@ -99,23 +95,51 @@ size_t DescriptorUpdateTemplateDecoder::Decode(const uint8_t* buffer, size_t buf
             decoded_texel_buffer_view_handle_ids_ =
                 DecodeAllocator::Allocate<format::HandleId>(texel_buffer_view_count_);
 
-            ValueDecoder::DecodeHandleIdArray((buffer + bytes_read),
-                                              (buffer_size - bytes_read),
-                                              decoded_texel_buffer_view_handle_ids_,
-                                              texel_buffer_view_count_);
+            bytes_read += ValueDecoder::DecodeHandleIdArray((buffer + bytes_read),
+                                                            (buffer_size - bytes_read),
+                                                            decoded_texel_buffer_view_handle_ids_,
+                                                            texel_buffer_view_count_);
         }
 
-        if (acceleration_structure_khr_count_ > 0)
+        size_t struct_count = 0;
+        while (bytes_read != buffer_size)
         {
-            acceleration_structures_khr_ =
-                reinterpret_cast<VkAccelerationStructureKHR*>(template_memory_ + accel_struct_offset);
-            decoded_acceleration_structure_khr_handle_ids_ =
-                DecodeAllocator::Allocate<format::HandleId>(acceleration_structure_khr_count_);
+            size_t current_offset = total_size;
+            bytes_read +=
+                ValueDecoder::DecodeSizeTValue((buffer + bytes_read), (buffer_size - bytes_read), &struct_count);
+            if (struct_count > 0)
+            {
+                VkDescriptorType descriptor_type;
+                bytes_read +=
+                    ValueDecoder::DecodeEnumValue((buffer + bytes_read), (buffer_size - bytes_read), &descriptor_type);
+                if (descriptor_type == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)
+                {
+                    acceleration_structure_khr_count_ = struct_count;
+                    total_size =
+                        current_offset + (acceleration_structure_khr_count_ * sizeof(VkAccelerationStructureKHR));
 
-            ValueDecoder::DecodeHandleIdArray((buffer + bytes_read),
-                                              (buffer_size - bytes_read),
-                                              decoded_acceleration_structure_khr_handle_ids_,
-                                              acceleration_structure_khr_count_);
+                    // increase size of template_memory_
+                    uint8_t* current_template_memory = template_memory_;
+                    template_memory_                 = DecodeAllocator::Allocate<uint8_t>(total_size);
+                    std::copy(current_template_memory, current_template_memory + current_offset, template_memory_);
+
+                    acceleration_structures_khr_ =
+                        reinterpret_cast<VkAccelerationStructureKHR*>(template_memory_ + current_offset);
+                    decoded_acceleration_structure_khr_handle_ids_ =
+                        DecodeAllocator::Allocate<format::HandleId>(acceleration_structure_khr_count_);
+
+                    bytes_read += ValueDecoder::DecodeHandleIdArray((buffer + bytes_read),
+                                                                    (buffer_size - bytes_read),
+                                                                    decoded_acceleration_structure_khr_handle_ids_,
+                                                                    acceleration_structure_khr_count_);
+                }
+                else
+                {
+                    GFXRECON_LOG_WARNING("Unrecognized VkDescriptorType %d found when decoding data for descriptor "
+                                         "update with template.",
+                                         (int)descriptor_type);
+                }
+            }
         }
     }
 

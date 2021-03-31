@@ -129,7 +129,6 @@ static void EncodeDescriptorUpdateTemplateInfo(TraceManager*             manager
         encoder->EncodeSizeTValue(info->image_info_count);
         encoder->EncodeSizeTValue(info->buffer_info_count);
         encoder->EncodeSizeTValue(info->texel_buffer_view_count);
-        encoder->EncodeSizeTValue(info->acceleration_structure_khr_count);
 
         // Write the individual template update entries, sorted by type, as tightly packed arrays.
         const uint8_t* bytes = reinterpret_cast<const uint8_t*>(data);
@@ -167,14 +166,19 @@ static void EncodeDescriptorUpdateTemplateInfo(TraceManager*             manager
         }
 
         // Process VkAccelerationStructureKHR
-        for (const auto& entry_info : info->acceleration_structure_khr)
+        if (info->acceleration_structure_khr_count > 0)
         {
-            for (size_t i = 0; i < entry_info.count; ++i)
+            encoder->EncodeSizeTValue(info->acceleration_structure_khr_count);
+            encoder->EncodeEnumValue(VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR);
+            for (const auto& entry_info : info->acceleration_structure_khr)
             {
-                size_t                            offset = entry_info.offset + (entry_info.stride * i);
-                const VkAccelerationStructureKHR* entry =
-                    reinterpret_cast<const VkAccelerationStructureKHR*>(bytes + offset);
-                encoder->EncodeHandleValue(*entry);
+                for (size_t i = 0; i < entry_info.count; ++i)
+                {
+                    size_t                            offset = entry_info.offset + (entry_info.stride * i);
+                    const VkAccelerationStructureKHR* entry =
+                        reinterpret_cast<const VkAccelerationStructureKHR*>(bytes + offset);
+                    encoder->EncodeHandleValue(*entry);
+                }
             }
         }
     }
