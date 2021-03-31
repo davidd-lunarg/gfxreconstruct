@@ -126,22 +126,22 @@ static void EncodeDescriptorUpdateTemplateInfo(TraceManager*             manager
         // VkDescriptorBufferInfo, VkBufferView, and VkAccelerationStructureKHR types.  There will be one array per
         // descriptor update entry.  We will write the total number of entries of each type before we write the entries,
         // so that the decoder will know up front how much memory it needs to allocate for decoding.
-        encoder->EncodeSizeTValue(info->image_info_count);
+        // encoder->EncodeSizeTValue(info->image_info_count);
         encoder->EncodeSizeTValue(info->buffer_info_count);
         encoder->EncodeSizeTValue(info->texel_buffer_view_count);
 
         // Write the individual template update entries, sorted by type, as tightly packed arrays.
         const uint8_t* bytes = reinterpret_cast<const uint8_t*>(data);
-        // Process VkDescriptorImageInfo
-        for (const auto& entry_info : info->image_info)
-        {
-            for (size_t i = 0; i < entry_info.count; ++i)
-            {
-                size_t                       offset = entry_info.offset + (entry_info.stride * i);
-                const VkDescriptorImageInfo* entry  = reinterpret_cast<const VkDescriptorImageInfo*>(bytes + offset);
-                EncodeStruct(encoder, entry_info.type, (*entry));
-            }
-        }
+        //// Process VkDescriptorImageInfo
+        // for (const auto& entry_info : info->image_info)
+        //{
+        //    for (size_t i = 0; i < entry_info.count; ++i)
+        //    {
+        //        size_t                       offset = entry_info.offset + (entry_info.stride * i);
+        //        const VkDescriptorImageInfo* entry  = reinterpret_cast<const VkDescriptorImageInfo*>(bytes + offset);
+        //        EncodeStruct(encoder, entry_info.type, (*entry));
+        //    }
+        //}
 
         // Process VkDescriptorBufferInfo
         for (const auto& entry_info : info->buffer_info)
@@ -165,19 +165,36 @@ static void EncodeDescriptorUpdateTemplateInfo(TraceManager*             manager
             }
         }
 
-        // Process VkAccelerationStructureKHR
-        if (info->acceleration_structure_khr_count > 0)
+        //// Process VkAccelerationStructureKHR
+        // if (info->acceleration_structure_khr_count > 0)
+        //{
+        //    encoder->EncodeSizeTValue(info->acceleration_structure_khr_count);
+        //    encoder->EncodeEnumValue(VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR);
+        //    for (const auto& entry_info : info->acceleration_structure_khr)
+        //    {
+        //        for (size_t i = 0; i < entry_info.count; ++i)
+        //        {
+        //            size_t                            offset = entry_info.offset + (entry_info.stride * i);
+        //            const VkAccelerationStructureKHR* entry =
+        //                reinterpret_cast<const VkAccelerationStructureKHR*>(bytes + offset);
+        //            encoder->EncodeHandleValue(*entry);
+        //        }
+        //    }
+        //}
+
+        if (info->image_info_count > 0)
         {
-            encoder->EncodeSizeTValue(info->acceleration_structure_khr_count);
-            encoder->EncodeEnumValue(VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR);
-            for (const auto& entry_info : info->acceleration_structure_khr)
+            encoder->EncodeSizeTValue(info->image_info_count);
+            encoder->EncodeEnumValue(VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+
+            // Process VkDescriptorImageInfo
+            for (const auto& entry_info : info->image_info)
             {
                 for (size_t i = 0; i < entry_info.count; ++i)
                 {
-                    size_t                            offset = entry_info.offset + (entry_info.stride * i);
-                    const VkAccelerationStructureKHR* entry =
-                        reinterpret_cast<const VkAccelerationStructureKHR*>(bytes + offset);
-                    encoder->EncodeHandleValue(*entry);
+                    size_t                       offset = entry_info.offset + (entry_info.stride * i);
+                    const VkDescriptorImageInfo* entry = reinterpret_cast<const VkDescriptorImageInfo*>(bytes + offset);
+                    EncodeStruct(encoder, entry_info.type, (*entry));
                 }
             }
         }

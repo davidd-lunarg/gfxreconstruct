@@ -86,10 +86,10 @@ class DescriptorUpdateTemplateDecoder : public PointerDecoderBase
     Decoded_VkDescriptorImageInfo*  decoded_image_info_{ nullptr };
     Decoded_VkDescriptorBufferInfo* decoded_buffer_info_{ nullptr };
     format::HandleId*               decoded_texel_buffer_view_handle_ids_{ nullptr };
-    size_t                          image_info_count_;
+    size_t                          image_info_count_{ 0 };
     size_t                          buffer_info_count_;
     size_t                          texel_buffer_view_count_;
-    VkDescriptorImageInfo*          image_info_;
+    VkDescriptorImageInfo*          image_info_{ nullptr };
     VkDescriptorBufferInfo*         buffer_info_;
     VkBufferView*                   texel_buffer_views_;
 

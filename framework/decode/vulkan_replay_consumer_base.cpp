@@ -4209,10 +4209,13 @@ VkResult VulkanReplayConsumerBase::OverrideCreateDescriptorUpdateTemplate(
         }
 
         // Compute start offsets for each type.
-        size_t image_info_offset        = 0;
-        size_t buffer_info_offset       = image_info_count * sizeof(VkDescriptorImageInfo);
+
+        size_t buffer_info_offset = 0; // image_info_count * sizeof(VkDescriptorImageInfo);
         size_t texel_buffer_view_offset = buffer_info_offset + (buffer_info_count * sizeof(VkDescriptorBufferInfo));
-        size_t accel_struct_offset      = texel_buffer_view_offset + (texel_buffer_view_count * sizeof(VkBufferView));
+        size_t image_info_offset        = texel_buffer_view_offset + (texel_buffer_view_count * sizeof(VkBufferView));
+
+        // size_t accel_struct_offset      = texel_buffer_view_offset + (texel_buffer_view_count *
+        // sizeof(VkBufferView));
 
         // Track descriptor image type.
         std::vector<VkDescriptorType> image_types;
@@ -4246,16 +4249,16 @@ VkResult VulkanReplayConsumerBase::OverrideCreateDescriptorUpdateTemplate(
                 entry->offset = texel_buffer_view_offset;
                 texel_buffer_view_offset += entry->descriptorCount * sizeof(VkBufferView);
             }
-            else if (type == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)
-            {
-                entry->stride = sizeof(VkAccelerationStructureKHR);
-                entry->offset = accel_struct_offset;
-                accel_struct_offset += entry->descriptorCount * sizeof(VkAccelerationStructureKHR);
-            }
-            else
-            {
-                assert(false);
-            }
+            // else if (type == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)
+            //{
+            //    entry->stride = sizeof(VkAccelerationStructureKHR);
+            //    entry->offset = accel_struct_offset;
+            //    accel_struct_offset += entry->descriptorCount * sizeof(VkAccelerationStructureKHR);
+            //}
+            // else
+            //{
+            //    assert(false);
+            //}
         }
 
         override_create_info.pDescriptorUpdateEntries = entries.data();

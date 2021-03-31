@@ -50,32 +50,34 @@ size_t DescriptorUpdateTemplateDecoder::Decode(const uint8_t* buffer, size_t buf
     if (!IsNull() && HasData())
     {
         // Get the total number of encoded values and allocate memory.
-        bytes_read +=
-            ValueDecoder::DecodeSizeTValue((buffer + bytes_read), (buffer_size - bytes_read), &image_info_count_);
+        // bytes_read +=
+        //    ValueDecoder::DecodeSizeTValue((buffer + bytes_read), (buffer_size - bytes_read), &image_info_count_);
         bytes_read +=
             ValueDecoder::DecodeSizeTValue((buffer + bytes_read), (buffer_size - bytes_read), &buffer_info_count_);
         bytes_read += ValueDecoder::DecodeSizeTValue(
             (buffer + bytes_read), (buffer_size - bytes_read), &texel_buffer_view_count_);
 
-        size_t buffer_info_offset       = image_info_count_ * sizeof(VkDescriptorImageInfo);
+        // size_t buffer_info_offset       = image_info_count_ * sizeof(VkDescriptorImageInfo);
+        size_t buffer_info_offset       = 0;
         size_t texel_buffer_view_offset = buffer_info_offset + (buffer_info_count_ * sizeof(VkDescriptorBufferInfo));
         size_t total_size               = texel_buffer_view_offset + (texel_buffer_view_count_ * sizeof(VkBufferView));
 
         assert(template_memory_ == nullptr);
-        template_memory_ = DecodeAllocator::Allocate<uint8_t>(total_size);
+        template_memory_ = DecodeAllocator::Allocate<uint8_t>(total_size, false);
 
-        // Read each value type.
-        if (image_info_count_ > 0)
-        {
-            image_info_         = reinterpret_cast<VkDescriptorImageInfo*>(template_memory_);
-            decoded_image_info_ = DecodeAllocator::Allocate<Decoded_VkDescriptorImageInfo>(image_info_count_);
+        //// Read each value type.
+        // if (image_info_count_ > 0)
+        //{
+        //    image_info_         = reinterpret_cast<VkDescriptorImageInfo*>(template_memory_);
+        //    decoded_image_info_ = DecodeAllocator::Allocate<Decoded_VkDescriptorImageInfo>(image_info_count_);
 
-            for (size_t i = 0; i < image_info_count_; ++i)
-            {
-                decoded_image_info_[i].decoded_value = &image_info_[i];
-                bytes_read += DecodeStruct((buffer + bytes_read), (buffer_size - bytes_read), &decoded_image_info_[i]);
-            }
-        }
+        //    for (size_t i = 0; i < image_info_count_; ++i)
+        //    {
+        //        decoded_image_info_[i].decoded_value = &image_info_[i];
+        //        bytes_read += DecodeStruct((buffer + bytes_read), (buffer_size - bytes_read),
+        //        &decoded_image_info_[i]);
+        //    }
+        //}
 
         if (buffer_info_count_ > 0)
         {
@@ -104,7 +106,7 @@ size_t DescriptorUpdateTemplateDecoder::Decode(const uint8_t* buffer, size_t buf
         size_t struct_count = 0;
         while (bytes_read != buffer_size)
         {
-            size_t current_offset = total_size;
+            size_t current_size = total_size;
             bytes_read +=
                 ValueDecoder::DecodeSizeTValue((buffer + bytes_read), (buffer_size - bytes_read), &struct_count);
             if (struct_count > 0)
@@ -112,26 +114,28 @@ size_t DescriptorUpdateTemplateDecoder::Decode(const uint8_t* buffer, size_t buf
                 VkDescriptorType descriptor_type;
                 bytes_read +=
                     ValueDecoder::DecodeEnumValue((buffer + bytes_read), (buffer_size - bytes_read), &descriptor_type);
-                if (descriptor_type == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)
+                if (descriptor_type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)
                 {
-                    acceleration_structure_khr_count_ = struct_count;
-                    total_size =
-                        current_offset + (acceleration_structure_khr_count_ * sizeof(VkAccelerationStructureKHR));
+                    image_info_count_ = struct_count;
+                    total_size        = current_size + (image_info_count_ * sizeof(VkDescriptorImageInfo));
 
-                    // increase size of template_memory_
+                    // increase size of template_memory_ to hold these additional descriptor structs
                     uint8_t* current_template_memory = template_memory_;
-                    template_memory_                 = DecodeAllocator::Allocate<uint8_t>(total_size);
-                    std::copy(current_template_memory, current_template_memory + current_offset, template_memory_);
+                    template_memory_                 = DecodeAllocator::Allocate<uint8_t>(total_size, false);
+                    if (current_size > 0)
+                    {
+                        std::copy(current_template_memory, current_template_memory + current_size, template_memory_);
+                    }
 
-                    acceleration_structures_khr_ =
-                        reinterpret_cast<VkAccelerationStructureKHR*>(template_memory_ + current_offset);
-                    decoded_acceleration_structure_khr_handle_ids_ =
-                        DecodeAllocator::Allocate<format::HandleId>(acceleration_structure_khr_count_);
+                    image_info_         = reinterpret_cast<VkDescriptorImageInfo*>(template_memory_ + current_size);
+                    decoded_image_info_ = DecodeAllocator::Allocate<Decoded_VkDescriptorImageInfo>(image_info_count_);
 
-                    bytes_read += ValueDecoder::DecodeHandleIdArray((buffer + bytes_read),
-                                                                    (buffer_size - bytes_read),
-                                                                    decoded_acceleration_structure_khr_handle_ids_,
-                                                                    acceleration_structure_khr_count_);
+                    for (size_t i = 0; i < image_info_count_; ++i)
+                    {
+                        decoded_image_info_[i].decoded_value = &image_info_[i];
+                        bytes_read +=
+                            DecodeStruct((buffer + bytes_read), (buffer_size - bytes_read), &decoded_image_info_[i]);
+                    }
                 }
                 else
                 {
