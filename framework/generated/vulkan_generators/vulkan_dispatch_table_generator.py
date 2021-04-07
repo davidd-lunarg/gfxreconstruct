@@ -65,6 +65,8 @@ class VulkanDispatchTableGenerator(BaseGenerator):
     def beginFile(self, genOpts):
         BaseGenerator.beginFile(self, genOpts)
 
+        self.extensionCmdTypes = BaseGenerator.getExtensionCommandTypes(self)
+
         write('#include "format/platform_types.h"', file=self.outFile)
         write('#include "util/defines.h"', file=self.outFile)
         write('#include "util/logging.h"', file=self.outFile)
@@ -158,7 +160,15 @@ class VulkanDispatchTableGenerator(BaseGenerator):
                         returnType = info[0]
                         proto = info[1]
 
-                        if not firstParam.baseType in ['VkInstance', 'VkPhysicalDevice']:
+                        # Determine whether this is an instance or device command.
+                        cmdType = self.extensionCmdTypes.get(name, None)
+                        if cmdType == None:
+                            if not firstParam.baseType in ['VkInstance', 'VkPhysicalDevice']:
+                                cmdType = 'device'
+                            else:
+                                cmdType = 'instance'
+
+                        if cmdType == 'device':
                             self.deviceCmdNames[name] = self.makeCmdDecl(returnType, proto, values, name)
                         else:
                             self.instanceCmdNames[name] = self.makeCmdDecl(returnType, proto, values, name)

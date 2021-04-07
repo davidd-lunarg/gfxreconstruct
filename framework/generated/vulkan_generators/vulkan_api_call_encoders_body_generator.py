@@ -65,6 +65,8 @@ class VulkanApiCallEncodersBodyGenerator(BaseGenerator):
     # Method override
     def beginFile(self, genOpts):
         BaseGenerator.beginFile(self, genOpts)
+        
+        self.extensionCmdTypes = BaseGenerator.getExtensionCommandTypes(self)
 
         if genOpts.captureOverrides:
             self.__loadCaptureOverrides(genOpts.captureOverrides)
@@ -153,15 +155,19 @@ class VulkanApiCallEncodersBodyGenerator(BaseGenerator):
 
     #
     # Check for dispatchable handle types associated with the instance dispatch table.
-    def useInstanceTable(self, typename):
-        if typename in ['VkInstance', 'VkPhysicalDevice']:
-            return True
-        return False
+    def useInstanceTable(self, name, typename):
+        cmdType = self.extensionCmdTypes.get(name, None)
+        if cmdType == None:
+            if typename in ['VkInstance', 'VkPhysicalDevice']:
+                cmdType = 'instance'
+            else:
+                cmdType = 'device'
+        return cmdType == 'instance'
 
     #
     # Generate the layer dispatch call invocation.
     def makeLayerDispatchCall(self, name, values, argList):
-        dispatchfunc = 'GetInstanceTable' if self.useInstanceTable(values[0].baseType) else 'GetDeviceTable'
+        dispatchfunc = 'GetInstanceTable' if self.useInstanceTable(name, values[0].baseType) else 'GetDeviceTable'
         return '{}({})->{}({})'.format(dispatchfunc, values[0].name, name[2:], argList)
 
     #

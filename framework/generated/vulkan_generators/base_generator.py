@@ -1017,6 +1017,16 @@ class BaseGenerator(OutputGenerator):
         return '{}({})'.format(methodCall, ', '.join(args))
 
     #
+    # Return map between extension command names and the extensions type 'device' or 'instance'
+    def getExtensionCommandTypes(self):
+        result = dict()
+        for extension in self.registry.extensions:
+            if extension.get('type') != None:
+                for command in extension.findall('require/command'):
+                    result[command.get('name')] = extension.get('type')
+        return result
+
+    #
     # Return appropriate feature protect string from 'platform' tag on feature.
     # From Vulkan-ValidationLayers common_codegen.py
     def __getFeatureProtect(self, interface):
