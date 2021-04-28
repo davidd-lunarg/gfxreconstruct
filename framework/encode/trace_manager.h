@@ -944,9 +944,14 @@ class TraceManager
     class ThreadData
     {
       public:
-        ThreadData();
+        static std::vector<std::unique_lock<std::mutex>>
+        AcquireLocksForAllOtherThreads(const ThreadData* current_thread);
 
-        ~ThreadData() {}
+      public:
+        ThreadData();
+        ~ThreadData();
+
+        std::unique_lock<std::mutex> AcquireLock() { return std::move(std::unique_lock<std::mutex>(thread_mutex_)); }
 
         std::vector<uint8_t>& GetScratchBuffer() { return scratch_buffer_; }
 
@@ -966,7 +971,13 @@ class TraceManager
         static format::ThreadId                               thread_count_;
         static std::unordered_map<uint64_t, format::ThreadId> id_map_;
 
+        // Track set of existing ThreadDatas.
+        static std::mutex            thread_datas_mutex_;
+        static std::set<ThreadData*> thread_datas_;
+
       private:
+        std::mutex thread_mutex_;
+
         // Used for combining multiple buffers for a single file write.
         std::vector<uint8_t> scratch_buffer_;
     };
@@ -1068,7 +1079,6 @@ class TraceManager
     format::EnabledOptions                          file_options_;
     std::unique_ptr<util::FileOutputStream>         file_stream_;
     std::string                                     base_filename_;
-    std::mutex                                      file_lock_;
     bool                                            timestamp_filename_;
     bool                                            force_file_flush_;
     std::unique_ptr<util::Compressor>               compressor_;

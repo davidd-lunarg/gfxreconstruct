@@ -61,6 +61,9 @@ std::mutex                                     TraceManager::ThreadData::count_l
 format::ThreadId                               TraceManager::ThreadData::thread_count_ = 0;
 std::unordered_map<uint64_t, format::ThreadId> TraceManager::ThreadData::id_map_;
 
+std::mutex                          TraceManager::ThreadData::thread_datas_mutex_;
+std::set<TraceManager::ThreadData*> TraceManager::ThreadData::thread_datas_;
+
 TraceManager*                                          TraceManager::instance_       = nullptr;
 uint32_t                                               TraceManager::instance_count_ = 0;
 std::mutex                                             TraceManager::instance_lock_;
@@ -69,10 +72,43 @@ LayerTable                                             TraceManager::layer_table
 
 std::atomic<format::HandleId> TraceManager::unique_id_counter_{ format::kNullHandleId };
 
+std::vector<std::unique_lock<std::mutex>>
+TraceManager::ThreadData::AcquireLocksForAllOtherThreads(const ThreadData* current_thread)
+{
+    std::unique_lock<std::mutex>              thread_datas_lock(thread_datas_mutex_);
+    std::vector<std::unique_lock<std::mutex>> locks;
+    for (ThreadData* thread_data : thread_datas_)
+    {
+        // It shouldn't be necessary to lock the currently running thread, and it may have been locked already (e.g., at
+        // the start of the Vulkan API call at the top of the current call stack).
+        if (thread_data != current_thread)
+        {
+            locks.push_back(std::move(thread_data->AcquireLock()));
+        }
+    }
+    return std::move(locks);
+}
+
 TraceManager::ThreadData::ThreadData() : thread_id_(GetThreadId()), call_id_(format::ApiCallId::ApiCall_Unknown)
 {
     parameter_buffer_  = std::make_unique<util::MemoryOutputStream>();
     parameter_encoder_ = std::make_unique<ParameterEncoder>(parameter_buffer_.get());
+
+    // Add thread to thread_datas_ set.
+    std::unique_lock<std::mutex> thread_datas_lock(thread_datas_mutex_);
+    auto                         insert_result = thread_datas_.insert(this);
+
+    // It should not be possible for insert to fail.
+    assert(insert_result.second == true);
+}
+
+TraceManager::ThreadData::~ThreadData()
+{
+    std::unique_lock<std::mutex> thread_datas_lock(thread_datas_mutex_);
+    size_t                       erased_count = thread_datas_.erase(this);
+
+    // If a ThreadData is deleted it must have existed in the thread_datas_ set.
+    assert(erased_count == 1);
 }
 
 format::ThreadId TraceManager::ThreadData::GetThreadId()
@@ -590,12 +626,14 @@ bool TraceManager::CreateCaptureFile(const std::string& base_filename)
 
 void TraceManager::ActivateTrimming()
 {
-    std::lock_guard<std::mutex> lock(file_lock_);
-
-    capture_mode_ |= kModeWrite;
-
     auto thread_data = GetThreadData();
     assert(thread_data != nullptr);
+
+    // Lock all other threads.
+    std::vector<std::unique_lock<std::mutex>> thread_locks =
+        ThreadData::AcquireLocksForAllOtherThreads(thread_data);
+
+    capture_mode_ |= kModeWrite;
 
     VulkanStateWriter state_writer(file_stream_.get(), compressor_.get(), thread_data->thread_id_);
     state_tracker_->WriteState(&state_writer, current_frame_);
@@ -2500,7 +2538,7 @@ void TraceManager::OverrideGetPhysicalDeviceSurfacePresentModesKHR(uint32_t*    
 
 void TraceManager::WriteToFile(const void* data, size_t size)
 {
-    std::unique_lock<std::mutex> lock(file_lock_);
+    std::unique_lock<std::mutex> lock = GetThreadData()->AcquireLock();
     file_stream_->Write(data, size);
     if (force_file_flush_)
     {
