@@ -175,6 +175,9 @@ class VulkanApiCallEncodersBodyGenerator(BaseGenerator):
         argList = self.makeArgList(values)
 
         body = ''
+        
+        body += indent + 'std::unique_lock<std::mutex> thread_lock = TraceManager::Get()->AcquireLockForCurrentThread();\n'
+        body += '\n'
 
         if hasOutputs or (returnType and returnType != 'void'):
             encodeAfter = True

@@ -630,8 +630,7 @@ void TraceManager::ActivateTrimming()
     assert(thread_data != nullptr);
 
     // Lock all other threads.
-    std::vector<std::unique_lock<std::mutex>> thread_locks =
-        ThreadData::AcquireLocksForAllOtherThreads(thread_data);
+    std::vector<std::unique_lock<std::mutex>> thread_locks = ThreadData::AcquireLocksForAllOtherThreads(thread_data);
 
     capture_mode_ |= kModeWrite;
 
@@ -2538,7 +2537,6 @@ void TraceManager::OverrideGetPhysicalDeviceSurfacePresentModesKHR(uint32_t*    
 
 void TraceManager::WriteToFile(const void* data, size_t size)
 {
-    std::unique_lock<std::mutex> lock = GetThreadData()->AcquireLock();
     file_stream_->Write(data, size);
     if (force_file_flush_)
     {

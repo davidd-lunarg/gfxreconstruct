@@ -96,6 +96,8 @@ class TraceManager
         return &thread_data->handle_unwrap_memory_;
     }
 
+    std::unique_lock<std::mutex> AcquireLockForCurrentThread() { return std::move(GetThreadData()->AcquireLock()); }
+
     ParameterEncoder* BeginTrackedApiCallTrace(format::ApiCallId call_id)
     {
         if (capture_mode_ != kModeDisabled)
