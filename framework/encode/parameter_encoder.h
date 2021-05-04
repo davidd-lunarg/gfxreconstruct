@@ -43,11 +43,11 @@ GFXRECON_BEGIN_NAMESPACE(encode)
 class ParameterEncoder
 {
   public:
-    ParameterEncoder(util::OutputStream* stream) : output_stream_(stream) {}
+    ParameterEncoder(util::MemoryOutputStream* stream) : output_stream_(stream) {}
 
     ~ParameterEncoder() {}
 
-    void Reset() { output_stream_->Reset(); }
+    void Reset(size_t header_size) { output_stream_->ResetWithHeader(header_size); }
 
     // clang-format off
 
@@ -528,7 +528,7 @@ class ParameterEncoder
     }
 
   private:
-    util::OutputStream* output_stream_;
+    util::MemoryOutputStream* output_stream_;
 };
 
 GFXRECON_END_NAMESPACE(encode)

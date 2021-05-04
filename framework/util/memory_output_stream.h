@@ -49,16 +49,29 @@ class MemoryOutputStream : public OutputStream
 
     virtual bool IsValid() override { return true; }
 
-    virtual void Reset() override { buffer_.clear(); };
+    // Reset buffer, no memory reserved for header.
+    virtual void Reset() override;
+
+    // Reset buffer, reserving space for a header at the start of the buffer.
+    void ResetWithHeader(size_t header_size);
 
     virtual size_t Write(const void* data, size_t len) override;
 
-    const uint8_t* GetData() const { return buffer_.data(); }
+    // Returns a pointer to the header data at the start of the buffer or nullptr if no header data was reserved.
+    uint8_t* GetHeaderData();
 
-    size_t GetDataSize() const { return buffer_.size(); }
+    // Returns the number of bytes reserved for the header at the front of the buffer.
+    size_t GetHeaderDataSize() { return header_size_; }
+
+    // Returns a pointer to the start of the data, after the header.
+    const uint8_t* GetData() const { return buffer_.data() + header_size_; }
+
+    // Returns the number of bytes in the buffer, not including the header.
+    size_t GetDataSize() const { return buffer_.size() - header_size_; }
 
   private:
     std::vector<uint8_t> buffer_;
+    size_t               header_size_;
 };
 
 GFXRECON_END_NAMESPACE(util)

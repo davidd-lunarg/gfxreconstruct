@@ -28,17 +28,17 @@
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
 GFXRECON_BEGIN_NAMESPACE(util)
 
-MemoryOutputStream::MemoryOutputStream()
+MemoryOutputStream::MemoryOutputStream() : header_size_(0)
 {
     buffer_.reserve(kDefaultBufferSize);
 }
 
-MemoryOutputStream::MemoryOutputStream(size_t initial_size)
+MemoryOutputStream::MemoryOutputStream(size_t initial_size) : header_size_(0)
 {
     buffer_.reserve(initial_size);
 }
 
-MemoryOutputStream::MemoryOutputStream(const void* initial_data, size_t initial_data_size)
+MemoryOutputStream::MemoryOutputStream(const void* initial_data, size_t initial_data_size) : header_size_(0)
 {
     const uint8_t* bytes = reinterpret_cast<const uint8_t*>(initial_data);
     buffer_.insert(buffer_.end(), bytes, bytes + initial_data_size);
@@ -46,12 +46,28 @@ MemoryOutputStream::MemoryOutputStream(const void* initial_data, size_t initial_
 
 MemoryOutputStream::~MemoryOutputStream() {}
 
+void MemoryOutputStream::Reset()
+{
+    ResetWithHeader(0);
+};
+
+void MemoryOutputStream::ResetWithHeader(size_t header_size)
+{
+    header_size_ = header_size;
+    buffer_.resize(header_size);
+}
+
 size_t MemoryOutputStream::Write(const void* data, size_t len)
 {
     const uint8_t* bytes = reinterpret_cast<const uint8_t*>(data);
     buffer_.insert(buffer_.end(), bytes, bytes + len);
 
     return len;
+}
+
+uint8_t* MemoryOutputStream::GetHeaderData()
+{
+    return (header_size_ > 0) ? buffer_.data() : nullptr;
 }
 
 GFXRECON_END_NAMESPACE(util)
