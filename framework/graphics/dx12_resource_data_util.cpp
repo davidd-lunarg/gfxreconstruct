@@ -626,7 +626,19 @@ Dx12ResourceDataUtil::ExecuteCopyCommandList(ID3D12Resource*                    
                                              bool                                                   batching)
 {
     // The resource state required to copy data to the target resource.
-    const dx12::ResourceStateInfo copy_state = { D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_BARRIER_FLAG_NONE };
+    const dx12::ResourceStateInfo before_copy_state = { D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_BARRIER_FLAG_NONE };
+
+    // The resource will get promoted to D3D12_RESOURCE_STATE_COPY_SOURCE or D3D12_RESOURCE_STATE_COPY_DEST after the
+    // call to CopyBufferRegion/CopyTextureRegion, so the transition barrier after the copy must account for that.
+    dx12::ResourceStateInfo after_copy_state = before_copy_state;
+    if (copy_type == kCopyTypeRead)
+    {
+        after_copy_state.states = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    }
+    else if (copy_type == kCopyTypeWrite)
+    {
+        after_copy_state.states = D3D12_RESOURCE_STATE_COPY_DEST;
+    }
 
     uint64_t subresource_count = subresource_layouts.size();
 
@@ -684,7 +696,7 @@ Dx12ResourceDataUtil::ExecuteCopyCommandList(ID3D12Resource*                    
                 }
 
                 // Prepare resource state.
-                AddTransitionBarrier(command_list_, target_resource, i, before_states[i], copy_state);
+                AddTransitionBarrier(command_list_, target_resource, i, before_states[i], before_copy_state);
 
                 // Copy data.
                 if (resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
@@ -727,8 +739,13 @@ Dx12ResourceDataUtil::ExecuteCopyCommandList(ID3D12Resource*                    
                     }
                 }
 
-                // Restore resource state.
-                AddTransitionBarrier(command_list_, target_resource, i, copy_state, after_states[i]);
+                // Restore resource state. If the desired state is D3D12_RESOURCE_STATE_COMMON this can be skipped
+                // because the resource should decay back to D3D12_RESOURCE_STATE_COMMON after it was promoted by
+                // CopyBufferRegion/CopyTextureRegion.
+                if (after_states[i].states != D3D12_RESOURCE_STATE_COMMON)
+                {
+                    AddTransitionBarrier(command_list_, target_resource, i, after_copy_state, after_states[i]);
+                }
             }
 
             // Close and execute the command list.
