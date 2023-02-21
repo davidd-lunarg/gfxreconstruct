@@ -106,17 +106,27 @@ HRESULT IUnknown_Wrapper::QueryInterface(REFIID riid, void** object)
 
 ULONG IUnknown_Wrapper::AddRef()
 {
-    unsigned long local_count = ++ref_count_;
-    resources_->IncrementSharedCount();
-
     auto manager    = D3D12CaptureManager::Get();
     auto call_scope = manager->IncrementCallScope();
+
+    unsigned long local_count = 0;
 
     if (call_scope == 1)
     {
         auto api_call_lock = D3D12CaptureManager::AcquireSharedApiCallLock();
 
+        // Make ref count changes here, after api_call_lock is acquired
+        local_count = ++ref_count_;
+        resources_->IncrementSharedCount();
+
         Encode_IUnknown_AddRef(this, local_count);
+    }
+    else
+    {
+        // If call_scope > 1, the API call lock should already be acquired by a nested API call, so it is safe to make
+        // the ref count changes here.
+        local_count = ++ref_count_;
+        resources_->IncrementSharedCount();
     }
 
     manager->DecrementCallScope();
@@ -126,24 +136,41 @@ ULONG IUnknown_Wrapper::AddRef()
 
 ULONG IUnknown_Wrapper::Release()
 {
-    auto local_count  = --ref_count_;
-    auto shared_count = resources_->DecrementSharedCount();
-
     auto manager    = D3D12CaptureManager::Get();
     auto call_scope = manager->IncrementCallScope();
+
+    unsigned long local_count = 0;
 
     if (call_scope == 1)
     {
         auto api_call_lock = D3D12CaptureManager::AcquireSharedApiCallLock();
 
-        Encode_IUnknown_Release(this, local_count);
-    }
+        // Make ref count changes here, after api_call_lock is acquired
+        local_count       = --ref_count_;
+        auto shared_count = resources_->DecrementSharedCount();
 
-    if (shared_count == 0)
+        Encode_IUnknown_Release(this, local_count);
+
+        if (shared_count == 0)
+        {
+            // The resources_ destructor destroys this wrapper and all other wrappers linked to it, so no additional
+            // work may be performed in this function, as the current wrapper will no longer be valid.
+            delete resources_;
+        }
+    }
+    else
     {
-        // The resources_ destructor destroys this wrapper and all other wrappers linked to it, so no additional work
-        // may be performed in this function, as the current wrapper will no longer be valid.
-        delete resources_;
+        // If call_scope > 1, the API call lock should already be acquired by a nested API call, so it is safe to make
+        // the ref count changes here.
+        local_count       = --ref_count_;
+        auto shared_count = resources_->DecrementSharedCount();
+
+        if (shared_count == 0)
+        {
+            // The resources_ destructor destroys this wrapper and all other wrappers linked to it, so no additional
+            // work may be performed in this function, as the current wrapper will no longer be valid.
+            delete resources_;
+        }
     }
 
     manager->DecrementCallScope();
