@@ -164,6 +164,9 @@ void Dx12StateWriter::WriteState(const Dx12StateTable& state_table, uint64_t fra
     // Since the dependency chain is unclear, just write their state at the very end
     StandardCreateWrite<ID3D12VirtualizationGuestDevice_Wrapper>(state_table);
 
+    // Write explicit AddRef/Release commands as needed for any objects that were created in the trim state.
+    WriteAddRefAndReleaseCommands();
+
     marker.marker_type = format::kEndMarker;
     output_stream_->Write(&marker, sizeof(marker));
 }
@@ -476,17 +479,29 @@ void Dx12StateWriter::WriteDescriptorState(const Dx12StateTable& state_table)
     });
 }
 
-void Dx12StateWriter::WriteAddRefAndReleaseCommands(const IUnknown_Wrapper* wrapper)
+void Dx12StateWriter::QueueAddRefAndReleaseCommands(const IUnknown_Wrapper* wrapper)
 {
-    // Add AddRef/Release commands as needed to set object ref count for replay.
-    for (unsigned long i = 1; i < wrapper->GetRefCount(); ++i)
+    created_wrappers_[wrapper->GetCaptureId()] = wrapper;
+}
+
+void Dx12StateWriter::WriteAddRefAndReleaseCommands()
+{
+    for (const auto& wrapper_id_pair : created_wrappers_)
     {
-        WriteAddRefCommand(wrapper->GetCaptureId(), i + 1);
+        auto wrapper   = wrapper_id_pair.second;
+        auto ref_count = wrapper->GetRefCount();
+
+        // Add AddRef/Release commands as needed to set object ref count for replay.
+        for (unsigned long i = 1; i < ref_count; ++i)
+        {
+            WriteAddRefCommand(wrapper->GetCaptureId(), i + 1);
+        }
+        for (unsigned long i = 1; i > ref_count; --i)
+        {
+            WriteReleaseCommand(wrapper->GetCaptureId(), i - 1);
+        }
     }
-    for (unsigned long i = 1; i > wrapper->GetRefCount(); --i)
-    {
-        WriteReleaseCommand(wrapper->GetCaptureId(), i - 1);
-    }
+    created_wrappers_.clear();
 }
 
 void Dx12StateWriter::WritePrivateData(format::HandleId handle_id, const DxWrapperInfo& wrapper_info)
@@ -1731,7 +1746,7 @@ void Dx12StateWriter::WriteStateObjectPropertiesState(const Dx12StateTable& stat
         }
 
         WritePrivateData(wrapper->GetCaptureId(), *wrapper_info.get());
-        WriteAddRefAndReleaseCommands(wrapper);
+        QueueAddRefAndReleaseCommands(wrapper);
     });
 }
 

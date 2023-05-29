@@ -88,7 +88,7 @@ class Dx12StateWriter
 
         auto wrapper_info = wrapper->GetObjectInfo();
         StandardCreateWrite(wrapper->GetCaptureId(), *wrapper_info.get());
-        WriteAddRefAndReleaseCommands(wrapper);
+        QueueAddRefAndReleaseCommands(wrapper);
         WritePrivateData(wrapper->GetCaptureId(), *wrapper_info.get());
     }
 
@@ -108,7 +108,9 @@ class Dx12StateWriter
 
     void WriteDescriptorState(const Dx12StateTable& state_table);
 
-    void WriteAddRefAndReleaseCommands(const IUnknown_Wrapper* wrapper);
+    void QueueAddRefAndReleaseCommands(const IUnknown_Wrapper* wrapper);
+
+    void WriteAddRefAndReleaseCommands();
 
     void WritePrivateData(format::HandleId handle_id, const DxWrapperInfo& wrapper_info);
 
@@ -194,6 +196,8 @@ class Dx12StateWriter
     // Track the list of objects that have been written in WriteState.
     std::unordered_set<format::HandleId> written_objects_;
 #endif
+
+    std::map<format::HandleId, const IUnknown_Wrapper*> created_wrappers_;
 
     // Temporary vectors.
     std::vector<uint8_t>           temp_subresource_data_;
