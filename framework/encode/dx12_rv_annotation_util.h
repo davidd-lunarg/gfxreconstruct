@@ -40,10 +40,10 @@ GFXRECON_BEGIN_NAMESPACE(encode)
 class RvAnnotationUtil
 {
   public:
-    static constexpr uint8_t kMaskSizeOfBits = 16;
+    static constexpr uint8_t kMaskSizeOfBits = 24;
 
-    static constexpr uint16_t kGPUVAMask      = 0x7ABC;
-    static constexpr uint16_t kDescriptorMask = 0x5DEF;
+    static constexpr uint64_t kGPUVAMask      = 0x7ABC35;
+    static constexpr uint64_t kDescriptorMask = 0x5DEF73;
     static constexpr uint64_t kShaderIDMask   = 0x57BD37BD12345678ull;
 
 #if defined(WIN32)
