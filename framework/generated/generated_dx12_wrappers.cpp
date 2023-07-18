@@ -14602,13 +14602,17 @@ void STDMETHODCALLTYPE ID3D12GraphicsCommandList_Wrapper::ExecuteIndirect(
             pCountBuffer,
             CountBufferOffset);
 
-        GetWrappedObjectAs<ID3D12GraphicsCommandList>()->ExecuteIndirect(
-            encode::GetWrappedObject<ID3D12CommandSignature>(pCommandSignature),
-            MaxCommandCount,
-            encode::GetWrappedObject<ID3D12Resource>(pArgumentBuffer),
-            ArgumentBufferOffset,
-            encode::GetWrappedObject<ID3D12Resource>(pCountBuffer),
-            CountBufferOffset);
+        auto cmd_sig_wrapper = reinterpret_cast<ID3D12CommandSignature_Wrapper*>(pCommandSignature);
+        if (!cmd_sig_wrapper->contains_resource_value_args_)
+        {
+            GetWrappedObjectAs<ID3D12GraphicsCommandList>()->ExecuteIndirect(
+                encode::GetWrappedObject<ID3D12CommandSignature>(pCommandSignature),
+                MaxCommandCount,
+                encode::GetWrappedObject<ID3D12Resource>(pArgumentBuffer),
+                ArgumentBufferOffset,
+                encode::GetWrappedObject<ID3D12Resource>(pCountBuffer),
+                CountBufferOffset);
+        }
 
         Encode_ID3D12GraphicsCommandList_ExecuteIndirect(
             this,
@@ -18209,6 +18213,26 @@ HRESULT STDMETHODCALLTYPE ID3D12Device_Wrapper::CreateCommandSignature(
             pRootSignature,
             riid,
             ppvCommandSignature);
+
+        // Check if this command list contains arguments that require resource data to be mapped for replay.
+        auto cmd_sig_wrapper = reinterpret_cast<ID3D12CommandSignature_Wrapper*>(*ppvCommandSignature);
+        for (UINT i = 0; i < pDesc->NumArgumentDescs; ++i)
+        {
+            const auto& arg_desc = pDesc->pArgumentDescs[i];
+            switch (arg_desc.Type)
+            {
+                case D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW:
+                case D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW:
+                case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT_BUFFER_VIEW:
+                case D3D12_INDIRECT_ARGUMENT_TYPE_SHADER_RESOURCE_VIEW:
+                case D3D12_INDIRECT_ARGUMENT_TYPE_UNORDERED_ACCESS_VIEW:
+                case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS:
+                    cmd_sig_wrapper->contains_resource_value_args_ = true;
+                    break;
+                default:
+                    break;
+            }
+        }
     }
     else
     {
@@ -22991,10 +23015,10 @@ void STDMETHODCALLTYPE ID3D12GraphicsCommandList4_Wrapper::BuildRaytracingAccele
             NumPostbuildInfoDescs,
             pPostbuildInfoDescs);
 
-        GetWrappedObjectAs<ID3D12GraphicsCommandList4>()->BuildRaytracingAccelerationStructure(
-            pDesc,
-            NumPostbuildInfoDescs,
-            pPostbuildInfoDescs);
+        //GetWrappedObjectAs<ID3D12GraphicsCommandList4>()->BuildRaytracingAccelerationStructure(
+        //    pDesc,
+        //    NumPostbuildInfoDescs,
+        //    pPostbuildInfoDescs);
 
         Encode_ID3D12GraphicsCommandList4_BuildRaytracingAccelerationStructure(
             this,
@@ -23125,10 +23149,10 @@ void STDMETHODCALLTYPE ID3D12GraphicsCommandList4_Wrapper::CopyRaytracingAcceler
             SourceAccelerationStructureData,
             Mode);
 
-        GetWrappedObjectAs<ID3D12GraphicsCommandList4>()->CopyRaytracingAccelerationStructure(
-            DestAccelerationStructureData,
-            SourceAccelerationStructureData,
-            Mode);
+        //GetWrappedObjectAs<ID3D12GraphicsCommandList4>()->CopyRaytracingAccelerationStructure(
+        //    DestAccelerationStructureData,
+        //    SourceAccelerationStructureData,
+        //    Mode);
 
         Encode_ID3D12GraphicsCommandList4_CopyRaytracingAccelerationStructure(
             this,
@@ -23232,8 +23256,8 @@ void STDMETHODCALLTYPE ID3D12GraphicsCommandList4_Wrapper::DispatchRays(
             this,
             pDesc);
 
-        GetWrappedObjectAs<ID3D12GraphicsCommandList4>()->DispatchRays(
-            pDesc);
+        //GetWrappedObjectAs<ID3D12GraphicsCommandList4>()->DispatchRays(
+        //    pDesc);
 
         Encode_ID3D12GraphicsCommandList4_DispatchRays(
             this,

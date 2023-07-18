@@ -842,6 +842,8 @@ class Dx12ReplayConsumerBase : public Dx12Consumer
                                              const uint8_t* data,
                                              uint8_t*       dst_resource_data_ptr);
 
+    void ScanForGPUVA(uint8_t* data, uint64_t size, uint64_t offset);
+
     void ApplyBatchedResourceInitInfo(std::unordered_map<ID3D12Resource*, ResourceInitInfo>& resource_infos);
 
     void SetResourceInitInfoState(ResourceInitInfo&                           resource_info,

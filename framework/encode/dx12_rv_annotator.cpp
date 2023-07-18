@@ -239,6 +239,8 @@ static size_t GetResourceValueSize(format::ResourceValueType type)
 
 void Dx12ResourceValueAnnotator::ScanForGPUVA(uint64_t memory_id, uint8_t* data, uint64_t size, uint64_t offset)
 {
+    return;
+
     bool                                             memory_modified = false;
     std::map<uint64_t, Dx12FillCommandResourceValue> resource_values;
     auto                                             manager                      = D3D12CaptureManager::Get();

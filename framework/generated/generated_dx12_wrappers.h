@@ -1589,6 +1589,8 @@ class ID3D12CommandSignature_Wrapper : public ID3D12Pageable_Wrapper
 
     std::shared_ptr<ID3D12CommandSignatureInfo> GetObjectInfo() { return info_; }
 
+    bool contains_resource_value_args_{ false };
+
   private:
     // Map to prevent creation of more than one interface wrapper per object.
     typedef std::unordered_map<IUnknown*, ID3D12CommandSignature_Wrapper*> ObjectMap;
