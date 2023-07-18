@@ -1919,9 +1919,11 @@ void VulkanCaptureManager::PreProcess_vkFlushMappedMemoryRanges(VkDevice        
                     {
                         manager->ProcessMemoryEntry(
                             current_memory_wrapper->handle_id,
-                            [this](uint64_t memory_id, void* start_address, size_t offset, size_t size) {
-                                WriteFillMemoryCmd(memory_id, offset, size, start_address);
-                            });
+                            [this](uint64_t    memory_id,
+                                   const void* src_address,
+                                   void*       dst_address,
+                                   size_t      offset,
+                                   size_t      size) { WriteFillMemoryCmd(memory_id, offset, size, dst_address); });
                     }
                     else
                     {
@@ -1973,10 +1975,11 @@ void VulkanCaptureManager::PreProcess_vkUnmapMemory(VkDevice device, VkDeviceMem
             util::PageGuardManager* manager = util::PageGuardManager::Get();
             assert(manager != nullptr);
 
-            manager->ProcessMemoryEntry(wrapper->handle_id,
-                                        [this](uint64_t memory_id, void* start_address, size_t offset, size_t size) {
-                                            WriteFillMemoryCmd(memory_id, offset, size, start_address);
-                                        });
+            manager->ProcessMemoryEntry(
+                wrapper->handle_id,
+                [this](uint64_t memory_id, const void* src_address, void* dst_address, size_t offset, size_t size) {
+                    WriteFillMemoryCmd(memory_id, offset, size, dst_address);
+                });
 
             manager->RemoveTrackedMemory(wrapper->handle_id);
         }
@@ -2207,9 +2210,10 @@ void VulkanCaptureManager::QueueSubmitWriteFillMemoryCmd()
         util::PageGuardManager* manager = util::PageGuardManager::Get();
         assert(manager != nullptr);
 
-        manager->ProcessMemoryEntries([this](uint64_t memory_id, void* start_address, size_t offset, size_t size) {
-            WriteFillMemoryCmd(memory_id, offset, size, start_address);
-        });
+        manager->ProcessMemoryEntries(
+            [this](uint64_t memory_id, const void* src_address, void* dst_address, size_t offset, size_t size) {
+                WriteFillMemoryCmd(memory_id, offset, size, dst_address);
+            });
     }
     else if (GetMemoryTrackingMode() == CaptureSettings::MemoryTrackingMode::kUnassisted)
     {

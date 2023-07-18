@@ -60,7 +60,7 @@ class PageGuardManager
     // Callback for processing modified memory.  The function parameters are the ID of the modified memory object,
     // a pointer to the start of the modified memory range, the offset from the initial mapped memory pointer to
     // the modified range pointer, and the size of the modified range.
-    typedef std::function<void(uint64_t, void*, size_t, size_t)> ModifiedMemoryFunc;
+    typedef std::function<void(uint64_t, const void*, void*, size_t, size_t)> ModifiedMemoryFunc;
 
   public:
     static void Create(bool enable_copy_on_map,
@@ -150,7 +150,7 @@ class PageGuardManager
             use_write_watch(ww), is_modified(false), own_shadow_memory(os)
         {
 #if defined(WIN32)
-            if (shadow_memory == nullptr)
+            // if (shadow_memory == nullptr)
             {
                 modified_addresses = std::make_unique<void*[]>(total_pages);
             }

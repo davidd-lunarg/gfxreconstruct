@@ -51,7 +51,7 @@ class Dx12ResourceValueAnnotator
 
     void PostProcessGetGPUVirtualAddress(ID3D12Resource_Wrapper* wrapper, D3D12_GPU_VIRTUAL_ADDRESS result);
 
-    void ScanForGPUVA(uint64_t memory_id, uint8_t* data, uint64_t size, uint64_t offset);
+    void ScanForGPUVA(uint64_t memory_id, const uint8_t* src_data, uint8_t* dst_data, uint64_t size, uint64_t offset);
 
     struct Dx12FillCommandResourceValue
     {

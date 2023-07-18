@@ -237,7 +237,8 @@ static size_t GetResourceValueSize(format::ResourceValueType type)
     }
 }
 
-void Dx12ResourceValueAnnotator::ScanForGPUVA(uint64_t memory_id, uint8_t* data, uint64_t size, uint64_t offset)
+void Dx12ResourceValueAnnotator::ScanForGPUVA(
+    uint64_t memory_id, const uint8_t* src_data, uint8_t* dst_data, uint64_t size, uint64_t offset)
 {
     bool                                             memory_modified = false;
     std::map<uint64_t, Dx12FillCommandResourceValue> resource_values;
@@ -249,45 +250,49 @@ void Dx12ResourceValueAnnotator::ScanForGPUVA(uint64_t memory_id, uint8_t* data,
         constexpr uint64_t stride = 2;
         for (uint64_t index = 0; index <= size - sizeof(uint64_t); index += stride)
         {
-            // check if data contains a previously identified RV
-            if (existing_resource_values_map.count(index + offset) > 0)
-            {
-                auto& existing_rv_data = existing_resource_values_map[index + offset];
-                auto  existing_rv_size = GetResourceValueSize(existing_rv_data.type);
-                bool  match            = true;
-                for (size_t i = 0; i < existing_rv_size && (index + i) < size; ++i)
-                {
-                    if (existing_rv_data.value[i] != data[index + i])
-                    {
-                        match = false;
-                        break;
-                    }
-                }
-                if (match)
-                {
-                    resource_values[index + offset] = existing_rv_data;
-                    index += existing_rv_size - stride;
-                    continue;
-                }
-            }
+            //// check if data contains a previously identified RV
+            // if (existing_resource_values_map.count(index + offset) > 0)
+            //{
+            //    auto& existing_rv_data = existing_resource_values_map[index + offset];
+            //    auto  existing_rv_size = GetResourceValueSize(existing_rv_data.type);
+            //    bool  match            = true;
+            //    for (size_t i = 0; i < existing_rv_size && (index + i) < size; ++i)
+            //    {
+            //        if (existing_rv_data.value[i] != dst_data[index + i])
+            //        {
+            //            match = false;
+            //            break;
+            //        }
+            //    }
+            //    if (match)
+            //    {
+            //        resource_values[index + offset] = existing_rv_data;
+            //        index += existing_rv_size - stride;
+            //        continue;
+            //    }
+            //}
 
             if (index <= size - D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES)
             {
                 uint64_t shader_id_mask;
-                memcpy(&shader_id_mask, data + index + 3 * sizeof(uint64_t), sizeof(uint64_t));
+                memcpy(&shader_id_mask, src_data + index + 3 * sizeof(uint64_t), sizeof(uint64_t));
                 if (shader_id_mask == manager->GetShaderIDMask())
                 {
-                    if (MatchShaderIdentifier(data + index))
+                    std::array<uint8_t, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES> shader_id;
+                    memcpy(shader_id.data(), src_data + index, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+
+                    if (MatchShaderIdentifier(shader_id.data()))
                     {
                         memory_modified = true;
-                        memset(data + index + D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES - sizeof(uint64_t),
+                        memset(shader_id.data() + D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES - sizeof(uint64_t),
                                0x0,
                                sizeof(uint64_t));
+                        memcpy(dst_data + index, shader_id.data(), D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
 
                         Dx12FillCommandResourceValue rv = { index + offset,
                                                             format::ResourceValueType::kShaderIdentifier };
                         std::memcpy(rv.value.data(),
-                                    data + index,
+                                    shader_id.data(),
                                     GetResourceValueSize(format::ResourceValueType::kShaderIdentifier));
 
                         resource_values[index + offset] = std::move(rv);
@@ -299,7 +304,7 @@ void Dx12ResourceValueAnnotator::ScanForGPUVA(uint64_t memory_id, uint8_t* data,
             }
 
             uint64_t data_value;
-            memcpy(&data_value, data + index, sizeof(uint64_t));
+            memcpy(&data_value, src_data + index, sizeof(uint64_t));
             if (data_value != 0x0)
             {
                 uint64_t mask = data_value >> (64 - RvAnnotationUtil::kMaskSizeOfBits);
@@ -309,12 +314,12 @@ void Dx12ResourceValueAnnotator::ScanForGPUVA(uint64_t memory_id, uint8_t* data,
                     if (gpu_va != 0x0 && IsValidGpuVa(gpu_va) == true)
                     {
                         memory_modified = true;
-                        memcpy(data + index, &gpu_va, sizeof(uint64_t));
+                        memcpy(dst_data + index, &gpu_va, sizeof(uint64_t));
 
                         Dx12FillCommandResourceValue rv = { index + offset,
                                                             format::ResourceValueType::kGpuVirtualAddress };
                         std::memcpy(rv.value.data(),
-                                    data + index,
+                                    &gpu_va,
                                     GetResourceValueSize(format::ResourceValueType::kGpuVirtualAddress));
 
                         resource_values[index + offset] = std::move(rv);
@@ -328,12 +333,12 @@ void Dx12ResourceValueAnnotator::ScanForGPUVA(uint64_t memory_id, uint8_t* data,
                     if (handle.ptr != 0x0 && IsValidGPUDescriptorHandle(handle) == true)
                     {
                         memory_modified = true;
-                        memcpy(data + index, &gpu_desc_ptr, sizeof(uint64_t));
+                        memcpy(dst_data + index, &gpu_desc_ptr, sizeof(uint64_t));
 
                         Dx12FillCommandResourceValue rv = { index + offset,
                                                             format::ResourceValueType::kGpuDescriptorHandle };
                         std::memcpy(rv.value.data(),
-                                    data + index,
+                                    &gpu_desc_ptr,
                                     GetResourceValueSize(format::ResourceValueType::kGpuDescriptorHandle));
 
                         resource_values[index + offset] = std::move(rv);
@@ -344,22 +349,22 @@ void Dx12ResourceValueAnnotator::ScanForGPUVA(uint64_t memory_id, uint8_t* data,
         }
     }
 
-    auto lower_iter = existing_resource_values_map.lower_bound(offset);
-    auto upper_iter = existing_resource_values_map.upper_bound(offset + size);
-    existing_resource_values_map.erase(lower_iter, upper_iter);
+    // auto lower_iter = existing_resource_values_map.lower_bound(offset);
+    // auto upper_iter = existing_resource_values_map.upper_bound(offset + size);
+    // existing_resource_values_map.erase(lower_iter, upper_iter);
 
     if (resource_values.size() > 0)
     {
         manager->AddFillMemoryResourceValueCommand(resource_values);
-        existing_resource_values_map.insert(resource_values.begin(), resource_values.end());
+        // existing_resource_values_map.insert(resource_values.begin(), resource_values.end());
     }
-    if (memory_modified == true)
-    {
-        if (ResetWriteWatch(data, size) != 0)
-        {
-            GFXRECON_LOG_ERROR("PageGuardManager failed to reset write-modified pages for memory region.");
-        }
-    }
+    // if (memory_modified == true)
+    //{
+    //    if (ResetWriteWatch(data, size) != 0)
+    //    {
+    //        GFXRECON_LOG_ERROR("PageGuardManager failed to reset write-modified pages for memory region.");
+    //    }
+    //}
 }
 
 GFXRECON_END_NAMESPACE(encode)

@@ -275,7 +275,7 @@ bool PageGuardManager::CheckSignalHandler()
                 instance_->exception_handler_count_ = 0;
                 instance_->signal_handler_lock_.unlock();
 
-                instance_->AddExceptionHandler();
+                // instance_->AddExceptionHandler();
 
                 // Potentially we lost information. Assume everything is dirty
                 instance_->MarkAllTrackedMemoryAsDirty();
@@ -648,7 +648,7 @@ bool PageGuardManager::SetMemoryProtection(void* protect_address, size_t protect
 
 void PageGuardManager::LoadActiveWriteStates(MemoryInfo* memory_info)
 {
-    assert((memory_info != nullptr) && (memory_info->shadow_memory == nullptr));
+    // assert((memory_info != nullptr) && (memory_info->shadow_memory == nullptr));
 
 #if defined(WIN32)
     auto      modified_addresses = memory_info->modified_addresses.get();
@@ -731,7 +731,7 @@ void PageGuardManager::ProcessEntry(uint64_t                  memory_id,
 
                 memory_info->status_tracker.SetActiveReadBlock(i, false);
 
-                SetMemoryProtection(page_address, segment_size, kGuardReadWriteProtect);
+                // SetMemoryProtection(page_address, segment_size, kGuardReadWriteProtect);
             }
 
             // If the previous pages were modified by a write operation, process the modified range now.
@@ -777,7 +777,7 @@ void PageGuardManager::ProcessActiveRange(uint64_t                  memory_id,
         // Page guard was disabled when these pages were accessed.  We enable it now for write, to
         // trap any writes made to the memory while we are performing the copy from shadow memory
         // to mapped memory.
-        SetMemoryProtection(guard_address, guard_range, kGuardReadOnlyProtect);
+        // SetMemoryProtection(guard_address, guard_range, kGuardReadOnlyProtect);
 
         // Copy from shadow memory to the original mapped memory.
         if (start_index == 0)
@@ -795,10 +795,15 @@ void PageGuardManager::ProcessActiveRange(uint64_t                  memory_id,
 
         // The shadow memory address, page offset, and range values to be provided to the callback, which will process
         // the memory range.
-        handle_modified(memory_id, memory_info->shadow_memory, page_offset, page_range);
+        // GFXRECON_LOG_WARNING("1 memory_id: %llu, dest: %llu, offset: %llu, size: %llu",
+        //                     memory_id,
+        //                     source_address,
+        //                     page_offset,
+        //                     page_range);
+        handle_modified(memory_id, memory_info->shadow_memory, memory_info->mapped_memory, page_offset, page_range);
 
         // Reset page guard to detect both read and write accesses when using shadow memory.
-        SetMemoryProtection(guard_address, guard_range, kGuardReadWriteProtect);
+        // SetMemoryProtection(guard_address, guard_range, kGuardReadWriteProtect);
     }
     else
     {
@@ -807,7 +812,7 @@ void PageGuardManager::ProcessActiveRange(uint64_t                  memory_id,
             void* guard_address = static_cast<uint8_t*>(memory_info->aligned_address) + page_offset;
 
             // Reset page guard to detect only write accesses when not using shadow memory.
-            SetMemoryProtection(guard_address, page_range, kGuardReadOnlyProtect);
+            // SetMemoryProtection(guard_address, page_range, kGuardReadOnlyProtect);
         }
 
         // Copy directly from the mapped memory.
@@ -826,7 +831,12 @@ void PageGuardManager::ProcessActiveRange(uint64_t                  memory_id,
 
         // The mapped memory address, page offset, and range values to be provided to the callback, which will process
         // the memory range.
-        handle_modified(memory_id, memory_info->mapped_memory, page_offset, page_range);
+        // GFXRECON_LOG_WARNING("2 memory_id: %llu, dest: %llu, offset: %llu, size: %llu",
+        //                     memory_id,
+        //                     memory_info->mapped_memory,
+        //                     page_offset,
+        //                     page_range);
+        handle_modified(memory_id, memory_info->mapped_memory, memory_info->mapped_memory, page_offset, page_range);
     }
 }
 
@@ -871,20 +881,20 @@ void* PageGuardManager::AddTrackedMemory(uint64_t  memory_id,
 
     if (use_shadow_memory)
     {
-        if (use_write_watch)
-        {
-            // Although it would be possible to track writes to shadow memory with write watch, it is not possible to
-            // track reads, which can require a copy from driver memory to shadow memory.
-            use_write_watch = false;
-            GFXRECON_LOG_WARNING(
-                "PageGuardManager::AddTrackedMemory() ignored use_write_watch=true for mapped memory tracking "
-                "with shadow memory")
-        }
+        // if (use_write_watch)
+        //{
+        //    // Although it would be possible to track writes to shadow memory with write watch, it is not possible to
+        //    // track reads, which can require a copy from driver memory to shadow memory.
+        //    use_write_watch = false;
+        //    GFXRECON_LOG_WARNING(
+        //        "PageGuardManager::AddTrackedMemory() ignored use_write_watch=true for mapped memory tracking "
+        //        "with shadow memory")
+        //}
 
         if (shadow_memory_handle == kNullShadowHandle)
         {
             shadow_size   = GetAlignedSize(mapped_range);
-            shadow_memory = AllocateMemory(shadow_size, false);
+            shadow_memory = AllocateMemory(shadow_size, true);
 
             if (shadow_memory != nullptr)
             {
@@ -994,18 +1004,18 @@ void* PageGuardManager::AddTrackedMemory(uint64_t  memory_id,
 
         if (!use_write_watch)
         {
-            AddExceptionHandler();
+            // AddExceptionHandler();
 
             // When using shadow memory, enable page guard for read and write operations so that shadow memory can be
             // synchronized with the mapped memory on both read and write access.  When not using shadow memory, only
             // detect write access.
             if (use_shadow_memory)
             {
-                success = SetMemoryProtection(aligned_address, guard_range, kGuardReadWriteProtect);
+                // success = SetMemoryProtection(aligned_address, guard_range, kGuardReadWriteProtect);
             }
             else
             {
-                success = SetMemoryProtection(aligned_address, guard_range, kGuardReadOnlyProtect);
+                // success = SetMemoryProtection(aligned_address, guard_range, kGuardReadOnlyProtect);
             }
         }
 
@@ -1033,8 +1043,8 @@ void* PageGuardManager::AddTrackedMemory(uint64_t  memory_id,
             {
                 if (!use_write_watch)
                 {
-                    RemoveExceptionHandler();
-                    SetMemoryProtection(aligned_address, guard_range, kGuardNoProtect);
+                    // RemoveExceptionHandler();
+                    // SetMemoryProtection(aligned_address, guard_range, kGuardNoProtect);
                 }
 
                 if (shadow_memory != nullptr)
@@ -1067,9 +1077,9 @@ void PageGuardManager::RemoveTrackedMemory(uint64_t memory_id)
 
         if (!memory_info.use_write_watch)
         {
-            RemoveExceptionHandler();
-            SetMemoryProtection(
-                memory_info.aligned_address, memory_info.mapped_range + memory_info.aligned_offset, kGuardNoProtect);
+            // RemoveExceptionHandler();
+            // SetMemoryProtection(memory_info.aligned_address, memory_info.mapped_range + memory_info.aligned_offset,
+            // kGuardNoProtect);
         }
 
         if ((memory_info.shadow_memory != nullptr) && memory_info.own_shadow_memory)
@@ -1085,7 +1095,7 @@ uintptr_t PageGuardManager::AllocatePersistentShadowMemory(size_t size)
 {
     ShadowMemoryInfo* info          = nullptr;
     size_t            shadow_size   = GetAlignedSize(size);
-    void*             shadow_memory = AllocateMemory(shadow_size, false);
+    void*             shadow_memory = AllocateMemory(shadow_size, true);
 
     if (shadow_memory != nullptr)
     {
@@ -1181,7 +1191,7 @@ bool PageGuardManager::HandleGuardPageViolation(void* address, bool is_write, bo
         // types except WIN32 PAGE_GUARD).
         if (clear_guard)
         {
-            SetMemoryProtection(page_address, segment_size, kGuardNoProtect);
+            // SetMemoryProtection(page_address, segment_size, kGuardNoProtect);
         }
 
         // For POSIX systems, when compiled without PAGE_GUARD_ENABLE_UCONTEXT_WRITE_DETECTION, is_write is always

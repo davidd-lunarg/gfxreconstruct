@@ -443,14 +443,14 @@ bool D3D12CaptureManager::UseWriteWatch(D3D12_HEAP_TYPE         type,
 
 void D3D12CaptureManager::EnableWriteWatch(D3D12_HEAP_FLAGS& flags, D3D12_HEAP_PROPERTIES& properties)
 {
-    // Set the allow write watch flag to enable use of GetWriteWatch with the mapped heap/resource memory.
-    flags |= D3D12_HEAP_FLAG_ALLOW_WRITE_WATCH;
+    //// Set the allow write watch flag to enable use of GetWriteWatch with the mapped heap/resource memory.
+    // flags |= D3D12_HEAP_FLAG_ALLOW_WRITE_WATCH;
 
-    // Change the heap properties for a custom heap type whose memory will not have the PAGE_WRITECOMBINE property, to
-    // allow efficent reads when copying modified mapped memory pages to the capture file.
-    properties.Type                 = D3D12_HEAP_TYPE_CUSTOM;
-    properties.CPUPageProperty      = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
-    properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+    //// Change the heap properties for a custom heap type whose memory will not have the PAGE_WRITECOMBINE property, to
+    //// allow efficent reads when copying modified mapped memory pages to the capture file.
+    // properties.Type                 = D3D12_HEAP_TYPE_CUSTOM;
+    // properties.CPUPageProperty      = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
+    // properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
 }
 
 bool D3D12CaptureManager::IsUploadResource(D3D12_HEAP_TYPE type, D3D12_CPU_PAGE_PROPERTY page_property)
@@ -1171,15 +1171,14 @@ void D3D12CaptureManager::PostProcess_ID3D12Resource_Map(
 
                         if (info->has_write_watch)
                         {
-                            use_shadow_memory = false;
-                            use_write_watch   = true;
+                            use_write_watch = true;
                         }
-                        else if ((GetPageGuardMemoryMode() == kMemoryModeShadowPersistent) &&
-                                 (mapped_subresource.shadow_allocation == util::PageGuardManager::kNullShadowHandle))
-                        {
-                            mapped_subresource.shadow_allocation =
-                                manager->AllocatePersistentShadowMemory(static_cast<size_t>(size));
-                        }
+
+                        // if (mapped_subresource.shadow_allocation == util::PageGuardManager::kNullShadowHandle)
+                        //{
+                        //    mapped_subresource.shadow_allocation =
+                        //        manager->AllocatePersistentShadowMemory(static_cast<size_t>(size));
+                        //}
 
                         // Return the pointer provided by the pageguard manager, which may be a pointer to shadow
                         // memory, not the mapped memory.
@@ -1286,18 +1285,24 @@ void D3D12CaptureManager::PreProcess_ID3D12Resource_Unmap(ID3D12Resource_Wrapper
 
                             auto memory_id = reinterpret_cast<uint64_t>(mapped_subresource.data);
 
-                            manager->ProcessMemoryEntry(
-                                memory_id, [this](uint64_t memory_id, void* start_address, size_t offset, size_t size) {
-                                    if (RvAnnotationActive() == true)
-                                    {
-                                        resource_value_annotator_->ScanForGPUVA(
-                                            memory_id,
-                                            reinterpret_cast<uint8_t*>(start_address) + offset,
-                                            size,
-                                            offset);
-                                    }
-                                    WriteFillMemoryCmd(memory_id, offset, size, start_address);
-                                });
+                            manager->ProcessMemoryEntry(memory_id,
+                                                        [this](uint64_t    memory_id,
+                                                               const void* src_address,
+                                                               void*       dst_address,
+                                                               size_t      offset,
+                                                               size_t      size) {
+                                                            if (RvAnnotationActive() == true)
+                                                            {
+                                                                resource_value_annotator_->ScanForGPUVA(
+                                                                    memory_id,
+                                                                    reinterpret_cast<const uint8_t*>(src_address) +
+                                                                        offset,
+                                                                    reinterpret_cast<uint8_t*>(dst_address) + offset,
+                                                                    size,
+                                                                    offset);
+                                                            }
+                                                            // WriteFillMemoryCmd(memory_id, offset, size, dst_address);
+                                                        });
 
                             manager->RemoveTrackedMemory(memory_id);
                         }
@@ -1315,6 +1320,7 @@ void D3D12CaptureManager::PreProcess_ID3D12Resource_Unmap(ID3D12Resource_Wrapper
                             {
                                 resource_value_annotator_->ScanForGPUVA(
                                     reinterpret_cast<uint64_t>(mapped_subresource.data),
+                                    reinterpret_cast<uint8_t*>(mapped_subresource.data) + offset,
                                     reinterpret_cast<uint8_t*>(mapped_subresource.data) + offset,
                                     size,
                                     offset);
@@ -1611,14 +1617,18 @@ void D3D12CaptureManager::PreProcess_ID3D12CommandQueue_ExecuteCommandLists(ID3D
         util::PageGuardManager* manager = util::PageGuardManager::Get();
         assert(manager != nullptr);
 
-        manager->ProcessMemoryEntries([this](uint64_t memory_id, void* start_address, size_t offset, size_t size) {
-            if (RvAnnotationActive() == true)
-            {
-                resource_value_annotator_->ScanForGPUVA(
-                    memory_id, reinterpret_cast<uint8_t*>(start_address) + offset, size, offset);
-            }
-            WriteFillMemoryCmd(memory_id, offset, size, start_address);
-        });
+        manager->ProcessMemoryEntries(
+            [this](uint64_t memory_id, const void* src_address, void* dst_address, size_t offset, size_t size) {
+                if (RvAnnotationActive() == true)
+                {
+                    resource_value_annotator_->ScanForGPUVA(memory_id,
+                                                            reinterpret_cast<const uint8_t*>(src_address) + offset,
+                                                            reinterpret_cast<uint8_t*>(dst_address) + offset,
+                                                            size,
+                                                            offset);
+                }
+                // WriteFillMemoryCmd(memory_id, offset, size, dst_address);
+            });
     }
     else if (GetMemoryTrackingMode() == CaptureSettings::MemoryTrackingMode::kUnassisted)
     {
@@ -1640,6 +1650,7 @@ void D3D12CaptureManager::PreProcess_ID3D12CommandQueue_ExecuteCommandLists(ID3D
                     if (RvAnnotationActive() == true)
                     {
                         resource_value_annotator_->ScanForGPUVA(reinterpret_cast<uint64_t>(mapped_subresource.data),
+                                                                reinterpret_cast<uint8_t*>(mapped_subresource.data),
                                                                 reinterpret_cast<uint8_t*>(mapped_subresource.data),
                                                                 size,
                                                                 0);
