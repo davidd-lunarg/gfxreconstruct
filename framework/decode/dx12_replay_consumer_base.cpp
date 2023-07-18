@@ -35,6 +35,8 @@
 #include "util/image_writer.h"
 #include "util/to_string.h"
 
+#include "encode/dx12_rv_annotation_util.h"
+
 #include <dxgidebug.h>
 
 #include <cassert>
@@ -167,8 +169,8 @@ Dx12ReplayConsumerBase::Dx12ReplayConsumerBase(std::shared_ptr<application::Appl
     DetectAdapters();
 
     auto get_object_func = std::bind(&Dx12ReplayConsumerBase::GetObjectInfo, this, std::placeholders::_1);
-    resource_value_mapper_ =
-        std::make_unique<Dx12ResourceValueMapper>(get_object_func, shader_id_map_, gpu_va_map_, descriptor_map_);
+    resource_value_mapper_ = nullptr;
+    // std::make_unique<Dx12ResourceValueMapper>(get_object_func, shader_id_map_, gpu_va_map_, descriptor_map_);
 }
 
 #ifdef GFXRECON_AGS_SUPPORT
@@ -331,6 +333,90 @@ void Dx12ReplayConsumerBase::ProcessFrameEndMarker(uint64_t frame_number)
     ++frame_end_marker_count_;
 }
 
+void Dx12ReplayConsumerBase::ScanForGPUVA(uint8_t* data, uint64_t size, uint64_t offset)
+{
+    constexpr uint64_t stride = sizeof(uint64_t);
+
+    uint64_t gpu_va_count    = 0;
+    uint64_t gpu_desc_count  = 0;
+    uint64_t shader_id_count = 0;
+
+    if (size >= sizeof(uint64_t))
+    {
+        for (uint64_t index = 0; index <= size - sizeof(uint64_t); index += stride)
+        {
+            if (index <= size - D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES)
+            {
+                uint64_t shader_id_mask;
+
+                auto mask_size_bytes   = sizeof(encode::RvAnnotationUtil::kShaderIDMask);
+                auto mask_offset_bytes = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES - mask_size_bytes;
+                memcpy(&shader_id_mask, data + index + mask_offset_bytes, mask_size_bytes);
+
+                if (shader_id_mask == encode::RvAnnotationUtil::kShaderIDMask)
+                {
+                    memset(data + index + mask_offset_bytes, 0x0, mask_size_bytes);
+
+                    if (shader_id_map_.Map(data + index, data + index))
+                    {
+                        index += D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES - stride;
+                        ++shader_id_count;
+                        continue;
+                    }
+                }
+            }
+
+            uint64_t data_value;
+            memcpy(&data_value, data + index, sizeof(uint64_t));
+            if (data_value != 0x0)
+            {
+                uint64_t mask = data_value >> (64 - encode::RvAnnotationUtil::kMaskSizeOfBits);
+
+                if (mask == encode::RvAnnotationUtil::kGPUVAMask)
+                {
+                    uint64_t gpu_va = data_value & (~0x0ui64 >> encode::RvAnnotationUtil::kMaskSizeOfBits);
+                    bool     found  = false;
+                    gpu_va          = gpu_va_map_.Map(gpu_va, nullptr, &found);
+                    if (found)
+                    {
+                        memcpy(data + index, &gpu_va, sizeof(uint64_t));
+                        ++gpu_va_count;
+                        index += sizeof(uint64_t) - stride;
+                        continue;
+                    }
+                }
+                else if (mask == encode::RvAnnotationUtil::kDescriptorMask)
+                {
+                    uint64_t gpu_desc_ptr = data_value & (~0x0ui64 >> encode::RvAnnotationUtil::kMaskSizeOfBits);
+                    D3D12_GPU_DESCRIPTOR_HANDLE handle = { gpu_desc_ptr };
+                    if (handle.ptr != 0x0)
+                    {
+                        handle.ptr = handle.ptr & (~0x0ui64 >> encode::RvAnnotationUtil::kMaskSizeOfBits);
+                        bool found = false;
+                        descriptor_map_.GetGpuAddress(handle, &found);
+                        if (found)
+                        {
+                            memcpy(data + index, &handle.ptr, sizeof(uint64_t));
+                            ++gpu_desc_count;
+                            index += sizeof(uint64_t) - stride;
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // if ((shader_id_count + gpu_va_count + gpu_desc_count) > 0)
+    //{
+    //    GFXRECON_LOG_ERROR("ScanForGpuVa: %llu, %llu, %llu, %llu",
+    //                       GetCurrentBlockIndex(),
+    //                       shader_id_count,
+    //                       gpu_va_count,
+    //                       gpu_desc_count);
+    //}
+}
+
 void Dx12ReplayConsumerBase::ProcessFillMemoryCommand(uint64_t       memory_id,
                                                       uint64_t       offset,
                                                       uint64_t       size,
@@ -345,9 +431,11 @@ void Dx12ReplayConsumerBase::ProcessFillMemoryCommand(uint64_t       memory_id,
         auto copy_size      = static_cast<size_t>(size);
         auto mapped_pointer = static_cast<uint8_t*>(entry->second.data_pointer) + offset;
 
+        ScanForGPUVA(const_cast<uint8_t*>(data), size, 0);
+
         util::platform::MemoryCopy(mapped_pointer, copy_size, data, copy_size);
 
-        ApplyFillMemoryResourceValueCommand(offset, size, data, static_cast<uint8_t*>(entry->second.data_pointer));
+        // ApplyFillMemoryResourceValueCommand(offset, size, data, static_cast<uint8_t*>(entry->second.data_pointer));
 
         if (resource_value_mapper_ != nullptr)
         {
@@ -642,14 +730,20 @@ void Dx12ReplayConsumerBase::ProcessInitSubresourceCommand(const format::InitSub
         // Prepare Staging buffer for next resource
         resource_init_info.staging_resource = resource_data_util_->CreateStagingBuffer(
             graphics::Dx12ResourceDataUtil::CopyType::kCopyTypeWrite, required_data_size);
-        SetResourceInitInfoState(resource_init_info, command_header, data);
 
-        // Only for buffer resources (which contain 1 subresource), map any resource values contained in the data.
         if (command_header.subresource == 0)
         {
-            ApplyFillMemoryResourceValueCommand(
-                0, resource_init_info.subresource_sizes[0], data, resource_init_info.data.data());
+            ScanForGPUVA(const_cast<uint8_t*>(data), resource_init_info.subresource_sizes[0], 0);
         }
+
+        SetResourceInitInfoState(resource_init_info, command_header, data);
+
+        //// Only for buffer resources (which contain 1 subresource), map any resource values contained in the data.
+        // if (command_header.subresource == 0)
+        //{
+        //    ApplyFillMemoryResourceValueCommand(
+        //        0, resource_init_info.subresource_sizes[0], data, resource_init_info.data.data());
+        //}
 
         resource_init_infos_.insert(std::make_pair(resource, resource_init_info));
     }

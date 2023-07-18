@@ -377,17 +377,16 @@ bool CommonCaptureManager::Initialize(format::ApiFamilyId                   api_
     rv_annotation_info_.rv_annotation = trace_settings.rv_anotation_info.rv_annotation;
     if (rv_annotation_info_.rv_annotation == true)
     {
-        force_file_flush_            = true;
-        force_command_serialization_ = true;
-        if (trace_settings.rv_anotation_info.annotation_mask_rand == true)
-        {
-            rv_annotation_info_.gpuva_mask      = static_cast<uint16_t>(std::rand() % 0xffff);
-            rv_annotation_info_.descriptor_mask = ~rv_annotation_info_.gpuva_mask;
-        }
-        GFXRECON_LOG_INFO(
-            "Resource value annotation capture enabled, GPU virtual address mask = %04x Descriptor handle mask = %04x",
-            rv_annotation_info_.gpuva_mask,
-            rv_annotation_info_.descriptor_mask);
+        // force_file_flush_            = true;
+        // force_command_serialization_ = true;
+        // if (trace_settings.rv_anotation_info.annotation_mask_rand == true)
+        //{
+        //    rv_annotation_info_.gpuva_mask      = static_cast<uint16_t>(std::rand() % 0xffff);
+        //    rv_annotation_info_.descriptor_mask = ~rv_annotation_info_.gpuva_mask;
+        //}
+        // GFXRECON_LOG_INFO(
+        //    "Resource value annotation capture enabled, GPU virtual address mask = %04x Descriptor handle mask =
+        //    %04x", rv_annotation_info_.gpuva_mask, rv_annotation_info_.descriptor_mask);
     }
 
     if (memory_tracking_mode_ == CaptureSettings::kPageGuard || memory_tracking_mode_ == CaptureSettings::kUserfaultfd)
