@@ -35,8 +35,15 @@ void RvAnnotationUtil::AddRvAnnotation(D3D12_GPU_VIRTUAL_ADDRESS* result)
         auto manager = D3D12CaptureManager::Get();
         if (manager->IsAnnotated() == true)
         {
-            uint64_t mask = manager->GetGPUVAMask();
-            *result       = *result | (mask << (64 - kMaskSizeOfBits));
+            if (((*result) & (~0x0ui64 << (64 - RvAnnotationUtil::kMaskSizeOfBits))) != 0x0)
+            {
+                GFXRECON_LOG_ERROR_ONCE("Insufficient bits available in GPUVA for RV annotation");
+            }
+            else
+            {
+                uint64_t mask = manager->GetGPUVAMask();
+                *result       = *result | (mask << (64 - kMaskSizeOfBits));
+            }
         }
     }
 }

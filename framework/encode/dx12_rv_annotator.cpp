@@ -179,32 +179,32 @@ bool Dx12ResourceValueAnnotator::MatchShaderIdentifier(const uint8_t* data)
 void Dx12ResourceValueAnnotator::PostProcessGetGPUVirtualAddress(ID3D12Resource_Wrapper*   wrapper,
                                                                  D3D12_GPU_VIRTUAL_ADDRESS result)
 {
-    static bool bCheckedGPUVABits = false;
-    if (bCheckedGPUVABits == false)
-    {
-        ID3D12Device* device = nullptr;
-        HRESULT       result = wrapper->GetDevice(IID_PPV_ARGS(&device));
-        if (result == S_OK)
-        {
-            D3D12_FEATURE_DATA_GPU_VIRTUAL_ADDRESS_SUPPORT feature_data{};
-            device->CheckFeatureSupport(D3D12_FEATURE_GPU_VIRTUAL_ADDRESS_SUPPORT,
-                                        &feature_data,
-                                        sizeof(D3D12_FEATURE_DATA_GPU_VIRTUAL_ADDRESS_SUPPORT));
-            UINT maxGPUVAbits =
-                feature_data.MaxGPUVirtualAddressBitsPerResource >= feature_data.MaxGPUVirtualAddressBitsPerProcess
-                    ? feature_data.MaxGPUVirtualAddressBitsPerResource
-                    : feature_data.MaxGPUVirtualAddressBitsPerProcess;
-            if (maxGPUVAbits <= (64 - RvAnnotationUtil::kMaskSizeOfBits))
-            {
-                bCheckedGPUVABits = true;
-            }
-            else
-            {
-                GFXRECON_LOG_ERROR_ONCE("Insufficient bits available in GPUVA for RV annotation");
-            }
-            device->Release();
-        }
-    }
+    // static bool bCheckedGPUVABits = false;
+    // if (bCheckedGPUVABits == false)
+    //{
+    //    ID3D12Device* device = nullptr;
+    //    HRESULT       result = wrapper->GetDevice(IID_PPV_ARGS(&device));
+    //    if (result == S_OK)
+    //    {
+    //        D3D12_FEATURE_DATA_GPU_VIRTUAL_ADDRESS_SUPPORT feature_data{};
+    //        device->CheckFeatureSupport(D3D12_FEATURE_GPU_VIRTUAL_ADDRESS_SUPPORT,
+    //                                    &feature_data,
+    //                                    sizeof(D3D12_FEATURE_DATA_GPU_VIRTUAL_ADDRESS_SUPPORT));
+    //        UINT maxGPUVAbits =
+    //            feature_data.MaxGPUVirtualAddressBitsPerResource >= feature_data.MaxGPUVirtualAddressBitsPerProcess
+    //                ? feature_data.MaxGPUVirtualAddressBitsPerResource
+    //                : feature_data.MaxGPUVirtualAddressBitsPerProcess;
+    //        if (maxGPUVAbits <= (64 - RvAnnotationUtil::kMaskSizeOfBits))
+    //        {
+    //            bCheckedGPUVABits = true;
+    //        }
+    //        else
+    //        {
+    //            GFXRECON_LOG_ERROR_ONCE("Insufficient bits available in GPUVA for RV annotation");
+    //        }
+    //        device->Release();
+    //    }
+    //}
 
     auto resource_info = wrapper->GetObjectInfo();
     if (resource_info->dimension == D3D12_RESOURCE_DIMENSION_BUFFER)

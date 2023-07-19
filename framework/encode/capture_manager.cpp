@@ -255,8 +255,10 @@ bool CaptureManager::Initialize(std::string base_filename, const CaptureSettings
     queue_zero_only_                 = trace_settings.queue_zero_only;
     allow_pipeline_compile_required_ = trace_settings.allow_pipeline_compile_required;
 
-    rv_annotation_info_.gpuva_mask      = trace_settings.rv_anotation_info.gpuva_mask;
-    rv_annotation_info_.descriptor_mask = trace_settings.rv_anotation_info.descriptor_mask;
+    rv_annotation_info_.gpuva_mask = RvAnnotationUtil::kGPUVAMask;
+    // trace_settings.rv_anotation_info.gpuva_mask;
+    rv_annotation_info_.descriptor_mask = RvAnnotationUtil::kDescriptorMask;
+    // trace_settings.rv_anotation_info.descriptor_mask;
 
     rv_annotation_info_.rv_annotation = trace_settings.rv_anotation_info.rv_annotation;
     if (rv_annotation_info_.rv_annotation == true)
@@ -265,12 +267,13 @@ bool CaptureManager::Initialize(std::string base_filename, const CaptureSettings
         // force_command_serialization_ = true;
         // if (trace_settings.rv_anotation_info.annotation_mask_rand == true)
         //{
-        //    rv_annotation_info_.gpuva_mask      = static_cast<uint16_t>(std::rand() % 0xffff);
+        //    rv_annotation_info_.gpuva_mask      = static_cast<uint64_t>(std::rand() % 0xffffff);
         //    rv_annotation_info_.descriptor_mask = ~rv_annotation_info_.gpuva_mask;
         //}
-        // GFXRECON_LOG_INFO(
-        //    "Resource value annotation capture enabled, GPU virtual address mask = %04x Descriptor handle mask =
-        //    %04x", rv_annotation_info_.gpuva_mask, rv_annotation_info_.descriptor_mask);
+        GFXRECON_LOG_INFO("Resource value annotation capture enabled, GPU virtual address mask = 0x%llX Descriptor "
+                          "handle mask = 0x%llX",
+                          rv_annotation_info_.gpuva_mask,
+                          rv_annotation_info_.descriptor_mask);
     }
 
     if (memory_tracking_mode_ == CaptureSettings::kPageGuard)

@@ -77,8 +77,8 @@ class CaptureSettings
         // Annotated GPUVA mask definition
         bool     rv_annotation{ false };
         bool     annotation_mask_rand{ false };
-        uint16_t gpuva_mask{ RvAnnotationUtil::kGPUVAMask };
-        uint16_t descriptor_mask{ RvAnnotationUtil::kDescriptorMask };
+        uint64_t gpuva_mask{ RvAnnotationUtil::kGPUVAMask };
+        uint64_t descriptor_mask{ RvAnnotationUtil::kDescriptorMask };
     };
 
     struct TraceSettings
