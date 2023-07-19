@@ -182,8 +182,8 @@ class ApiCaptureManager
     auto GetSkipThreadsWithInvalidData() const { return common_manager_->GetSkipThreadsWithInvalidData(); }
 
     bool     IsAnnotated() const { return common_manager_->IsAnnotated(); }
-    uint16_t GetGPUVAMask() const { return common_manager_->GetGPUVAMask(); }
-    uint16_t GetDescriptorMask() const { return common_manager_->GetDescriptorMask(); }
+    uint64_t GetGPUVAMask() const { return common_manager_->GetGPUVAMask(); }
+    uint64_t GetDescriptorMask() const { return common_manager_->GetDescriptorMask(); }
     uint64_t GetShaderIDMask() const { return common_manager_->GetShaderIDMask(); }
     uint64_t GetBlockIndex() const { return common_manager_->GetBlockIndex(); }
     void     SetWriteAssets() const { return common_manager_->SetWriteAssets(); }

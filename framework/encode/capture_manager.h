@@ -257,26 +257,26 @@ class CommonCaptureManager
         return allow_pipeline_compile_required_;
     }
 
+    auto GetSkipThreadsWithInvalidData() const
+    {
+        return skip_threads_with_invalid_data_;
+    }
+
     bool IsAnnotated() const
     {
         return rv_annotation_info_.rv_annotation;
     }
-    uint16_t GetGPUVAMask() const
+    uint64_t GetGPUVAMask() const
     {
         return rv_annotation_info_.gpuva_mask;
     }
-    uint16_t GetDescriptorMask() const
+    uint64_t GetDescriptorMask() const
     {
         return rv_annotation_info_.descriptor_mask;
     }
     uint64_t GetShaderIDMask() const
     {
         return rv_annotation_info_.shaderid_mask;
-    }
-
-    auto GetSkipThreadsWithInvalidData() const
-    {
-        return skip_threads_with_invalid_data_;
     }
 
     uint64_t GetBlockIndex()
@@ -593,8 +593,8 @@ class CommonCaptureManager
     struct
     {
         bool     rv_annotation{ false };
-        uint16_t gpuva_mask{ RvAnnotationUtil::kGPUVAMask };
-        uint16_t descriptor_mask{ RvAnnotationUtil::kDescriptorMask };
+        uint64_t gpuva_mask{ RvAnnotationUtil::kGPUVAMask };
+        uint64_t descriptor_mask{ RvAnnotationUtil::kDescriptorMask };
         uint64_t shaderid_mask{ RvAnnotationUtil::kShaderIDMask };
     } rv_annotation_info_;
 
