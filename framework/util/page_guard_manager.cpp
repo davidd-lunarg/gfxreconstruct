@@ -1147,6 +1147,7 @@ void PageGuardManager::ProcessMemoryEntries(const ModifiedMemoryFunc& handle_mod
 {
     std::lock_guard<std::mutex> lock(tracked_memory_lock_);
 
+    // std::vector<std::thread> threads;
     for (auto entry = memory_info_.begin(); entry != memory_info_.end(); ++entry)
     {
         auto memory_info = &entry->second;
@@ -1160,9 +1161,15 @@ void PageGuardManager::ProcessMemoryEntries(const ModifiedMemoryFunc& handle_mod
 
         if (memory_info->is_modified)
         {
+            // threads.push_back(
+            //    std::thread(&PageGuardManager::ProcessEntry, this, entry->first, memory_info, handle_modified));
             ProcessEntry(entry->first, memory_info, handle_modified);
         }
     }
+    // for (auto& thread : threads)
+    //{
+    //    thread.join();
+    //}
 }
 
 bool PageGuardManager::HandleGuardPageViolation(void* address, bool is_write, bool clear_guard)

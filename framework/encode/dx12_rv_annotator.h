@@ -33,6 +33,8 @@
 #include <map>
 #include <vector>
 
+#include "graphics/dx12_gpu_va_map.h"
+
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
 GFXRECON_BEGIN_NAMESPACE(encode)
 
@@ -40,11 +42,11 @@ class Dx12ResourceValueAnnotator
 {
   public:
     void RemoveObjectGPUVA(IUnknown_Wrapper* resource_wrapper);
-    void AddNewRangeofGPUVA(uint64_t start_address, uint64_t end_address);
+    void AddNewRangeofGPUVA(format::HandleId resource_id, uint64_t start_address, uint64_t width);
     void AddDescriptorHandleStart(ID3D12DescriptorHeap_Wrapper* wrapper, D3D12_GPU_DESCRIPTOR_HANDLE result);
     void SetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE type, uint8_t increment_size);
     void AddShaderID(graphics::Dx12ShaderIdentifier shader_id);
-    void RemoveGPUVA(D3D12_GPU_VIRTUAL_ADDRESS start_address);
+    void RemoveGPUVA(format::HandleId resource_id, D3D12_GPU_VIRTUAL_ADDRESS start_address);
     bool IsValidGpuVa(D3D12_GPU_VIRTUAL_ADDRESS address);
     bool IsValidGPUDescriptorHandle(D3D12_GPU_DESCRIPTOR_HANDLE handle);
     bool MatchShaderIdentifier(const uint8_t* data);
@@ -61,7 +63,7 @@ class Dx12ResourceValueAnnotator
     };
 
   private:
-    std::map<uint64_t, uint64_t, std::greater<uint64_t>> gpuva_map_;
+    // std::map<uint64_t, uint64_t, std::greater<uint64_t>> gpuva_map_;
     uint64_t                                             low_gpuva{ 0 };
     uint64_t                                             high_gpuva{ 0 };
     std::map<uint64_t, D3D12_DESCRIPTOR_HEAP_DESC>       descriptor_map_;
@@ -72,6 +74,12 @@ class Dx12ResourceValueAnnotator
     std::set<graphics::Dx12ShaderIdentifier> shader_ids_;
 
     std::map<uint64_t, std::map<uint64_t, Dx12FillCommandResourceValue>> resource_values_map_;
+
+    static thread_local std::vector<uint8_t> scratch_space_;
+
+    graphics::Dx12GpuVaMap gpu_va_map_;
+
+    std::shared_mutex write_mutex_;
 };
 
 GFXRECON_END_NAMESPACE(encode)
