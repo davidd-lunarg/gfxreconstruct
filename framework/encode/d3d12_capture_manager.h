@@ -44,7 +44,30 @@ GFXRECON_BEGIN_NAMESPACE(encode)
 class D3D12CaptureManager : public CaptureManager
 {
   public:
-    static D3D12CaptureManager* Get() { return instance_; }
+    static D3D12CaptureManager* Get()
+    {
+        // if (instance_ && instance_->GetMemoryTrackingMode() == CaptureSettings::MemoryTrackingMode::kPageGuard)
+        //{
+        //    util::PageGuardManager* manager = util::PageGuardManager::Get();
+        //    if(manager)
+        //    {
+        //        manager->ProcessMemoryEntries(
+        //            [](
+        //                uint64_t memory_id, const void* src_address, void* dst_address, size_t offset, size_t size) {
+        //                if (instance_->RvAnnotationActive() == true)
+        //                {
+        //                    instance_->resource_value_annotator_->ScanForGPUVA(
+        //                        memory_id,
+        //                        reinterpret_cast<const uint8_t*>(src_address) + offset,
+        //                        reinterpret_cast<uint8_t*>(dst_address) + offset,
+        //                        size,
+        //                        offset);
+        //                }
+        //            });
+        //    }
+        //}
+        return instance_;
+    }
 
     // Creates the capture manager instance if none exists, or increments a reference count if an instance already
     // exists.

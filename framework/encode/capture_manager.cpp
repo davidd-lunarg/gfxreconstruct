@@ -942,7 +942,7 @@ void CaptureManager::WriteFillMemoryCmd(format::HandleId memory_id, uint64_t off
 
         format::FillMemoryCommandHeader fill_cmd;
         size_t                          header_size       = sizeof(format::FillMemoryCommandHeader);
-        const uint8_t*                  uncompressed_data = (static_cast<const uint8_t*>(data) + offset);
+        const uint8_t*                  uncompressed_data = static_cast<const uint8_t*>(data);
         size_t                          uncompressed_size = static_cast<size_t>(size);
 
         auto thread_data = GetThreadData();

@@ -789,9 +789,9 @@ void PageGuardManager::ProcessActiveRange(uint64_t                  memory_id,
             page_offset -= memory_info->aligned_offset;
         }
 
-        void* source_address      = static_cast<uint8_t*>(memory_info->shadow_memory) + page_offset;
-        void* destination_address = static_cast<uint8_t*>(memory_info->mapped_memory) + page_offset;
-        MemoryCopy(destination_address, source_address, page_range);
+        // void* source_address      = static_cast<uint8_t*>(memory_info->shadow_memory) + page_offset;
+        // void* destination_address = static_cast<uint8_t*>(memory_info->mapped_memory) + page_offset;
+        // MemoryCopy(destination_address, source_address, page_range);
 
         // The shadow memory address, page offset, and range values to be provided to the callback, which will process
         // the memory range.

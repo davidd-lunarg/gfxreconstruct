@@ -263,6 +263,7 @@ class CaptureManager
 
     void WriteResizeWindowCmd(format::HandleId surface_id, uint32_t width, uint32_t height);
 
+  public:
     void WriteFillMemoryCmd(format::HandleId memory_id, uint64_t offset, uint64_t size, const void* data);
 
     void WriteCreateHeapAllocationCmd(uint64_t allocation_id, uint64_t allocation_size);

@@ -1301,7 +1301,7 @@ void D3D12CaptureManager::PreProcess_ID3D12Resource_Unmap(ID3D12Resource_Wrapper
                                                                     size,
                                                                     offset);
                                                             }
-                                                            WriteFillMemoryCmd(memory_id, offset, size, dst_address);
+                                                            // WriteFillMemoryCmd(memory_id, offset, size, dst_address);
                                                         });
 
                             manager->RemoveTrackedMemory(memory_id);
@@ -1325,10 +1325,10 @@ void D3D12CaptureManager::PreProcess_ID3D12Resource_Unmap(ID3D12Resource_Wrapper
                                     size,
                                     offset);
                             }
-                            WriteFillMemoryCmd(reinterpret_cast<uint64_t>(mapped_subresource.data),
-                                               offset,
-                                               size,
-                                               mapped_subresource.data);
+                            // WriteFillMemoryCmd(reinterpret_cast<uint64_t>(mapped_subresource.data),
+                            //                   offset,
+                            //                   size,
+                            //                   mapped_subresource.data);
 
                             bool is_mapped = false;
 
@@ -1627,7 +1627,7 @@ void D3D12CaptureManager::PreProcess_ID3D12CommandQueue_ExecuteCommandLists(ID3D
                                                             size,
                                                             offset);
                 }
-                WriteFillMemoryCmd(memory_id, offset, size, dst_address);
+                // WriteFillMemoryCmd(memory_id, offset, size, dst_address);
             });
     }
     else if (GetMemoryTrackingMode() == CaptureSettings::MemoryTrackingMode::kUnassisted)
@@ -1655,8 +1655,8 @@ void D3D12CaptureManager::PreProcess_ID3D12CommandQueue_ExecuteCommandLists(ID3D
                                                                 size,
                                                                 0);
                     }
-                    WriteFillMemoryCmd(
-                        reinterpret_cast<uint64_t>(mapped_subresource.data), 0, size, mapped_subresource.data);
+                    // WriteFillMemoryCmd(
+                    //    reinterpret_cast<uint64_t>(mapped_subresource.data), 0, size, mapped_subresource.data);
                 }
             }
         }

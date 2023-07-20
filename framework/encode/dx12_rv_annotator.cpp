@@ -245,41 +245,26 @@ void Dx12ResourceValueAnnotator::ScanForGPUVA(
     auto                                             manager                      = D3D12CaptureManager::Get();
     auto&                                            existing_resource_values_map = resource_values_map_[memory_id];
 
+    static std::vector<uint8_t> temp_data;
+    if (temp_data.size() < size)
+    {
+        temp_data.resize(size);
+    }
+    memcpy(temp_data.data(), src_data, size);
+
     if (size >= sizeof(uint64_t))
     {
         constexpr uint64_t stride = 2;
         for (uint64_t index = 0; index <= size - sizeof(uint64_t); index += stride)
         {
-            //// check if data contains a previously identified RV
-            // if (existing_resource_values_map.count(index + offset) > 0)
-            //{
-            //    auto& existing_rv_data = existing_resource_values_map[index + offset];
-            //    auto  existing_rv_size = GetResourceValueSize(existing_rv_data.type);
-            //    bool  match            = true;
-            //    for (size_t i = 0; i < existing_rv_size && (index + i) < size; ++i)
-            //    {
-            //        if (existing_rv_data.value[i] != dst_data[index + i])
-            //        {
-            //            match = false;
-            //            break;
-            //        }
-            //    }
-            //    if (match)
-            //    {
-            //        resource_values[index + offset] = existing_rv_data;
-            //        index += existing_rv_size - stride;
-            //        continue;
-            //    }
-            //}
-
             if (index <= size - D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES)
             {
                 uint64_t shader_id_mask;
-                memcpy(&shader_id_mask, src_data + index + 3 * sizeof(uint64_t), sizeof(uint64_t));
+                memcpy(&shader_id_mask, temp_data.data() + index + 3 * sizeof(uint64_t), sizeof(uint64_t));
                 if (shader_id_mask == manager->GetShaderIDMask())
                 {
                     std::array<uint8_t, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES> shader_id;
-                    memcpy(shader_id.data(), src_data + index, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+                    memcpy(shader_id.data(), temp_data.data() + index, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
 
                     if (MatchShaderIdentifier(shader_id.data()))
                     {
@@ -287,7 +272,7 @@ void Dx12ResourceValueAnnotator::ScanForGPUVA(
                         memset(shader_id.data() + D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES - sizeof(uint64_t),
                                0x0,
                                sizeof(uint64_t));
-                        memcpy(dst_data + index, shader_id.data(), D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+                        memcpy(temp_data.data() + index, shader_id.data(), D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
 
                         Dx12FillCommandResourceValue rv = { index + offset,
                                                             format::ResourceValueType::kShaderIdentifier };
@@ -304,7 +289,7 @@ void Dx12ResourceValueAnnotator::ScanForGPUVA(
             }
 
             uint64_t data_value;
-            memcpy(&data_value, src_data + index, sizeof(uint64_t));
+            memcpy(&data_value, temp_data.data() + index, sizeof(uint64_t));
             if (data_value != 0x0)
             {
                 uint64_t mask = data_value >> (64 - RvAnnotationUtil::kMaskSizeOfBits);
@@ -314,7 +299,7 @@ void Dx12ResourceValueAnnotator::ScanForGPUVA(
                     if (gpu_va != 0x0 && IsValidGpuVa(gpu_va) == true)
                     {
                         memory_modified = true;
-                        memcpy(dst_data + index, &gpu_va, sizeof(uint64_t));
+                        memcpy(temp_data.data() + index, &gpu_va, sizeof(uint64_t));
 
                         Dx12FillCommandResourceValue rv = { index + offset,
                                                             format::ResourceValueType::kGpuVirtualAddress };
@@ -333,7 +318,7 @@ void Dx12ResourceValueAnnotator::ScanForGPUVA(
                     if (handle.ptr != 0x0 && IsValidGPUDescriptorHandle(handle) == true)
                     {
                         memory_modified = true;
-                        memcpy(dst_data + index, &gpu_desc_ptr, sizeof(uint64_t));
+                        memcpy(temp_data.data() + index, &gpu_desc_ptr, sizeof(uint64_t));
 
                         Dx12FillCommandResourceValue rv = { index + offset,
                                                             format::ResourceValueType::kGpuDescriptorHandle };
@@ -349,22 +334,12 @@ void Dx12ResourceValueAnnotator::ScanForGPUVA(
         }
     }
 
-    // auto lower_iter = existing_resource_values_map.lower_bound(offset);
-    // auto upper_iter = existing_resource_values_map.upper_bound(offset + size);
-    // existing_resource_values_map.erase(lower_iter, upper_iter);
-
+    memcpy(dst_data, temp_data.data(), size);
     if (resource_values.size() > 0)
     {
         manager->AddFillMemoryResourceValueCommand(resource_values);
-        // existing_resource_values_map.insert(resource_values.begin(), resource_values.end());
     }
-    // if (memory_modified == true)
-    //{
-    //    if (ResetWriteWatch(data, size) != 0)
-    //    {
-    //        GFXRECON_LOG_ERROR("PageGuardManager failed to reset write-modified pages for memory region.");
-    //    }
-    //}
+    D3D12CaptureManager::Get()->WriteFillMemoryCmd(memory_id, offset, size, temp_data.data());
 }
 
 GFXRECON_END_NAMESPACE(encode)
