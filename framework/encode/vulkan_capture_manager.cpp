@@ -84,10 +84,20 @@ void VulkanCaptureManager::DestroyInstance()
     CaptureManager::DestroyInstance([]() -> const CaptureManager* { return instance_; });
 }
 
-void VulkanCaptureManager::WriteTrackedState(util::FileOutputStream* file_stream, format::ThreadId thread_id)
+void VulkanCaptureManager::WriteTrackedState(util::FileOutputStream* file_stream,
+                                             format::ThreadId        thread_id,
+                                             bool                    restore)
 {
     VulkanStateWriter state_writer(file_stream, compressor_.get(), thread_id);
-    uint64_t          n_blocks = state_tracker_->WriteState(&state_writer, GetCurrentFrame());
+    uint64_t          n_blocks = 0;
+    if (restore)
+    {
+        GFXRECON_LOG_ERROR("Not supported for Vulkan.");
+    }
+    else
+    {
+        n_blocks = state_tracker_->WriteState(&state_writer, GetCurrentFrame());
+    }
     block_index_ += n_blocks;
 
     auto thread_data          = GetThreadData();

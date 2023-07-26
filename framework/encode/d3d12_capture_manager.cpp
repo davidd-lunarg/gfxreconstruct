@@ -158,10 +158,19 @@ void D3D12CaptureManager::EndCommandListMethodCallCapture(ID3D12CommandList_Wrap
     EndMethodCallCapture();
 }
 
-void D3D12CaptureManager::WriteTrackedState(util::FileOutputStream* file_stream, format::ThreadId thread_id)
+void D3D12CaptureManager::WriteTrackedState(util::FileOutputStream* file_stream,
+                                            format::ThreadId        thread_id,
+                                            bool                    restore)
 {
     Dx12StateWriter state_writer(file_stream, compressor_.get(), thread_id);
-    state_tracker_->WriteState(&state_writer, GetCurrentFrame());
+    if (restore)
+    {
+        state_tracker_->WriteRestoreState(&state_writer, GetCurrentFrame());
+    }
+    else
+    {
+        state_tracker_->WriteState(&state_writer, GetCurrentFrame());
+    }
 }
 
 void D3D12CaptureManager::PreAcquireSwapChainImages(IDXGISwapChain_Wrapper* wrapper,

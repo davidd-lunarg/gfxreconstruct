@@ -694,7 +694,8 @@ class D3D12CaptureManager : public CaptureManager
 
     virtual void DestroyStateTracker() override { state_tracker_ = nullptr; }
 
-    virtual void WriteTrackedState(util::FileOutputStream* file_stream, format::ThreadId thread_id) override;
+    virtual void
+    WriteTrackedState(util::FileOutputStream* file_stream, format::ThreadId thread_id, bool restore) override;
 
     void PreAcquireSwapChainImages(IDXGISwapChain_Wrapper* wrapper,
                                    IUnknown*               command_queue,

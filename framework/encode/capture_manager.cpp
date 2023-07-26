@@ -891,9 +891,9 @@ void CaptureManager::ActivateTrimming()
     capture_mode_ |= kModeWrite;
 
     auto thread_data = GetThreadData();
-    assert(thread_data != nullptr);
+    GFXRECON_ASSERT(thread_data != nullptr);
 
-    WriteTrackedState(file_stream_.get(), thread_data->thread_id_);
+    WriteTrackedState(file_stream_.get(), thread_data->thread_id_, false);
 }
 
 void CaptureManager::DeactivateTrimming()
@@ -902,6 +902,11 @@ void CaptureManager::DeactivateTrimming()
 
     assert(file_stream_);
     file_stream_->Flush();
+
+    auto thread_data = GetThreadData();
+    GFXRECON_ASSERT(thread_data != nullptr);
+    WriteTrackedState(file_stream_.get(), thread_data->thread_id_, true);
+
     file_stream_ = nullptr;
 }
 

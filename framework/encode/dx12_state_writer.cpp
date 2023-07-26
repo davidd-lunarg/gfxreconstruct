@@ -38,7 +38,8 @@ Dx12StateWriter::Dx12StateWriter(util::FileOutputStream* output_stream,
                                  util::Compressor*       compressor,
                                  format::ThreadId        thread_id) :
     output_stream_(output_stream),
-    compressor_(compressor), thread_id_(thread_id), encoder_(&parameter_stream_)
+    compressor_(compressor), thread_id_(thread_id), encoder_(&parameter_stream_), saved_state_(nullptr),
+    save_state_(false), restore_state_(false)
 {
     assert(output_stream != nullptr);
 }
@@ -48,9 +49,16 @@ Dx12StateWriter::~Dx12StateWriter() {}
 #ifdef GFXRECON_AGS_SUPPORT
 void Dx12StateWriter::WriteState(const Dx12StateTable& state_table,
                                  const AgsStateTable&  ags_state_table,
-                                 uint64_t              frame_number)
+                                 uint64_t              frame_number,
+                                 Dx12SavedState*       saved_state,
+                                 bool                  save_state,
+                                 bool                  restore_state)
 #else
-void Dx12StateWriter::WriteState(const Dx12StateTable& state_table, uint64_t frame_number)
+void Dx12StateWriter::WriteState(const Dx12StateTable& state_table,
+                                 uint64_t              frame_number,
+                                 Dx12SavedState*       saved_state,
+                                 bool                  save_state,
+                                 bool                  restore_state)
 #endif // GFXRECON_AGS_SUPPORT
 {
 #if GFXRECON_DEBUG_WRITTEN_OBJECTS
@@ -67,11 +75,20 @@ void Dx12StateWriter::WriteState(const Dx12StateTable& state_table, uint64_t fra
     // Wait for command queues to complete all pending work.
     WaitForCommandQueues(state_table);
 
+    saved_state_   = saved_state;
+    save_state_    = save_state;
+    restore_state_ = restore_state;
+
+    // saved_state_ must be valid if save_state_ or restore state are set.
+    GFXRECON_ASSERT(((saved_state_ != nullptr) || (!save_state_ && !restore_state_)));
+
     // Debug objects
-    WriteEnableDebugLayer();
+    if (!restore_state_)
+        WriteEnableDebugLayer();
     StandardCreateWrite<ID3D12Debug_Wrapper>(state_table);
     StandardCreateWrite<ID3D12Debug1_Wrapper>(state_table);
-    WriteEnableDRED();
+    if (!restore_state_)
+        WriteEnableDRED();
     StandardCreateWrite<ID3D12DeviceRemovedExtendedDataSettings_Wrapper>(state_table);
 
     // DXGI objects
@@ -89,8 +106,10 @@ void Dx12StateWriter::WriteState(const Dx12StateTable& state_table, uint64_t fra
 
 #ifdef GFXRECON_AGS_SUPPORT
     // AGS calls
-    WriteAgsInitialize(ags_state_table);
-    WriteAgsDriverExtensionsDX12CreateDevice(ags_state_table);
+    if (!restore_state_)
+        WriteAgsInitialize(ags_state_table);
+    if (!restore_state_)
+        WriteAgsDriverExtensionsDX12CreateDevice(ags_state_table);
 #endif // GFXRECON_AGS_SUPPORT
 
     // Device
@@ -102,24 +121,30 @@ void Dx12StateWriter::WriteState(const Dx12StateTable& state_table, uint64_t fra
 
     // Write this out before rendering begins
     // This ensures the replayer gets a chance to process the metadata command
-    D3D12CaptureManager::Get()->WriteDxgiAdapterInfo();
-    D3D12CaptureManager::Get()->WriteDx12DriverInfo();
-    D3D12CaptureManager::Get()->WriteDx12RuntimeInfo();
+    if (!restore_state_)
+    {
+        D3D12CaptureManager::Get()->WriteDxgiAdapterInfo();
+        D3D12CaptureManager::Get()->WriteDx12DriverInfo();
+        D3D12CaptureManager::Get()->WriteDx12RuntimeInfo();
+    }
 
     // Queue
     StandardCreateWrite<ID3D12CommandQueue_Wrapper>(state_table);
 
     // Swap chain
-    WriteSwapChainState(state_table);
+    if (!restore_state_)
+        WriteSwapChainState(state_table);
     StandardCreateWrite<IDXGISwapChainMedia_Wrapper>(state_table);
     StandardCreateWrite<ID3D12SwapChainAssistant_Wrapper>(state_table);
 
     // Fences
-    WriteFenceState(state_table);
+    if (!restore_state_)
+        WriteFenceState(state_table);
 
     // Heaps
     StandardCreateWrite<ID3D10Blob_Wrapper>(state_table);
-    WriteHeapState(state_table);
+    if (!restore_state_)
+        WriteHeapState(state_table);
 
     // Root signatures
     StandardCreateWrite<ID3D12RootSignature_Wrapper>(state_table);
@@ -127,18 +152,23 @@ void Dx12StateWriter::WriteState(const Dx12StateTable& state_table, uint64_t fra
     StandardCreateWrite<ID3D12VersionedRootSignatureDeserializer_Wrapper>(state_table);
 
     // State objects
-    WriteStateObjectsState(state_table);
-    WriteStateObjectPropertiesState(state_table);
+    if (!restore_state_)
+        WriteStateObjectsState(state_table);
+    if (!restore_state_)
+        WriteStateObjectPropertiesState(state_table);
 
     // Resources and descriptors
     std::unordered_map<format::HandleId, std::vector<ResourceSnapshotInfo>> resource_snapshots;
     std::unordered_map<format::HandleId, uint64_t>                          max_resource_sizes;
-    WriteResourceCreationState(state_table, resource_snapshots, max_resource_sizes);
-    WriteDescriptorState(state_table);
+    if (!restore_state_)
+        WriteResourceCreationState(state_table, resource_snapshots, max_resource_sizes);
+    if (!restore_state_)
+        WriteDescriptorState(state_table);
 
     // The resource snapshots must be written after the descriptors in order to support resource value mapping for
     // optimized DXR replay.
-    WriteResourceSnapshots(resource_snapshots, max_resource_sizes);
+    if (!restore_state_)
+        WriteResourceSnapshots(resource_snapshots, max_resource_sizes);
 
     // Other
     StandardCreateWrite<ID3D12DeviceRemovedExtendedData_Wrapper>(state_table);
@@ -165,13 +195,16 @@ void Dx12StateWriter::WriteState(const Dx12StateTable& state_table, uint64_t fra
     StandardCreateWrite<ID3D12InfoQueue_Wrapper>(state_table);
 
     // Acceleration structures
-    WriteAccelerationStructuresState(state_table);
+    if (!restore_state_)
+        WriteAccelerationStructuresState(state_table);
 
     // Command lists
     StandardCreateWrite<ID3D12CommandAllocator_Wrapper>(state_table);
     StandardCreateWrite<ID3D12CommandSignature_Wrapper>(state_table);
-    WriteResidencyPriority(state_table);
-    WriteCommandListState(state_table);
+    if (!restore_state_)
+        WriteResidencyPriority(state_table);
+    if (!restore_state_)
+        WriteCommandListState(state_table);
 
     // TODO: Determine dependencies for creation of ID3D12VirtualizationGuestDevice
     // Since the dependency chain is unclear, just write their state at the very end
@@ -179,6 +212,10 @@ void Dx12StateWriter::WriteState(const Dx12StateTable& state_table, uint64_t fra
 
     marker.marker_type = format::kEndMarker;
     output_stream_->Write(&marker, sizeof(marker));
+
+    saved_state_   = nullptr;
+    save_state_    = false;
+    restore_state_ = false;
 }
 
 void Dx12StateWriter::StandardCreateWrite(format::HandleId object_id, const DxWrapperInfo& wrapper_info)
@@ -359,7 +396,7 @@ void Dx12StateWriter::WriteMethodCall(format::ApiCallId         call_id,
 void Dx12StateWriter::WriteHeapState(const Dx12StateTable& state_table)
 {
     std::set<util::MemoryOutputStream*> processed;
-    state_table.VisitWrappers([&](const ID3D12Heap_Wrapper* wrapper) {
+    state_table.VisitWrappers([&](format::HandleId id, const ID3D12Heap_Wrapper* wrapper) {
         assert(wrapper != nullptr);
         assert(wrapper->GetObjectInfo() != nullptr);
         assert(wrapper->GetObjectInfo()->create_parameters != nullptr);
@@ -407,7 +444,7 @@ bool Dx12StateWriter::WriteCreateHeapAllocationCmd(const void* address)
 void Dx12StateWriter::WriteDescriptorState(const Dx12StateTable& state_table)
 {
     std::set<util::MemoryOutputStream*> processed;
-    state_table.VisitWrappers([&](ID3D12DescriptorHeap_Wrapper* heap_wrapper) {
+    state_table.VisitWrappers([&](format::HandleId id, ID3D12DescriptorHeap_Wrapper* heap_wrapper) {
         assert(heap_wrapper != nullptr);
         assert(heap_wrapper->GetWrappedObject() != nullptr);
         assert(heap_wrapper->GetObjectInfo() != nullptr);
@@ -489,16 +526,18 @@ void Dx12StateWriter::WriteDescriptorState(const Dx12StateTable& state_table)
     });
 }
 
-void Dx12StateWriter::WriteAddRefAndReleaseCommands(const IUnknown_Wrapper* wrapper)
+void Dx12StateWriter::WriteAddRefAndReleaseCommands(format::HandleId id,
+                                                    unsigned long    current_ref_count,
+                                                    unsigned long    target_ref_count)
 {
     // Add AddRef/Release commands as needed to set object ref count for replay.
-    for (unsigned long i = 1; i < wrapper->GetRefCount(); ++i)
+    for (unsigned long i = current_ref_count; i < target_ref_count; ++i)
     {
-        WriteAddRefCommand(wrapper->GetCaptureId(), i + 1);
+        WriteAddRefCommand(id, i + 1);
     }
-    for (unsigned long i = 1; i > wrapper->GetRefCount(); --i)
+    for (unsigned long i = current_ref_count; i > target_ref_count; --i)
     {
-        WriteReleaseCommand(wrapper->GetCaptureId(), i - 1);
+        WriteReleaseCommand(id, i - 1);
     }
 }
 
@@ -563,7 +602,7 @@ void Dx12StateWriter::WriteResourceCreationState(
     resource_snapshots.clear();
     max_resource_sizes.clear();
 
-    state_table.VisitWrappers([&](ID3D12Resource_Wrapper* resource_wrapper) {
+    state_table.VisitWrappers([&](format::HandleId id, ID3D12Resource_Wrapper* resource_wrapper) {
         assert(resource_wrapper != nullptr);
         assert(resource_wrapper->GetWrappedObject() != nullptr);
         assert(resource_wrapper->GetObjectInfo() != nullptr);
@@ -981,7 +1020,7 @@ void Dx12StateWriter::WaitForCommandQueues(const Dx12StateTable& state_table)
 {
     const UINT64 kSignalValue = 1;
 
-    state_table.VisitWrappers([&](ID3D12CommandQueue_Wrapper* queue_wrapper) {
+    state_table.VisitWrappers([&](format::HandleId id, ID3D12CommandQueue_Wrapper* queue_wrapper) {
         assert(queue_wrapper != nullptr);
         assert(queue_wrapper->GetWrappedObject() != nullptr);
 
@@ -999,7 +1038,7 @@ void Dx12StateWriter::WaitForCommandQueues(const Dx12StateTable& state_table)
 
 void Dx12StateWriter::WriteFenceState(const Dx12StateTable& state_table)
 {
-    state_table.VisitWrappers([&](ID3D12Fence_Wrapper* fence_wrapper) {
+    state_table.VisitWrappers([&](format::HandleId id, ID3D12Fence_Wrapper* fence_wrapper) {
         assert(fence_wrapper != nullptr);
         assert(fence_wrapper->GetWrappedObject() != nullptr);
         assert(fence_wrapper->GetObjectInfo() != nullptr);
@@ -1052,7 +1091,7 @@ void Dx12StateWriter::WriteFenceState(const Dx12StateTable& state_table)
 
 void Dx12StateWriter::WriteResidencyPriority(const Dx12StateTable& state_table)
 {
-    state_table.VisitWrappers([&](ID3D12Device_Wrapper* device_wrapper) {
+    state_table.VisitWrappers([&](format::HandleId id, ID3D12Device_Wrapper* device_wrapper) {
         GFXRECON_ASSERT(device_wrapper != nullptr);
         GFXRECON_ASSERT(device_wrapper->GetObjectInfo() != nullptr);
 
@@ -1088,7 +1127,7 @@ void Dx12StateWriter::WriteCommandListState(const Dx12StateTable& state_table)
     std::vector<ID3D12CommandList_Wrapper*> direct_command_lists;
     std::vector<ID3D12CommandList_Wrapper*> open_command_lists;
 
-    state_table.VisitWrappers([&](ID3D12CommandList_Wrapper* list_wrapper) {
+    state_table.VisitWrappers([&](format::HandleId id, ID3D12CommandList_Wrapper* list_wrapper) {
         GFXRECON_ASSERT(list_wrapper != nullptr);
         GFXRECON_ASSERT(list_wrapper->GetWrappedObject() != nullptr);
         GFXRECON_ASSERT(list_wrapper->GetObjectInfo() != nullptr);
@@ -1356,7 +1395,7 @@ bool Dx12StateWriter::CheckDescriptorObjects(const DxDescriptorInfo& descriptor_
 
 void Dx12StateWriter::WriteSwapChainState(const Dx12StateTable& state_table)
 {
-    state_table.VisitWrappers([&](IDXGISwapChain_Wrapper* swapchain_wrapper) {
+    state_table.VisitWrappers([&](format::HandleId id, IDXGISwapChain_Wrapper* swapchain_wrapper) {
         GFXRECON_ASSERT(swapchain_wrapper != nullptr);
         GFXRECON_ASSERT(swapchain_wrapper->GetWrappedObject() != nullptr);
         GFXRECON_ASSERT(swapchain_wrapper->GetObjectInfo() != nullptr);
@@ -1470,7 +1509,7 @@ void Dx12StateWriter::WriteAccelerationStructuresState(const Dx12StateTable& sta
     std::map<uint64_t, const DxAccelerationStructureBuildInfo*> build_infos;
 
     // Find all acceleration structures that exist on resources.
-    state_table.VisitWrappers([&](ID3D12Resource_Wrapper* resource_wrapper) {
+    state_table.VisitWrappers([&](format::HandleId id, ID3D12Resource_Wrapper* resource_wrapper) {
         GFXRECON_ASSERT(resource_wrapper != nullptr);
         GFXRECON_ASSERT(resource_wrapper->GetObjectInfo() != nullptr);
 
@@ -1729,7 +1768,7 @@ void Dx12StateWriter::WriteStateObjectAndDependency(const format::HandleId      
 void Dx12StateWriter::WriteStateObjectsState(const Dx12StateTable& state_table)
 {
     std::unordered_set<format::HandleId> written_objs;
-    state_table.VisitWrappers([&](const ID3D12StateObject_Wrapper* state_object_wrapper) {
+    state_table.VisitWrappers([&](format::HandleId id, const ID3D12StateObject_Wrapper* state_object_wrapper) {
         GFXRECON_ASSERT(state_object_wrapper != nullptr);
         GFXRECON_ASSERT(state_object_wrapper->GetObjectInfo() != nullptr);
         GFXRECON_ASSERT(state_object_wrapper->GetObjectInfo()->create_parameters != nullptr);
@@ -1741,7 +1780,7 @@ void Dx12StateWriter::WriteStateObjectsState(const Dx12StateTable& state_table)
 
 void Dx12StateWriter::WriteStateObjectPropertiesState(const Dx12StateTable& state_table)
 {
-    state_table.VisitWrappers([&](const ID3D12StateObjectProperties_Wrapper* wrapper) {
+    state_table.VisitWrappers([&](format::HandleId id, const ID3D12StateObjectProperties_Wrapper* wrapper) {
         GFXRECON_ASSERT(wrapper != nullptr);
         GFXRECON_ASSERT(wrapper->GetObjectInfo() != nullptr);
 
@@ -1759,7 +1798,7 @@ void Dx12StateWriter::WriteStateObjectPropertiesState(const Dx12StateTable& stat
         }
 
         WritePrivateData(wrapper->GetCaptureId(), *wrapper_info.get());
-        WriteAddRefAndReleaseCommands(wrapper);
+        WriteAddRefAndReleaseCommands(wrapper->GetCaptureId(), 1, wrapper->GetRefCount());
     });
 }
 

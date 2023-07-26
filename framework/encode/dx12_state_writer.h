@@ -28,6 +28,7 @@
 #include "encode/custom_ags_state_table.h"
 #endif // GFXRECON_AGS_SUPPORT
 #include "encode/parameter_encoder.h"
+#include "encode/dx12_saved_state.h"
 #include "format/format.h"
 #include "graphics/dx12_gpu_va_map.h"
 #include "graphics/dx12_resource_data_util.h"
@@ -53,13 +54,21 @@ class Dx12StateWriter
     Dx12StateWriter(util::FileOutputStream* output_stream, util::Compressor* compressor, format::ThreadId thread_id);
 
     ~Dx12StateWriter();
-    
-#ifdef GFXRECON_AGS_SUPPORT
-    void WriteState(const Dx12StateTable& state_table, const AgsStateTable& ags_state_table, uint64_t frame_number);
-#else
-    void WriteState(const Dx12StateTable& state_table, uint64_t frame_number);
-#endif // GFXRECON_AGS_SUPPORT
 
+#ifdef GFXRECON_AGS_SUPPORT
+    void WriteState(const Dx12StateTable& state_table,
+                    const AgsStateTable&  ags_state_table,
+                    uint64_t              frame_number,
+                    Dx12SavedState*       saved_state,
+                    bool                  save_state,
+                    bool                  restore_state);
+#else
+    void WriteState(const Dx12StateTable& state_table,
+                    uint64_t              frame_number,
+                    Dx12SavedState*       saved_state,
+                    bool                  save_state,
+                    bool                  restore_state);
+#endif // GFXRECON_AGS_SUPPORT
 
   private:
     struct ResourceSnapshotInfo
@@ -71,21 +80,59 @@ class Dx12StateWriter
     template <typename Wrapper>
     void StandardCreateWrite(const Dx12StateTable& state_table)
     {
-        std::set<util::MemoryOutputStream*> processed;
-        state_table.VisitWrappers([&](const Wrapper* wrapper) {
-            assert(wrapper != nullptr);
-            assert(wrapper->GetObjectInfo() != nullptr);
-            assert(wrapper->GetObjectInfo()->create_parameters != nullptr);
+        if (!restore_state_)
+        {
+            std::set<util::MemoryOutputStream*> processed;
+            state_table.VisitWrappers([&](format::HandleId id, const Wrapper* wrapper) {
+                assert(wrapper != nullptr);
+                assert(wrapper->GetObjectInfo() != nullptr);
+                assert(wrapper->GetObjectInfo()->create_parameters != nullptr);
 
-            // Filter duplicate entries for calls that create multiple objects, where objects created by the same call
-            // all reference the same parameter buffer.
-            auto wrapper_info = wrapper->GetObjectInfo();
-            if (processed.find(wrapper_info->create_parameters.get()) == processed.end())
-            {
-                StandardCreateWrite(wrapper);
-                processed.insert(wrapper_info->create_parameters.get());
-            }
-        });
+                // Filter duplicate entries for calls that create multiple objects, where objects created by the same
+                // call all reference the same parameter buffer.
+                auto wrapper_info = wrapper->GetObjectInfo();
+                if (processed.find(wrapper_info->create_parameters.get()) == processed.end())
+                {
+                    if (save_state_)
+                    {
+                        saved_state_->SaveObjectState(wrapper->GetCaptureId(), wrapper->GetRefCount(), wrapper_info);
+                    }
+
+                    StandardCreateWrite(wrapper);
+                    processed.insert(wrapper_info->create_parameters.get());
+                }
+            });
+        }
+        else
+        {
+            saved_state_->VisitWrappersForReset<Wrapper>(state_table, [&](format::HandleId id, const Wrapper* wrapper) {
+                auto saved_object = saved_state_->GetSavedObjectState(wrapper->GetCaptureId());
+                if (saved_object == nullptr)
+                {
+                    // If the object doesn't exist in the saved state, release it.
+                    WriteAddRefAndReleaseCommands(wrapper->GetCaptureId(), wrapper->GetRefCount(), 0);
+                }
+                else
+                {
+                    // If the object only exists in the saved state, recreate it.
+                    if (wrapper == nullptr)
+                    {
+                        auto saved_object_state = saved_state_->GetSavedObjectState(id);
+                        GFXRECON_ASSERT(saved_object_state != nullptr);
+
+                        StandardCreateWrite(id, *saved_object_state->saved_object_info.get());
+                        WriteAddRefAndReleaseCommands(id, 1, saved_object_state->ref_count);
+                        WritePrivateData(id, *saved_object_state->saved_object_info.get());
+                    }
+                    // If the object exists in both the saved and current state, match ref count to saved state.
+                    else
+                    {
+                        WriteAddRefAndReleaseCommands(
+                            wrapper->GetCaptureId(), wrapper->GetRefCount(), saved_object->ref_count);
+                    }
+                }
+            });
+        }
     }
 
     template <typename Wrapper>
@@ -97,7 +144,7 @@ class Dx12StateWriter
 
         auto wrapper_info = wrapper->GetObjectInfo();
         StandardCreateWrite(wrapper->GetCaptureId(), *wrapper_info.get());
-        WriteAddRefAndReleaseCommands(wrapper);
+        WriteAddRefAndReleaseCommands(wrapper->GetCaptureId(), 1, wrapper->GetRefCount());
         WritePrivateData(wrapper->GetCaptureId(), *wrapper_info.get());
     }
 
@@ -117,7 +164,8 @@ class Dx12StateWriter
 
     void WriteDescriptorState(const Dx12StateTable& state_table);
 
-    void WriteAddRefAndReleaseCommands(const IUnknown_Wrapper* wrapper);
+    void
+    WriteAddRefAndReleaseCommands(format::HandleId id, unsigned long current_ref_count, unsigned long target_ref_count);
 
     void WritePrivateData(format::HandleId handle_id, const DxWrapperInfo& wrapper_info);
 
@@ -215,6 +263,10 @@ class Dx12StateWriter
     std::vector<uint64_t>          temp_subresource_sizes_;
     std::vector<uint64_t>          temp_subresource_offsets_;
     std::vector<DxTileMappingInfo> temp_tile_mappings_;
+
+    Dx12SavedState* saved_state_;
+    bool            save_state_;
+    bool            restore_state_;
 };
 
 GFXRECON_END_NAMESPACE(encode)

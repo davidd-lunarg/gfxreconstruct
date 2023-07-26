@@ -229,9 +229,9 @@ class CaptureManager
 
     bool Initialize(std::string base_filename, const CaptureSettings::TraceSettings& trace_settings);
 
-    virtual void CreateStateTracker()                                                               = 0;
-    virtual void DestroyStateTracker()                                                              = 0;
-    virtual void WriteTrackedState(util::FileOutputStream* file_stream, format::ThreadId thread_id) = 0;
+    virtual void CreateStateTracker()                                                                             = 0;
+    virtual void DestroyStateTracker()                                                                            = 0;
+    virtual void WriteTrackedState(util::FileOutputStream* file_stream, format::ThreadId thread_id, bool restore) = 0;
 
     ThreadData* GetThreadData()
     {
