@@ -106,8 +106,8 @@ class Dx12StateWriter
         else
         {
             saved_state_->VisitWrappersForReset<Wrapper>(state_table, [&](format::HandleId id, const Wrapper* wrapper) {
-                auto saved_object = saved_state_->GetSavedObjectState(wrapper->GetCaptureId());
-                if (saved_object == nullptr)
+                auto saved_object_state = saved_state_->GetSavedObjectState(id);
+                if (saved_object_state == nullptr)
                 {
                     // If the object doesn't exist in the saved state, release it.
                     WriteAddRefAndReleaseCommands(wrapper->GetCaptureId(), wrapper->GetRefCount(), 0);
@@ -117,18 +117,17 @@ class Dx12StateWriter
                     // If the object only exists in the saved state, recreate it.
                     if (wrapper == nullptr)
                     {
-                        auto saved_object_state = saved_state_->GetSavedObjectState(id);
                         GFXRECON_ASSERT(saved_object_state != nullptr);
-
-                        StandardCreateWrite(id, *saved_object_state->saved_object_info.get());
+                        StandardCreateWrite(id, *saved_object_state->object_info.get());
                         WriteAddRefAndReleaseCommands(id, 1, saved_object_state->ref_count);
-                        WritePrivateData(id, *saved_object_state->saved_object_info.get());
+                        WritePrivateData(id, *saved_object_state->object_info.get());
                     }
                     // If the object exists in both the saved and current state, match ref count to saved state.
                     else
                     {
-                        WriteAddRefAndReleaseCommands(
-                            wrapper->GetCaptureId(), wrapper->GetRefCount(), saved_object->ref_count);
+                        GFXRECON_ASSERT(wrapper->GetCaptureId() == id);
+
+                        WriteAddRefAndReleaseCommands(id, wrapper->GetRefCount(), saved_object_state->ref_count);
                     }
                 }
             });

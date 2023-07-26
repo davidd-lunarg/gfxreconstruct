@@ -82,6 +82,7 @@ enum BlockType : uint32_t
     kFunctionCallBlock           = 4,
     kAnnotation                  = 5,
     kMethodCallBlock             = 6,
+    kRestoreStateMarkerBlock     = 7,
     kCompressedMetaDataBlock     = MakeCompressedBlockType(kMetaDataBlock),
     kCompressedFunctionCallBlock = MakeCompressedBlockType(kFunctionCallBlock),
     kCompressedMethodCallBlock   = MakeCompressedBlockType(kMethodCallBlock),

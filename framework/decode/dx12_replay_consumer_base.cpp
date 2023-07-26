@@ -503,7 +503,7 @@ void Dx12ReplayConsumerBase::ProcessSetSwapchainImageStateQueueSubmit(ID3D12Comm
     swapchain->GetDesc(&swap_chain_desc);
     auto buffer_count = swap_chain_desc.BufferCount;
 
-    for (uint32_t n = 0; n < buffer_count; ++n)
+    for (uint32_t n = swapchain->GetCurrentBackBufferIndex(); n < buffer_count; ++n)
     {
         // When the index buffer matches the buffer during capture, exit the loop.
         if (n == current_buffer_index)

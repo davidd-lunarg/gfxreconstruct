@@ -36,8 +36,19 @@ GFXRECON_BEGIN_NAMESPACE(encode)
 struct Dx12SavedObjectState
 {
     unsigned long                        ref_count{ 0 };
-    std::shared_ptr<const DxWrapperInfo> saved_object_info{ nullptr };
-    void*                                extra_saved_state{ nullptr };
+    std::shared_ptr<const DxWrapperInfo> object_info{ nullptr };
+};
+
+struct Dx12SavedSwapChainState : Dx12SavedObjectState
+{
+    DxResizeBuffersInfo resize_info{};
+    uint32_t            last_presented_image{ 0 };
+};
+
+struct Dx12SavedFenceState : Dx12SavedObjectState
+{
+    UINT64                                completed_value{ 0 };
+    std::map<UINT64, std::vector<HANDLE>> pending_events;
 };
 
 class Dx12SavedState
@@ -48,23 +59,23 @@ class Dx12SavedState
     // Combines the wrappers of type Wrapper in state_table with those in saved_state_table_ and visits each unique
     // wrapper.
     template <typename Wrapper>
-    void VisitWrappersForReset(const Dx12StateTable&                                    current_state_table,
-                               std::function<void(format::HandleId id, const Wrapper*)> visitor)
+    void VisitWrappersForReset(const Dx12StateTable&                              current_state_table,
+                               std::function<void(format::HandleId id, Wrapper*)> visitor)
     {
         temp_combined_wrappers.clear();
 
-        saved_state_table_.VisitWrappers([&](format::HandleId id, const Wrapper* wrapper) {
+        saved_state_table_.VisitWrappers([&](format::HandleId id, Wrapper* wrapper) {
             // Wrappers in the saved state table may no longer be valid. Mark as nullptr here and only set when visiting
             // the wrappers in the current state table.
             temp_combined_wrappers[id] = nullptr;
         });
-        current_state_table.VisitWrappers([&](format::HandleId id, const Wrapper* wrapper) {
-            temp_combined_wrappers[id] = reinterpret_cast<const void*>(wrapper);
+        current_state_table.VisitWrappers([&](format::HandleId id, Wrapper* wrapper) {
+            temp_combined_wrappers[id] = reinterpret_cast<void*>(wrapper);
         });
 
-        for (const auto& id_wrapper_pair : temp_combined_wrappers)
+        for (auto& id_wrapper_pair : temp_combined_wrappers)
         {
-            visitor(id_wrapper_pair.first, reinterpret_cast<const Wrapper*>(id_wrapper_pair.second));
+            visitor(id_wrapper_pair.first, reinterpret_cast<Wrapper*>(id_wrapper_pair.second));
         }
     }
 
@@ -74,20 +85,65 @@ class Dx12SavedState
                          unsigned long                        ref_count,
                          std::shared_ptr<const DxWrapperInfo> wrapper_info)
     {
-        saved_object_states_[object_id] = Dx12SavedObjectState{ ref_count, wrapper_info, nullptr };
+        saved_object_states_[object_id] =
+            std::shared_ptr<Dx12SavedObjectState>(new Dx12SavedObjectState{ ref_count, wrapper_info });
     }
 
     const Dx12SavedObjectState* GetSavedObjectState(format::HandleId object_id) const
     {
-        return saved_object_states_.count(object_id) > 0 ? &saved_object_states_.at(object_id) : nullptr;
+        return saved_object_states_.count(object_id) > 0 ? saved_object_states_.at(object_id).get() : nullptr;
+    }
+
+    void SaveSwapChainState(format::HandleId                          swapchain_id,
+                            unsigned long                             ref_count,
+                            std::shared_ptr<const IDXGISwapChainInfo> swapchain_info,
+                            uint32_t                                  last_presented_image)
+    {
+        const auto&         resize_info = swapchain_info->resize_info;
+        DxResizeBuffersInfo saved_resize_info = DxResizeBuffersInfo();
+        if (resize_info.call_id != format::ApiCall_Unknown)
+        {
+            saved_resize_info =
+                DxResizeBuffersInfo{ resize_info.call_id,
+                                     std::make_unique<util::MemoryOutputStream>(
+                                         util::MemoryOutputStream(resize_info.call_parameters->GetData(),
+                                                                  resize_info.call_parameters->GetDataSize())) };
+        }
+        saved_object_states_[swapchain_id] = std::shared_ptr<Dx12SavedSwapChainState>(new Dx12SavedSwapChainState{
+            ref_count, swapchain_info, std::move(saved_resize_info), last_presented_image });
+    }
+
+    const Dx12SavedSwapChainState* GetSavedSwapChainState(format::HandleId swapchain_id) const
+    {
+        auto saved_object_state = GetSavedObjectState(swapchain_id);
+        return reinterpret_cast<const Dx12SavedSwapChainState*>(saved_object_state);
+    }
+
+    void SaveFenceState(format::HandleId                       fence_id,
+                        unsigned long                          ref_count,
+                        std::shared_ptr<const ID3D12FenceInfo> fence_info,
+                        UINT64                                 completed_value)
+    {
+        saved_object_states_[fence_id] = std::shared_ptr<Dx12SavedFenceState>(new Dx12SavedFenceState{
+            ref_count,
+            fence_info,
+            completed_value,
+            fence_info->pending_events,
+        });
+    }
+
+    const Dx12SavedFenceState* GetSavedFenceState(format::HandleId fence_id) const
+    {
+        auto saved_object_state = GetSavedObjectState(fence_id);
+        return reinterpret_cast<const Dx12SavedFenceState*>(saved_object_state);
     }
 
   private:
-    Dx12StateTable                                   saved_state_table_;
-    Dx12StateTable                                   combined_state_table_;
-    std::map<format::HandleId, Dx12SavedObjectState> saved_object_states_;
+    Dx12StateTable                                                    saved_state_table_;
+    Dx12StateTable                                                    combined_state_table_;
+    std::map<format::HandleId, std::shared_ptr<Dx12SavedObjectState>> saved_object_states_;
 
-    std::map<format::HandleId, const void*> temp_combined_wrappers;
+    std::map<format::HandleId, void*> temp_combined_wrappers;
 };
 
 GFXRECON_END_NAMESPACE(encode)

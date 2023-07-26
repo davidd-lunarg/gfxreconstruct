@@ -61,23 +61,23 @@ void Dx12StateWriter::WriteState(const Dx12StateTable& state_table,
                                  bool                  restore_state)
 #endif // GFXRECON_AGS_SUPPORT
 {
+    saved_state_   = saved_state;
+    save_state_    = save_state;
+    restore_state_ = restore_state;
+
 #if GFXRECON_DEBUG_WRITTEN_OBJECTS
     written_objects_.clear();
 #endif
 
     format::Marker marker;
     marker.header.size  = sizeof(marker.marker_type) + sizeof(marker.frame_number);
-    marker.header.type  = format::kStateMarkerBlock;
+    marker.header.type  = restore_state_ ? format::kRestoreStateMarkerBlock : format::kStateMarkerBlock;
     marker.marker_type  = format::kBeginMarker;
     marker.frame_number = frame_number;
     output_stream_->Write(&marker, sizeof(marker));
 
     // Wait for command queues to complete all pending work.
     WaitForCommandQueues(state_table);
-
-    saved_state_   = saved_state;
-    save_state_    = save_state;
-    restore_state_ = restore_state;
 
     // saved_state_ must be valid if save_state_ or restore state are set.
     GFXRECON_ASSERT(((saved_state_ != nullptr) || (!save_state_ && !restore_state_)));
@@ -132,14 +132,12 @@ void Dx12StateWriter::WriteState(const Dx12StateTable& state_table,
     StandardCreateWrite<ID3D12CommandQueue_Wrapper>(state_table);
 
     // Swap chain
-    if (!restore_state_)
-        WriteSwapChainState(state_table);
+    WriteSwapChainState(state_table);
     StandardCreateWrite<IDXGISwapChainMedia_Wrapper>(state_table);
     StandardCreateWrite<ID3D12SwapChainAssistant_Wrapper>(state_table);
 
     // Fences
-    if (!restore_state_)
-        WriteFenceState(state_table);
+    WriteFenceState(state_table);
 
     // Heaps
     StandardCreateWrite<ID3D10Blob_Wrapper>(state_table);
@@ -1038,55 +1036,133 @@ void Dx12StateWriter::WaitForCommandQueues(const Dx12StateTable& state_table)
 
 void Dx12StateWriter::WriteFenceState(const Dx12StateTable& state_table)
 {
-    state_table.VisitWrappers([&](format::HandleId id, ID3D12Fence_Wrapper* fence_wrapper) {
-        assert(fence_wrapper != nullptr);
-        assert(fence_wrapper->GetWrappedObject() != nullptr);
-        assert(fence_wrapper->GetObjectInfo() != nullptr);
+    if (!restore_state_)
+    {
+        state_table.VisitWrappers([&](format::HandleId id, ID3D12Fence_Wrapper* fence_wrapper) {
+            assert(fence_wrapper != nullptr);
+            assert(fence_wrapper->GetWrappedObject() != nullptr);
+            assert(fence_wrapper->GetObjectInfo() != nullptr);
 
-        auto fence      = fence_wrapper->GetWrappedObjectAs<ID3D12Fence>();
-        auto fence_info = fence_wrapper->GetObjectInfo();
+            auto fence      = fence_wrapper->GetWrappedObjectAs<ID3D12Fence>();
+            auto fence_info = fence_wrapper->GetObjectInfo();
 
-        assert(fence_info->create_parameters != nullptr);
-        assert(fence_info->create_object_id != format::kNullHandleId);
+            assert(fence_info->create_parameters != nullptr);
+            assert(fence_info->create_object_id != format::kNullHandleId);
 
-        // Write call to create the fence.
-        StandardCreateWrite(fence_wrapper);
+            // Write call to create the fence.
+            StandardCreateWrite(fence_wrapper);
 
-        UINT64 completed_fence_value = fence->GetCompletedValue();
+            UINT64 completed_fence_value = fence->GetCompletedValue();
 
-        // Write SetEventOnCompletion commands for remaining pending events.
-        // The pending_events_mutex doesn't need to be locked here because all other threads are blocked while state is
-        // being written.
-        auto& pending_events = fence_info->pending_events;
-        for (auto events : pending_events)
-        {
-            UINT64 value = events.first;
-
-            // Ignore any events that have already been signaled.
-            if (value <= completed_fence_value)
+            // Write SetEventOnCompletion commands for remaining pending events.
+            // The pending_events_mutex doesn't need to be locked here because all other threads are blocked while state
+            // is being written.
+            auto& pending_events = fence_info->pending_events;
+            for (auto events : pending_events)
             {
-                continue;
+                UINT64 value = events.first;
+
+                // Ignore any events that have already been signaled.
+                if (value <= completed_fence_value)
+                {
+                    continue;
+                }
+
+                for (auto event : events.second)
+                {
+                    encoder_.EncodeUInt64Value(value);
+                    encoder_.EncodeVoidPtr(event);
+                    encoder_.EncodeInt32Value(S_OK);
+                    WriteMethodCall(format::ApiCallId::ApiCall_ID3D12Fence_SetEventOnCompletion,
+                                    fence_wrapper->GetCaptureId(),
+                                    &parameter_stream_);
+                    parameter_stream_.Reset();
+                }
             }
 
-            for (auto event : events.second)
-            {
-                encoder_.EncodeUInt64Value(value);
-                encoder_.EncodeVoidPtr(event);
-                encoder_.EncodeInt32Value(S_OK);
-                WriteMethodCall(format::ApiCallId::ApiCall_ID3D12Fence_SetEventOnCompletion,
-                                fence_wrapper->GetCaptureId(),
-                                &parameter_stream_);
-                parameter_stream_.Reset();
-            }
-        }
+            // Write call to signal the fence to its most recent value.
+            encoder_.EncodeUInt64Value(completed_fence_value);
+            encoder_.EncodeInt32Value(S_OK);
+            WriteMethodCall(
+                format::ApiCallId::ApiCall_ID3D12Fence_Signal, fence_wrapper->GetCaptureId(), &parameter_stream_);
+            parameter_stream_.Reset();
 
-        // Write call to signal the fence to its most recent value.
-        encoder_.EncodeUInt64Value(completed_fence_value);
-        encoder_.EncodeInt32Value(S_OK);
-        WriteMethodCall(
-            format::ApiCallId::ApiCall_ID3D12Fence_Signal, fence_wrapper->GetCaptureId(), &parameter_stream_);
-        parameter_stream_.Reset();
-    });
+            if (save_state_)
+            {
+                saved_state_->SaveFenceState(
+                    fence_wrapper->GetCaptureId(), fence_wrapper->GetRefCount(), fence_info, completed_fence_value);
+            }
+        });
+    }
+    else
+    {
+        saved_state_->VisitWrappersForReset<ID3D12Fence_Wrapper>(
+            state_table, [&](format::HandleId id, ID3D12Fence_Wrapper* fence_wrapper) {
+                auto saved_fence_state = saved_state_->GetSavedFenceState(id);
+                if (saved_fence_state == nullptr)
+                {
+                    GFXRECON_ASSERT(fence_wrapper != nullptr);
+
+                    // If the object doesn't exist in the saved state, release it.
+                    WriteAddRefAndReleaseCommands(id, fence_wrapper->GetRefCount(), 0);
+                }
+                else
+                {
+                    // If the object only exists in the saved state, recreate it.
+                    if (fence_wrapper == nullptr)
+                    {
+                        StandardCreateWrite(id, *saved_fence_state->object_info.get());
+                        WriteAddRefAndReleaseCommands(id, 1, saved_fence_state->ref_count);
+                        WritePrivateData(id, *saved_fence_state->object_info.get());
+                    }
+                    // If the object exists in both the saved and current state, match ref count to saved state.
+                    else
+                    {
+                        GFXRECON_ASSERT(fence_wrapper->GetCaptureId() == id);
+
+                        WriteAddRefAndReleaseCommands(id, fence_wrapper->GetRefCount(), saved_fence_state->ref_count);
+
+                        auto fence = fence_wrapper->GetWrappedObjectAs<ID3D12Fence>();
+
+                        UINT64 current_completed_fence_value = fence->GetCompletedValue();
+
+                        UINT64 max_pending_event_signal_value = 0;
+                        for (const auto& events : saved_fence_state->pending_events)
+                        {
+                            UINT64 event_signal_value = events.first;
+
+                            // Ignore any events that have already been signaled.
+                            if (event_signal_value <= current_completed_fence_value)
+                            {
+                                continue;
+                            }
+
+                            max_pending_event_signal_value =
+                                std::max(max_pending_event_signal_value, event_signal_value);
+                        }
+
+                        if (max_pending_event_signal_value > current_completed_fence_value)
+                        {
+                            // Write call to signal the fence to clear out pending events.
+                            encoder_.EncodeUInt64Value(max_pending_event_signal_value);
+                            encoder_.EncodeInt32Value(S_OK);
+                            WriteMethodCall(format::ApiCallId::ApiCall_ID3D12Fence_Signal,
+                                            fence_wrapper->GetCaptureId(),
+                                            &parameter_stream_);
+                            parameter_stream_.Reset();
+                        }
+                    }
+
+                    // Write call to signal the fence to its saved value.
+                    encoder_.EncodeUInt64Value(saved_fence_state->completed_value);
+                    encoder_.EncodeInt32Value(S_OK);
+                    WriteMethodCall(format::ApiCallId::ApiCall_ID3D12Fence_Signal,
+                                    fence_wrapper->GetCaptureId(),
+                                    &parameter_stream_);
+                    parameter_stream_.Reset();
+                }
+            });
+    }
 }
 
 void Dx12StateWriter::WriteResidencyPriority(const Dx12StateTable& state_table)
@@ -1395,63 +1471,178 @@ bool Dx12StateWriter::CheckDescriptorObjects(const DxDescriptorInfo& descriptor_
 
 void Dx12StateWriter::WriteSwapChainState(const Dx12StateTable& state_table)
 {
-    state_table.VisitWrappers([&](format::HandleId id, IDXGISwapChain_Wrapper* swapchain_wrapper) {
-        GFXRECON_ASSERT(swapchain_wrapper != nullptr);
-        GFXRECON_ASSERT(swapchain_wrapper->GetWrappedObject() != nullptr);
-        GFXRECON_ASSERT(swapchain_wrapper->GetObjectInfo() != nullptr);
+    if (!restore_state_)
+    {
+        state_table.VisitWrappers([&](format::HandleId id, IDXGISwapChain_Wrapper* swapchain_wrapper) {
+            GFXRECON_ASSERT(swapchain_wrapper != nullptr);
+            GFXRECON_ASSERT(swapchain_wrapper->GetWrappedObject() != nullptr);
+            GFXRECON_ASSERT(swapchain_wrapper->GetObjectInfo() != nullptr);
 
-        auto swapchain      = swapchain_wrapper->GetWrappedObjectAs<IDXGISwapChain>();
-        auto swapchain_info = swapchain_wrapper->GetObjectInfo();
+            auto swapchain      = swapchain_wrapper->GetWrappedObjectAs<IDXGISwapChain>();
+            auto swapchain_info = swapchain_wrapper->GetObjectInfo();
 
-        // Write swapchain creation call.
-        StandardCreateWrite(swapchain_wrapper);
+            // Write swapchain creation call.
+            StandardCreateWrite(swapchain_wrapper);
 
-        // Write call to resize the swapchain buffers.
-        if (swapchain_info->resize_info.call_id != format::ApiCall_Unknown)
-        {
-            WriteMethodCall(swapchain_info->resize_info.call_id,
-                            swapchain_wrapper->GetCaptureId(),
-                            swapchain_info->resize_info.call_parameters.get());
-        }
+            // Write call to resize the swapchain buffers.
+            if (swapchain_info->resize_info.call_id != format::ApiCall_Unknown)
+            {
+                WriteMethodCall(swapchain_info->resize_info.call_id,
+                                swapchain_wrapper->GetCaptureId(),
+                                swapchain_info->resize_info.call_parameters.get());
+            }
 
-        // Write image state command.
-        UINT                                  swapchain_buffer_index = 0;
-        graphics::dx12::IDXGISwapChain3ComPtr swapchain3;
-        if (SUCCEEDED(swapchain->QueryInterface(IID_PPV_ARGS(&swapchain3))))
-        {
-            swapchain_buffer_index = swapchain3->GetCurrentBackBufferIndex();
-        }
-        else
-        {
-            GFXRECON_LOG_ERROR("Failed to get current swap chain (id=%" PRIu64
-                               ") buffer index. Swap chain may not replay correctly.",
-                               swapchain_wrapper->GetCaptureId());
-        }
+            // Write image state command.
+            UINT                                  swapchain_buffer_index = 0;
+            graphics::dx12::IDXGISwapChain3ComPtr swapchain3;
+            if (SUCCEEDED(swapchain->QueryInterface(IID_PPV_ARGS(&swapchain3))))
+            {
+                swapchain_buffer_index = swapchain3->GetCurrentBackBufferIndex();
+            }
+            else
+            {
+                GFXRECON_LOG_ERROR("Failed to get current swap chain (id=%" PRIu64
+                                   ") buffer index. Swap chain may not replay correctly.",
+                                   swapchain_wrapper->GetCaptureId());
+            }
 
-        format::SetSwapchainImageStateCommandHeader header;
+            format::SetSwapchainImageStateCommandHeader header;
 
-        // Initialize standard block header.
-        header.meta_header.block_header.size = format::GetMetaDataBlockBaseSize(header);
-        header.meta_header.block_header.type = format::kMetaDataBlock;
+            // Initialize standard block header.
+            header.meta_header.block_header.size = format::GetMetaDataBlockBaseSize(header);
+            header.meta_header.block_header.type = format::kMetaDataBlock;
 
-        // Initialize block data for set-swapchain-image-state meta-data command.
-        header.meta_header.meta_data_id = format::MakeMetaDataId(format::ApiFamilyId::ApiFamily_D3D12,
-                                                                 format::MetaDataType::kSetSwapchainImageStateCommand);
-        header.thread_id                = thread_id_;
-        header.swapchain_id             = swapchain_wrapper->GetCaptureId();
+            // Initialize block data for set-swapchain-image-state meta-data command.
+            header.meta_header.meta_data_id = format::MakeMetaDataId(
+                format::ApiFamilyId::ApiFamily_D3D12, format::MetaDataType::kSetSwapchainImageStateCommand);
+            header.thread_id    = thread_id_;
+            header.swapchain_id = swapchain_wrapper->GetCaptureId();
 
-        // The object used to create a swap chain is a command queue for DX12. Store the command_queue's HandleId in
-        // the header's device_id field.
-        header.device_id = swapchain_info->command_queue_id;
+            // The object used to create a swap chain is a command queue for DX12. Store the command_queue's HandleId in
+            // the header's device_id field.
+            header.device_id = swapchain_info->command_queue_id;
 
-        // last_presented_image is used to store the current swapchain buffer index for DX12.
-        header.last_presented_image = swapchain_buffer_index;
+            // last_presented_image is used to store the current swapchain buffer index for DX12.
+            header.last_presented_image = swapchain_buffer_index;
 
-        // last_presented_image is the only need for replay, so nothing is written into format::SwapchainImageStateInfo.
-        header.image_info_count = 0;
+            // last_presented_image is the only need for replay, so nothing is written into
+            // format::SwapchainImageStateInfo.
+            header.image_info_count = 0;
 
-        output_stream_->Write(&header, sizeof(header));
-    });
+            output_stream_->Write(&header, sizeof(header));
+
+            if (save_state_)
+            {
+                saved_state_->SaveSwapChainState(swapchain_wrapper->GetCaptureId(),
+                                                 swapchain_wrapper->GetRefCount(),
+                                                 swapchain_info,
+                                                 swapchain_buffer_index);
+            }
+        });
+    }
+    else
+    {
+        saved_state_->VisitWrappersForReset<IDXGISwapChain_Wrapper>(
+            state_table, [&](format::HandleId id, IDXGISwapChain_Wrapper* swapchain_wrapper) {
+                auto saved_swapchain_state = saved_state_->GetSavedSwapChainState(id);
+                if (saved_swapchain_state == nullptr)
+                {
+                    GFXRECON_ASSERT(swapchain_wrapper != nullptr);
+
+                    // If the object doesn't exist in the saved state, release it.
+                    WriteAddRefAndReleaseCommands(id, swapchain_wrapper->GetRefCount(), 0);
+                }
+                else
+                {
+                    // If the object only exists in the saved state, recreate it.
+                    bool     skip_swapchain_resize   = true;
+                    uint32_t current_swapchain_image = 0;
+                    if (swapchain_wrapper == nullptr)
+                    {
+                        StandardCreateWrite(id, *saved_swapchain_state->object_info.get());
+                        WriteAddRefAndReleaseCommands(id, 1, saved_swapchain_state->ref_count);
+                        WritePrivateData(id, *saved_swapchain_state->object_info.get());
+                    }
+                    // If the object exists in both the saved and current state, match ref count to saved state.
+                    else
+                    {
+                        GFXRECON_ASSERT(swapchain_wrapper->GetCaptureId() == id);
+
+                        WriteAddRefAndReleaseCommands(
+                            id, swapchain_wrapper->GetRefCount(), saved_swapchain_state->ref_count);
+
+                        // Don't resize if the resize command is the same.
+                        auto current_swapchain_info = swapchain_wrapper->GetObjectInfo();
+                        skip_swapchain_resize =
+                            (saved_swapchain_state->resize_info.call_id == format::ApiCall_Unknown) ||
+                            ((current_swapchain_info->resize_info.call_id ==
+                              saved_swapchain_state->resize_info.call_id) &&
+                             (current_swapchain_info->resize_info.call_parameters->GetDataSize() ==
+                              saved_swapchain_state->resize_info.call_parameters->GetDataSize()) &&
+                             (util::platform::MemoryCompare(
+                                  saved_swapchain_state->resize_info.call_parameters->GetData(),
+                                  current_swapchain_info->resize_info.call_parameters->GetData(),
+                                  saved_swapchain_state->resize_info.call_parameters->GetDataSize()) == 0));
+
+                        // Get current swapchain image index.
+                        auto swapchain = swapchain_wrapper->GetWrappedObjectAs<IDXGISwapChain>();
+                        graphics::dx12::IDXGISwapChain3ComPtr swapchain3;
+                        if (SUCCEEDED(swapchain->QueryInterface(IID_PPV_ARGS(&swapchain3))))
+                        {
+                            current_swapchain_image = swapchain3->GetCurrentBackBufferIndex();
+                        }
+                        else
+                        {
+                            GFXRECON_LOG_ERROR("Failed to get current swap chain (id=%" PRIu64
+                                               ") buffer index. Swap chain may not loop correctly.",
+                                               id);
+                        }
+                    }
+
+                    // Apply saved swapchain state.
+                    if (!skip_swapchain_resize)
+                    {
+                        if (saved_swapchain_state->resize_info.call_id != format::ApiCall_Unknown)
+                        {
+                            WriteMethodCall(saved_swapchain_state->resize_info.call_id,
+                                            id,
+                                            saved_swapchain_state->resize_info.call_parameters.get());
+                        }
+                    }
+
+                    // Write image state command.
+                    if (current_swapchain_image != saved_swapchain_state->last_presented_image)
+                    {
+                        format::SetSwapchainImageStateCommandHeader header;
+
+                        // Initialize standard block header.
+                        header.meta_header.block_header.size = format::GetMetaDataBlockBaseSize(header);
+                        header.meta_header.block_header.type = format::kMetaDataBlock;
+
+                        // Initialize block data for set-swapchain-image-state meta-data command.
+                        header.meta_header.meta_data_id = format::MakeMetaDataId(
+                            format::ApiFamilyId::ApiFamily_D3D12, format::MetaDataType::kSetSwapchainImageStateCommand);
+                        header.thread_id    = thread_id_;
+                        header.swapchain_id = id;
+
+                        // The object used to create a swap chain is a command queue for DX12. Store the command_queue's
+                        // HandleId in the header's device_id field.
+                        header.device_id =
+                            reinterpret_cast<const IDXGISwapChainInfo*>(saved_swapchain_state->object_info.get())
+                                ->command_queue_id;
+
+                        // last_presented_image is used to store the current swapchain buffer index for DX12.
+                        header.last_presented_image = saved_swapchain_state->last_presented_image;
+
+                        // last_presented_image is the only need for replay, so nothing is written into
+                        // format::SwapchainImageStateInfo.
+                        header.image_info_count = 0;
+
+                        output_stream_->Write(&header, sizeof(header));
+                    }
+                }
+            });
+    }
 }
 
 void Dx12StateWriter::WriteEnableDebugLayer()
