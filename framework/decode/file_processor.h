@@ -122,6 +122,8 @@ class FileProcessor
 
     bool ProcessStateMarker(const format::BlockHeader& block_header, format::MarkerType marker_type);
 
+    bool ProcessRestoreStateMarker(const format::BlockHeader& block_header, format::MarkerType marker_type);
+
     bool ProcessAnnotation(const format::BlockHeader& block_header, format::AnnotationType annotation_type);
 
   protected:
@@ -162,6 +164,8 @@ class FileProcessor
     uint64_t                            block_limit_;
     bool                                capture_uses_frame_markers_;
     uint64_t                            first_frame_;
+    uint64_t                            first_non_state_block_;
+    int64_t                             first_non_state_block_file_pos_;
 };
 
 GFXRECON_END_NAMESPACE(decode)

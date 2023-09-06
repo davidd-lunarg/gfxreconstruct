@@ -42,7 +42,8 @@ const uint32_t kFirstFrame = 0;
 FileProcessor::FileProcessor() :
     file_header_{}, file_descriptor_(nullptr), current_frame_number_(kFirstFrame), bytes_read_(0),
     error_state_(kErrorInvalidFileDescriptor), annotation_handler_(nullptr), compressor_(nullptr), block_index_(0),
-    api_call_index_(0), block_limit_(0), capture_uses_frame_markers_(false), first_frame_(kFirstFrame + 1)
+    api_call_index_(0), block_limit_(0), capture_uses_frame_markers_(false), first_frame_(kFirstFrame + 1),
+    first_non_state_block_(0), first_non_state_block_file_pos_(0)
 {}
 
 FileProcessor::FileProcessor(uint64_t block_limit) : FileProcessor()
@@ -94,6 +95,9 @@ bool FileProcessor::Initialize(const std::string& filename)
             fclose(file_descriptor_);
             file_descriptor_ = nullptr;
         }
+
+        first_non_state_block_          = 0;
+        first_non_state_block_file_pos_ = util::platform::FileTell(file_descriptor_);
     }
     else
     {
@@ -369,6 +373,22 @@ bool FileProcessor::ProcessBlocks()
                     else
                     {
                         HandleBlockReadError(kErrorReadingBlockHeader, "Failed to read state marker header");
+                    }
+                }
+                else if (block_header.type == format::BlockType::kRestoreStateMarkerBlock)
+                {
+                    format::MarkerType marker_type  = format::MarkerType::kUnknownMarker;
+                    uint64_t           frame_number = 0;
+
+                    success = ReadBytes(&marker_type, sizeof(marker_type));
+
+                    if (success)
+                    {
+                        success = ProcessRestoreStateMarker(block_header, marker_type);
+                    }
+                    else
+                    {
+                        HandleBlockReadError(kErrorReadingBlockHeader, "Failed to read restore state marker header");
                     }
                 }
                 else if (block_header.type == format::BlockType::kAnnotation)
@@ -1807,6 +1827,10 @@ bool FileProcessor::ProcessStateMarker(const format::BlockHeader& block_header, 
         {
             GFXRECON_LOG_INFO("Finished loading state for captured frame %" PRId64, frame_number);
             first_frame_ = frame_number;
+
+            // Save state for loop state.
+            first_non_state_block_          = block_index_;
+            first_non_state_block_file_pos_ = util::platform::FileTell(file_descriptor_);
         }
 
         for (auto decoder : decoders_)
@@ -1828,6 +1852,41 @@ bool FileProcessor::ProcessStateMarker(const format::BlockHeader& block_header, 
     else
     {
         HandleBlockReadError(kErrorReadingBlockData, "Failed to read state marker data");
+    }
+
+    return success;
+}
+
+bool FileProcessor::ProcessRestoreStateMarker(const format::BlockHeader& block_header, format::MarkerType marker_type)
+{
+    uint64_t frame_number = 0;
+    bool     success      = ReadBytes(&frame_number, sizeof(frame_number));
+
+    if (success)
+    {
+        if (marker_type == format::kBeginMarker)
+        {
+            GFXRECON_LOG_INFO("Loading restore state for captured frame %" PRId64, frame_number);
+        }
+        else if (marker_type == format::kEndMarker)
+        {
+            GFXRECON_LOG_INFO("Finished loading restore state for captured frame %" PRId64, frame_number);
+
+            if (util::platform::FileSeek(
+                    file_descriptor_, first_non_state_block_file_pos_, util::platform::FileSeekOrigin::FileSeekSet))
+            {
+                current_frame_number_ = kFirstFrame;
+                block_index_          = first_non_state_block_;
+            }
+            else
+            {
+                GFXRECON_LOG_ERROR("Failed to seek to start of loop range.");
+            }
+        }
+    }
+    else
+    {
+        HandleBlockReadError(kErrorReadingBlockData, "Failed to read restore state marker data");
     }
 
     return success;
