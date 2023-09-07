@@ -51,6 +51,9 @@ struct Dx12SavedFenceState : Dx12SavedObjectState
     std::map<UINT64, std::vector<HANDLE>> pending_events;
 };
 
+struct Dx12SavedCommandListState : Dx12SavedObjectState
+{};
+
 class Dx12SavedState
 {
   public:
@@ -136,6 +139,18 @@ class Dx12SavedState
     {
         auto saved_object_state = GetSavedObjectState(fence_id);
         return reinterpret_cast<const Dx12SavedFenceState*>(saved_object_state);
+    }
+
+    void SaveCommandListState(const ID3D12CommandList_Wrapper* list_wrapper)
+    {
+        saved_object_states_[list_wrapper->GetCaptureId()] = std::shared_ptr<Dx12SavedCommandListState>(
+            new Dx12SavedCommandListState{ list_wrapper->GetRefCount(), list_wrapper->GetObjectInfo() });
+    }
+
+    const Dx12SavedCommandListState* GetSavedCommandListState(format::HandleId list_id) const
+    {
+        auto saved_object_state = GetSavedObjectState(list_id);
+        return reinterpret_cast<const Dx12SavedCommandListState*>(saved_object_state);
     }
 
   private:

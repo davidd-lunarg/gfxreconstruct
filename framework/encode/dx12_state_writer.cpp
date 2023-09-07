@@ -201,8 +201,7 @@ void Dx12StateWriter::WriteState(const Dx12StateTable& state_table,
     StandardCreateWrite<ID3D12CommandSignature_Wrapper>(state_table);
     if (!restore_state_)
         WriteResidencyPriority(state_table);
-    if (!restore_state_)
-        WriteCommandListState(state_table);
+    WriteCommandListState(state_table);
 
     // TODO: Determine dependencies for creation of ID3D12VirtualizationGuestDevice
     // Since the dependency chain is unclear, just write their state at the very end
@@ -1200,85 +1199,106 @@ void Dx12StateWriter::WriteResidencyPriority(const Dx12StateTable& state_table)
 
 void Dx12StateWriter::WriteCommandListState(const Dx12StateTable& state_table)
 {
-    std::vector<ID3D12CommandList_Wrapper*> direct_command_lists;
-    std::vector<ID3D12CommandList_Wrapper*> open_command_lists;
+    if (!restore_state_)
+    {
+        std::vector<ID3D12CommandList_Wrapper*> direct_command_lists;
+        std::vector<ID3D12CommandList_Wrapper*> open_command_lists;
 
-    state_table.VisitWrappers([&](format::HandleId id, ID3D12CommandList_Wrapper* list_wrapper) {
-        GFXRECON_ASSERT(list_wrapper != nullptr);
-        GFXRECON_ASSERT(list_wrapper->GetWrappedObject() != nullptr);
-        GFXRECON_ASSERT(list_wrapper->GetObjectInfo() != nullptr);
+        state_table.VisitWrappers([&](format::HandleId id, ID3D12CommandList_Wrapper* list_wrapper) {
+            GFXRECON_ASSERT(list_wrapper != nullptr);
+            GFXRECON_ASSERT(list_wrapper->GetWrappedObject() != nullptr);
+            GFXRECON_ASSERT(list_wrapper->GetObjectInfo() != nullptr);
 
-        auto list      = list_wrapper->GetWrappedObjectAs<ID3D12CommandList>();
-        auto list_info = list_wrapper->GetObjectInfo();
+            auto list      = list_wrapper->GetWrappedObjectAs<ID3D12CommandList>();
+            auto list_info = list_wrapper->GetObjectInfo();
 
-        GFXRECON_ASSERT(list_info->create_parameters != nullptr);
-        GFXRECON_ASSERT(list_info->create_object_id != format::kNullHandleId);
+            GFXRECON_ASSERT(list_info->create_parameters != nullptr);
+            GFXRECON_ASSERT(list_info->create_object_id != format::kNullHandleId);
 
-        // Write create calls and commands for bundle command lists. Keep track of primary and open command lists to be
-        // written afterward.
-        if (list->GetType() == D3D12_COMMAND_LIST_TYPE_BUNDLE)
+            // Write create calls and commands for bundle command lists. Keep track of primary and open command lists to
+            // be written afterward.
+            if (list->GetType() == D3D12_COMMAND_LIST_TYPE_BUNDLE)
+            {
+                if (list_info->is_closed)
+                {
+                    WriteCommandListCreation(id, list_wrapper);
+                    WriteCommandListCommands(
+                        list_wrapper->GetCaptureId(), list_wrapper->GetObjectInfo().get(), state_table);
+                }
+                else
+                {
+                    open_command_lists.push_back(list_wrapper);
+                }
+            }
+            else
+            {
+                direct_command_lists.push_back(list_wrapper);
+            }
+        });
+
+        // Write primary command lists state.
+        for (auto list_wrapper : direct_command_lists)
         {
+            auto list_info = list_wrapper->GetObjectInfo();
             if (list_info->is_closed)
             {
-                WriteCommandListCreation(list_wrapper);
-                WriteCommandListCommands(list_wrapper, state_table);
+                WriteCommandListCreation(list_wrapper->GetCaptureId(), list_wrapper);
+                WriteCommandListCommands(
+                    list_wrapper->GetCaptureId(), list_wrapper->GetObjectInfo().get(), state_table);
             }
             else
             {
                 open_command_lists.push_back(list_wrapper);
             }
         }
-        else
-        {
-            direct_command_lists.push_back(list_wrapper);
-        }
-    });
 
-    // Write primary command lists state.
-    for (auto list_wrapper : direct_command_lists)
-    {
-        auto list_info = list_wrapper->GetObjectInfo();
-        if (list_info->is_closed)
+        // Write open command lists state.
+        for (auto list_wrapper : open_command_lists)
         {
-            WriteCommandListCreation(list_wrapper);
-            WriteCommandListCommands(list_wrapper, state_table);
+            // If the command list is open and has been reset since creation, create and close it here.
+            auto list_info = list_wrapper->GetObjectInfo();
+            if (list_info->was_reset)
+            {
+                WriteCommandListCreation(list_wrapper->GetCaptureId(), list_wrapper);
+            }
         }
-        else
+        for (auto list_wrapper : open_command_lists)
         {
-            open_command_lists.push_back(list_wrapper);
+            // Write creation calls for command lists that were never reset.
+            auto list_info = list_wrapper->GetObjectInfo();
+            if (!list_info->was_reset)
+            {
+                WriteCommandListCreation(list_wrapper->GetCaptureId(), list_wrapper);
+            }
+
+            // Write commands for all open command lists.
+            WriteCommandListCommands(list_wrapper->GetCaptureId(), list_wrapper->GetObjectInfo().get(), state_table);
         }
     }
-
-    // Write open command lists state.
-    for (auto list_wrapper : open_command_lists)
+    else
     {
-        // If the command list is open and has been reset since creation, create and close it here.
-        auto list_info = list_wrapper->GetObjectInfo();
-        if (list_info->was_reset)
-        {
-            WriteCommandListCreation(list_wrapper);
-        }
-    }
-    for (auto list_wrapper : open_command_lists)
-    {
-        // Write creation calls for command lists that were never reset.
-        auto list_info = list_wrapper->GetObjectInfo();
-        if (!list_info->was_reset)
-        {
-            WriteCommandListCreation(list_wrapper);
-        }
+        saved_state_->VisitWrappersForReset<ID3D12CommandList_Wrapper>(
+            state_table, [&](format::HandleId id, ID3D12CommandList_Wrapper* list_wrapper) {
+                GFXRECON_ASSERT(list_wrapper != nullptr);
+                GFXRECON_ASSERT(list_wrapper->GetWrappedObject() != nullptr);
+                GFXRECON_ASSERT(list_wrapper->GetObjectInfo() != nullptr);
 
-        // Write commands for all open command lists.
-        WriteCommandListCommands(list_wrapper, state_table);
+                auto list      = list_wrapper->GetWrappedObjectAs<ID3D12CommandList>();
+                auto list_info = list_wrapper->GetObjectInfo();
+
+                GFXRECON_ASSERT(list_info->create_parameters != nullptr);
+                GFXRECON_ASSERT(list_info->create_object_id != format::kNullHandleId);
+
+                WriteCommandListCreation(id, list_wrapper);
+            });
     }
 }
 
-void Dx12StateWriter::WriteCommandListCommands(const ID3D12CommandList_Wrapper* list_wrapper,
-                                               const Dx12StateTable&            state_table)
+void Dx12StateWriter::WriteCommandListCommands(format::HandleId             list_id,
+                                               const ID3D12CommandListInfo* list_info,
+                                               const Dx12StateTable&        state_table)
 {
-    auto list_info = list_wrapper->GetObjectInfo();
-
-    bool write_commands = CheckCommandListObjects(list_info.get(), state_table);
+    bool write_commands = CheckCommandListObjects(list_info, state_table);
 
     // Write each of the commands that was recorded for the command buffer.
     size_t         offset    = 0;
@@ -1329,7 +1349,7 @@ void Dx12StateWriter::WriteCommandListCommands(const ID3D12CommandList_Wrapper* 
         if (write_current_command)
         {
             parameter_stream_.Write(parameter_data, (*parameter_size));
-            WriteMethodCall((*call_id), list_wrapper->GetCaptureId(), &parameter_stream_);
+            WriteMethodCall((*call_id), list_id, &parameter_stream_);
             parameter_stream_.Reset();
         }
         offset += sizeof(size_t) + sizeof(format::ApiCallId) + (*parameter_size);
@@ -1338,27 +1358,78 @@ void Dx12StateWriter::WriteCommandListCommands(const ID3D12CommandList_Wrapper* 
     GFXRECON_ASSERT(offset == data_size);
 }
 
-void Dx12StateWriter::WriteCommandListCreation(const ID3D12CommandList_Wrapper* list_wrapper)
+void Dx12StateWriter::WriteCommandListCreation(format::HandleId id, const ID3D12CommandList_Wrapper* list_wrapper)
 {
-    // Write call to create the command list.
-    StandardCreateWrite(list_wrapper);
-    auto list_info = list_wrapper->GetObjectInfo();
-
-    // If the command list was created open and reset since creation, write a command to close it. This frees up the
-    // command allocator used in creation. This list's command_data will contain a reset, possibly with a different
-    // command allocator.
-    bool created_open = (list_info->create_call_id == format::ApiCall_ID3D12Device_CreateCommandList);
-    if (list_info->was_reset && created_open)
+    if (!restore_state_)
     {
-        WriteCommandListClose(list_wrapper);
+        // Write call to create the command list.
+        StandardCreateWrite(list_wrapper);
+        auto list_info = list_wrapper->GetObjectInfo();
+
+        // If the command list was created open and reset since creation, write a command to close it. This frees up the
+        // command allocator used in creation. This list's command_data will contain a reset, possibly with a different
+        // command allocator.
+        bool created_open = (list_info->create_call_id == format::ApiCall_ID3D12Device_CreateCommandList);
+        if (list_info->was_reset && created_open)
+        {
+            WriteCommandListClose(list_wrapper->GetCaptureId());
+        }
+
+        if (save_state_)
+        {
+            saved_state_->SaveCommandListState(list_wrapper);
+        }
+    }
+    else
+    {
+        auto saved_list_state = saved_state_->GetSavedCommandListState(id);
+        if (saved_list_state == nullptr)
+        {
+            GFXRECON_ASSERT(list_wrapper != nullptr);
+
+            // If the object doesn't exist in the saved state, release it.
+            WriteAddRefAndReleaseCommands(id, list_wrapper->GetRefCount(), 0);
+        }
+        else
+        {
+            auto saved_list_info = reinterpret_cast<const ID3D12CommandListInfo*>(saved_list_state->object_info.get());
+
+            // If the object only exists in the saved state, recreate it.
+            if (list_wrapper == nullptr)
+            {
+                StandardCreateWrite(id, *saved_list_state->object_info.get());
+                WriteAddRefAndReleaseCommands(id, 1, saved_list_state->ref_count);
+                WritePrivateData(id, *saved_list_state->object_info.get());
+
+                bool created_open = (saved_list_info->create_call_id == format::ApiCall_ID3D12Device_CreateCommandList);
+                if (saved_list_info->is_closed && created_open)
+                {
+                    WriteCommandListClose(id);
+                }
+            }
+            // If the object exists in both the saved and current state, match closed state.
+            else
+            {
+                GFXRECON_ASSERT(list_wrapper->GetCaptureId() == id);
+                WriteAddRefAndReleaseCommands(id, list_wrapper->GetRefCount(), saved_list_state->ref_count);
+
+                // bool currently_closed = list_wrapper->GetObjectInfo()->is_closed;
+                // if (saved_list_info->is_closed && !currently_closed)
+                //{
+                //    WriteCommandListClose(id);
+                //    WriteCommandListCommands(list_wrapper, saved_state_->GetSavedStateTable());
+                //}
+            }
+
+            WriteCommandListCommands(id, saved_list_info, saved_state_->GetSavedStateTable());
+        }
     }
 }
 
-void Dx12StateWriter::WriteCommandListClose(const ID3D12CommandList_Wrapper* list_wrapper)
+void Dx12StateWriter::WriteCommandListClose(format::HandleId list_id)
 {
     encoder_.EncodeUInt32Value(S_OK);
-    WriteMethodCall(
-        format::ApiCallId::ApiCall_ID3D12GraphicsCommandList_Close, list_wrapper->GetCaptureId(), &parameter_stream_);
+    WriteMethodCall(format::ApiCallId::ApiCall_ID3D12GraphicsCommandList_Close, list_id, &parameter_stream_);
     parameter_stream_.Reset();
 }
 
