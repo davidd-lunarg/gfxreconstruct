@@ -51,9 +51,9 @@ void Dx12StateTracker::WriteState(Dx12StateWriter* writer, uint64_t frame_number
     {
         std::unique_lock<std::mutex> lock(state_table_mutex_);
 #ifdef GFXRECON_AGS_SUPPORT
-        writer->WriteState(state_table_, ags_state_table_, frame_number);
+        writer->WriteState(state_table_, ags_state_table_, frame_number, nullptr);
 #else
-        writer->WriteState(state_table_, frame_number);
+        writer->WriteState(state_table_, frame_number, nullptr);
 #endif // GFXRECON_AGS_SUPPORT
     }
 }

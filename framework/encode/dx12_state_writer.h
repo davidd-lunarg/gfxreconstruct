@@ -30,6 +30,7 @@
 #include "encode/custom_ags_state_table.h"
 #endif // GFXRECON_AGS_SUPPORT
 #include "encode/parameter_encoder.h"
+#include "encode/dx12_saved_state.h"
 #include "format/format.h"
 #include "graphics/dx12_gpu_va_map.h"
 #include "graphics/dx12_resource_data_util.h"
@@ -57,9 +58,12 @@ class Dx12StateWriter : public Dx12StateWriterBase
     ~Dx12StateWriter();
 
 #ifdef GFXRECON_AGS_SUPPORT
-    void WriteState(const Dx12StateTable& state_table, const AgsStateTable& ags_state_table, uint64_t frame_number);
+    void WriteState(const Dx12StateTable& state_table,
+                    const AgsStateTable&  ags_state_table,
+                    uint64_t              frame_number,
+                    Dx12SavedState*       saved_state);
 #else
-    void WriteState(const Dx12StateTable& state_table, uint64_t frame_number);
+    void WriteState(const Dx12StateTable& state_table, uint64_t frame_number, Dx12SavedState* saved_state);
 #endif // GFXRECON_AGS_SUPPORT
 
 
@@ -84,6 +88,11 @@ class Dx12StateWriter : public Dx12StateWriterBase
             auto wrapper_info = wrapper->GetObjectInfo();
             if (processed.find(wrapper_info->create_parameters.get()) == processed.end())
             {
+                if (saved_state_)
+                {
+                    saved_state_->SaveObjectState(wrapper->GetCaptureId(), wrapper->GetRefCount(), wrapper_info);
+                }
+
                 Dx12StateWriterBase::StandardCreateWrite(wrapper);
                 processed.insert(wrapper_info->create_parameters.get());
             }
@@ -154,6 +163,9 @@ class Dx12StateWriter : public Dx12StateWriterBase
     std::vector<uint64_t>          temp_subresource_sizes_;
     std::vector<uint64_t>          temp_subresource_offsets_;
     std::vector<DxTileMappingInfo> temp_tile_mappings_;
+
+    // If provided, store the pointer for Dx12SavedState for use during WriteState.
+    Dx12SavedState* saved_state_;
 };
 
 GFXRECON_END_NAMESPACE(encode)

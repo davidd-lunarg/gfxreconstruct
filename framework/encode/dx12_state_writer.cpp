@@ -37,7 +37,8 @@ GFXRECON_BEGIN_NAMESPACE(encode)
 Dx12StateWriter::Dx12StateWriter(util::FileOutputStream* output_stream,
                                  util::Compressor*       compressor,
                                  format::ThreadId        thread_id) :
-    Dx12StateWriterBase(output_stream, compressor, thread_id)
+    Dx12StateWriterBase(output_stream, compressor, thread_id),
+    saved_state_(nullptr)
 {
     assert(output_stream != nullptr);
 }
@@ -47,11 +48,14 @@ Dx12StateWriter::~Dx12StateWriter() {}
 #ifdef GFXRECON_AGS_SUPPORT
 void Dx12StateWriter::WriteState(const Dx12StateTable& state_table,
                                  const AgsStateTable&  ags_state_table,
-                                 uint64_t              frame_number)
+                                 uint64_t              frame_number,
+                                 Dx12SavedState*       saved_state)
 #else
-void Dx12StateWriter::WriteState(const Dx12StateTable& state_table, uint64_t frame_number)
+void Dx12StateWriter::WriteState(const Dx12StateTable& state_table, uint64_t frame_number, Dx12SavedState* saved_state)
 #endif // GFXRECON_AGS_SUPPORT
 {
+    saved_state_ = saved_state;
+
 #if GFXRECON_DEBUG_WRITTEN_OBJECTS
     written_objects_.clear();
 #endif
@@ -178,6 +182,8 @@ void Dx12StateWriter::WriteState(const Dx12StateTable& state_table, uint64_t fra
 
     marker.marker_type = format::kEndMarker;
     output_stream_->Write(&marker, sizeof(marker));
+
+    saved_state_ = nullptr;
 }
 
 void Dx12StateWriter::WriteHeapState(const Dx12StateTable& state_table)
@@ -698,6 +704,12 @@ void Dx12StateWriter::WriteFenceState(const Dx12StateTable& state_table)
         WriteMethodCall(
             format::ApiCallId::ApiCall_ID3D12Fence_Signal, fence_wrapper->GetCaptureId(), &parameter_stream_);
         parameter_stream_.Reset();
+
+        if (saved_state_)
+        {
+            saved_state_->SaveFenceState(
+                fence_wrapper->GetCaptureId(), fence_wrapper->GetRefCount(), fence_info, completed_fence_value);
+        }
     });
 }
 
@@ -825,7 +837,10 @@ void Dx12StateWriter::WriteCommandListCreation(const ID3D12CommandList_Wrapper* 
         WriteCommandListClose(list_wrapper->GetCaptureId());
     }
 
-
+    if (saved_state_)
+    {
+        saved_state_->SaveCommandListState(list_wrapper);
+    }
 }
 
 void Dx12StateWriter::WriteSwapChainState(const Dx12StateTable& state_table)
@@ -886,6 +901,14 @@ void Dx12StateWriter::WriteSwapChainState(const Dx12StateTable& state_table)
         header.image_info_count = 0;
 
         output_stream_->Write(&header, sizeof(header));
+
+        if (saved_state_)
+        {
+            saved_state_->SaveSwapChainState(swapchain_wrapper->GetCaptureId(),
+                                             swapchain_wrapper->GetRefCount(),
+                                             swapchain_info,
+                                             swapchain_buffer_index);
+        }
     });
 }
 
