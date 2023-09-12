@@ -72,6 +72,8 @@ target_sources(gfxrecon_encode
                     $<$<BOOL:${D3D12_SUPPORT}>:${CMAKE_CURRENT_LIST_DIR}/dx12_state_writer_base.cpp>
                     $<$<BOOL:${D3D12_SUPPORT}>:${CMAKE_CURRENT_LIST_DIR}/dx12_state_writer.h>
                     $<$<BOOL:${D3D12_SUPPORT}>:${CMAKE_CURRENT_LIST_DIR}/dx12_state_writer.cpp>
+                    $<$<BOOL:${D3D12_SUPPORT}>:${CMAKE_CURRENT_LIST_DIR}/dx12_loop_state_writer.h>
+                    $<$<BOOL:${D3D12_SUPPORT}>:${CMAKE_CURRENT_LIST_DIR}/dx12_loop_state_writer.cpp>
                     $<$<BOOL:${D3D12_SUPPORT}>:${CMAKE_CURRENT_LIST_DIR}/dxgi_dispatch_table.h>
                     $<$<BOOL:${GFXRECON_AGS_SUPPORT_FINAL}>:${CMAKE_CURRENT_LIST_DIR}/ags_dispatch_table.h>
                     $<$<BOOL:${GFXRECON_AGS_SUPPORT_FINAL}>:${CMAKE_CURRENT_LIST_DIR}/custom_ags_wrappers.h>

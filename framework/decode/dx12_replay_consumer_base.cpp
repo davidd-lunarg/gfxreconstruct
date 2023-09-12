@@ -490,9 +490,9 @@ void Dx12ReplayConsumerBase::ProcessInitDx12AccelerationStructureCommand(
 
 void Dx12ReplayConsumerBase::ProcessSetSwapchainImageStateQueueSubmit(ID3D12CommandQueue* command_queue,
                                                                       DxObjectInfo*       swapchain_info,
-                                                                      uint32_t            current_buffer_index)
+                                                                      uint32_t            target_buffer_index)
 {
-    GFXRECON_ASSERT((current_buffer_index != std::numeric_limits<uint32_t>::max()));
+    GFXRECON_ASSERT(target_buffer_index != std::numeric_limits<uint32_t>::max());
 
     graphics::dx12::ID3D12DeviceComPtr device = nullptr;
     HRESULT                            ret    = command_queue->GetDevice(IID_PPV_ARGS(&device));
@@ -506,13 +506,10 @@ void Dx12ReplayConsumerBase::ProcessSetSwapchainImageStateQueueSubmit(ID3D12Comm
     for (uint32_t n = 0; n < buffer_count; ++n)
     {
         // When the index buffer matches the buffer during capture, exit the loop.
-        if (n == current_buffer_index)
+        if (swapchain->GetCurrentBackBufferIndex() == target_buffer_index)
         {
             break;
         }
-
-        // Validate the assumption that the swapchain buffer index increases by 1 after each swapchain->Present.
-        GFXRECON_ASSERT(n == swapchain->GetCurrentBackBufferIndex());
 
         ret = swapchain->Present(0, 0);
         GFXRECON_ASSERT(SUCCEEDED(ret));
@@ -520,7 +517,7 @@ void Dx12ReplayConsumerBase::ProcessSetSwapchainImageStateQueueSubmit(ID3D12Comm
         ret = graphics::dx12::WaitForQueue(command_queue);
         GFXRECON_ASSERT(SUCCEEDED(ret));
     }
-    GFXRECON_ASSERT(swapchain->GetCurrentBackBufferIndex() == current_buffer_index);
+    GFXRECON_ASSERT(swapchain->GetCurrentBackBufferIndex() == target_buffer_index);
 }
 
 void Dx12ReplayConsumerBase::ProcessSetSwapchainImageStateCommand(
