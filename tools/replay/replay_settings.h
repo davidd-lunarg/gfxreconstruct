@@ -36,7 +36,7 @@ const char kArguments[] =
     "--log-level,--log-file,--gpu,--gpu-group,--pause-frame,--wsi,--surface-index,-m|--memory-translation,"
     "--replace-shaders,--screenshots,--denied-messages,--allowed-messages,--screenshot-format,--"
     "screenshot-dir,--screenshot-prefix,--screenshot-size,--screenshot-scale,--mfr|--measurement-frame-range,--fw|--"
-    "force-windowed,--batching-memory-usage,--measurement-file,--swapchain";
+    "force-windowed,--batching-memory-usage,--measurement-file,--swapchain,--loop-count";
 
 static void PrintUsage(const char* exe_name)
 {
@@ -70,7 +70,7 @@ static void PrintUsage(const char* exe_name)
     GFXRECON_WRITE_CONSOLE("\t\t\t[--fw <width,height> | --force-windowed <width,height>]");
 #if defined(WIN32)
     GFXRECON_WRITE_CONSOLE("\t\t\t[--log-level <level>] [--log-file <file>] [--log-debugview]");
-    GFXRECON_WRITE_CONSOLE("\t\t\t[--batching-memory-usage <pct>]");
+    GFXRECON_WRITE_CONSOLE("\t\t\t[--batching-memory-usage <pct>] [--loop-count <n>]");
 #if defined(_DEBUG)
     GFXRECON_WRITE_CONSOLE("\t\t\t[--api <api>] [--no-debug-popup] <file>\n");
 #else
@@ -246,7 +246,9 @@ static void PrintUsage(const char* exe_name)
     GFXRECON_WRITE_CONSOLE("          \t\tAcceptable values range from 0 to 100 (default: 80)");
     GFXRECON_WRITE_CONSOLE("          \t\t0 means no batching at all");
     GFXRECON_WRITE_CONSOLE("          \t\t100 means use all available system and GPU memory");
-
+    GFXRECON_WRITE_CONSOLE("  --loop-count <n>\tIf <file> is loopable, loop <n> times. If <n> is 0, loop");
+    GFXRECON_WRITE_CONSOLE("          \t\tuntil the replayer is closed. If <n> is 1, looping is disabled.");
+    GFXRECON_WRITE_CONSOLE("          \t\tThe default is 1.");
 #endif
 
 #if defined(_DEBUG)

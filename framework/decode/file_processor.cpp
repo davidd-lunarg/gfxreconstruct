@@ -1,6 +1,6 @@
 /*
 ** Copyright (c) 2018-2020,2022 Valve Corporation
-** Copyright (c) 2018-2020,2022 LunarG, Inc.
+** Copyright (c) 2018-2020,2022-2023 LunarG, Inc.
 ** Copyright (c) 2022-2023 Advanced Micro Devices, Inc. All rights reserved.
 **
 ** Permission is hereby granted, free of charge, to any person obtaining a
@@ -42,7 +42,8 @@ const uint32_t kFirstFrame = 0;
 FileProcessor::FileProcessor() :
     file_header_{}, file_descriptor_(nullptr), current_frame_number_(kFirstFrame), bytes_read_(0),
     error_state_(kErrorInvalidFileDescriptor), annotation_handler_(nullptr), compressor_(nullptr), block_index_(0),
-    api_call_index_(0), block_limit_(0), capture_uses_frame_markers_(false), first_frame_(kFirstFrame + 1)
+    api_call_index_(0), block_limit_(0), capture_uses_frame_markers_(false), first_frame_(kFirstFrame + 1),
+    first_non_state_block_(0), first_non_state_block_file_pos_(0), processed_end_of_loop_(false)
 {}
 
 FileProcessor::FileProcessor(uint64_t block_limit) : FileProcessor()
@@ -94,6 +95,9 @@ bool FileProcessor::Initialize(const std::string& filename)
             fclose(file_descriptor_);
             file_descriptor_ = nullptr;
         }
+
+        first_non_state_block_          = 0;
+        first_non_state_block_file_pos_ = util::platform::FileTell(file_descriptor_);
     }
     else
     {
@@ -143,6 +147,30 @@ bool FileProcessor::ProcessAllFrames()
     }
 
     return (error_state_ == kErrorNone);
+}
+
+bool FileProcessor::ProcessLoop()
+{
+    if (!processed_end_of_loop_)
+    {
+        GFXRECON_LOG_ERROR(
+            "FileProcessor: cannot process loop state when not at the end of a loop state section in the file.");
+        return false;
+    }
+
+    if (util::platform::FileSeek(
+            file_descriptor_, first_non_state_block_file_pos_, util::platform::FileSeekOrigin::FileSeekSet))
+    {
+        processed_end_of_loop_ = false;
+        current_frame_number_  = kFirstFrame;
+        block_index_           = first_non_state_block_;
+        return true;
+    }
+    else
+    {
+        GFXRECON_LOG_ERROR("Failed to seek to start of loop range.");
+        return false;
+    }
 }
 
 bool FileProcessor::ContinueDecoding()
@@ -256,6 +284,9 @@ bool FileProcessor::ProcessBlocks()
 
             if (success)
             {
+                // If a block is going to be processed, FileProcess is no longer at the end of a loop state section.
+                processed_end_of_loop_ = false;
+
                 if (format::RemoveCompressedBlockBit(block_header.type) == format::BlockType::kFunctionCallBlock)
                 {
                     format::ApiCallId api_call_id = format::ApiCallId::ApiCall_Unknown;
@@ -369,6 +400,22 @@ bool FileProcessor::ProcessBlocks()
                     else
                     {
                         HandleBlockReadError(kErrorReadingBlockHeader, "Failed to read state marker header");
+                    }
+                }
+                else if (block_header.type == format::BlockType::kLoopStateMarkerBlock)
+                {
+                    format::MarkerType marker_type  = format::MarkerType::kUnknownMarker;
+                    uint64_t           frame_number = 0;
+
+                    success = ReadBytes(&marker_type, sizeof(marker_type));
+
+                    if (success)
+                    {
+                        success = ProcessLoopStateMarker(block_header, marker_type);
+                    }
+                    else
+                    {
+                        HandleBlockReadError(kErrorReadingBlockHeader, "Failed to read loop state marker header");
                     }
                 }
                 else if (block_header.type == format::BlockType::kAnnotation)
@@ -1806,6 +1853,10 @@ bool FileProcessor::ProcessStateMarker(const format::BlockHeader& block_header, 
         {
             GFXRECON_LOG_INFO("Finished loading state for captured frame %" PRId64, frame_number);
             first_frame_ = frame_number;
+
+            // Save state for loop state.
+            first_non_state_block_          = block_index_;
+            first_non_state_block_file_pos_ = util::platform::FileTell(file_descriptor_);
         }
 
         for (auto decoder : decoders_)
@@ -1827,6 +1878,31 @@ bool FileProcessor::ProcessStateMarker(const format::BlockHeader& block_header, 
     else
     {
         HandleBlockReadError(kErrorReadingBlockData, "Failed to read state marker data");
+    }
+
+    return success;
+}
+
+bool FileProcessor::ProcessLoopStateMarker(const format::BlockHeader& block_header, format::MarkerType marker_type)
+{
+    uint64_t frame_number = 0;
+    bool     success      = ReadBytes(&frame_number, sizeof(frame_number));
+
+    if (success)
+    {
+        if (marker_type == format::kBeginMarker)
+        {
+            GFXRECON_LOG_INFO("Loading loop state for captured frame %." PRId64, frame_number);
+        }
+        else if (marker_type == format::kEndMarker)
+        {
+            GFXRECON_LOG_INFO("Finished loading loop state for captured frame %." PRId64, frame_number);
+            processed_end_of_loop_ = true;
+        }
+    }
+    else
+    {
+        HandleBlockReadError(kErrorReadingBlockData, "Failed to read loop state marker data.");
     }
 
     return success;

@@ -85,6 +85,8 @@ class FileProcessor
     // Returns false if processing failed.  Use GetErrorState() to determine error condition for failure case.
     bool ProcessAllFrames();
 
+    bool ProcessLoop();
+
     const format::FileHeader& GetFileHeader() const { return file_header_; }
 
     const std::vector<format::FileOptionPair>& GetFileOptions() const { return file_options_; }
@@ -121,6 +123,8 @@ class FileProcessor
     bool ProcessFrameMarker(const format::BlockHeader& block_header, format::MarkerType marker_type);
 
     bool ProcessStateMarker(const format::BlockHeader& block_header, format::MarkerType marker_type);
+
+    bool ProcessLoopStateMarker(const format::BlockHeader& block_header, format::MarkerType marker_type);
 
     bool ProcessAnnotation(const format::BlockHeader& block_header, format::AnnotationType annotation_type);
 
@@ -162,6 +166,9 @@ class FileProcessor
     uint64_t                            block_limit_;
     bool                                capture_uses_frame_markers_;
     uint64_t                            first_frame_;
+    uint64_t                            first_non_state_block_;
+    int64_t                             first_non_state_block_file_pos_;
+    bool                                processed_end_of_loop_;
 };
 
 GFXRECON_END_NAMESPACE(decode)

@@ -238,6 +238,7 @@ int main(int argc, const char** argv)
             fps_info.BeginFile();
 
             application->SetPauseFrame(GetPauseFrame(arg_parser));
+            application->SetLoopCount(GetLoopCount(arg_parser));
             application->SetFpsInfo(&fps_info);
             application->Run();
 

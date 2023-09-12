@@ -62,7 +62,7 @@ Application::Application(const std::string&     name,
                          decode::FileProcessor* file_processor) :
     name_(name),
     file_processor_(file_processor), cli_wsi_extension_(cli_wsi_extension), running_(false), paused_(false),
-    pause_frame_(0), fps_info_(nullptr)
+    pause_frame_(0), fps_info_(nullptr), completed_loop_count_(0), total_loop_count_(1)
 {
     if (!cli_wsi_extension_.empty())
     {
@@ -206,7 +206,16 @@ bool Application::PlaySingleFrame()
         }
         else
         {
-            running_ = false;
+            if (file_processor_->GetErrorState() == decode::FileProcessor::kErrorNone)
+            {
+                ++completed_loop_count_;
+                bool loop_again = (total_loop_count_ == 0) || (completed_loop_count_ < total_loop_count_);
+                running_        = loop_again && file_processor_->ProcessLoop();
+            }
+            else
+            {
+                running_ = false;
+            }
         }
     }
 

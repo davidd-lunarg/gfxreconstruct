@@ -115,6 +115,7 @@ const char kApiFamilyOption[]             = "--api";
 const char kDxTwoPassReplay[]             = "--dx12-two-pass-replay";
 const char kDxOverrideObjectNames[]       = "--dx12-override-object-names";
 const char kBatchingMemoryUsageArgument[] = "--batching-memory-usage";
+const char kLoopCountArgument[]           = "--loop-count";
 #endif
 
 enum class WsiPlatform
@@ -159,6 +160,8 @@ const char kDefaultScreenshotDir[] = "/sdcard";
 #else
 const char kDefaultScreenshotDir[] = "";
 #endif
+
+const uint32_t kDefaultLoopCount = 1;
 
 static void ProcessDisableDebugPopup(const gfxrecon::util::ArgumentParser& arg_parser)
 {
@@ -275,6 +278,19 @@ static uint32_t GetPauseFrame(const gfxrecon::util::ArgumentParser& arg_parser)
     }
 
     return pause_frame;
+}
+
+static uint32_t GetLoopCount(const gfxrecon::util::ArgumentParser& arg_parser)
+{
+    uint32_t    loop_count = kDefaultLoopCount;
+    const auto& value      = arg_parser.GetArgumentValue(kLoopCountArgument);
+
+    if (!value.empty())
+    {
+        loop_count = std::stoi(value);
+    }
+
+    return loop_count;
 }
 
 static WsiPlatform GetWsiPlatform(const gfxrecon::util::ArgumentParser& arg_parser)

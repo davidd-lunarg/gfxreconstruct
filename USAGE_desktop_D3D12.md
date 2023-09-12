@@ -196,20 +196,26 @@ The `gfxrecon-replay` tool accepts the following command line arguments:
 gfxrecon-replay.exe - A tool to replay GFXReconstruct capture files.
 
 Usage:
-  gfxrecon-replay.exe   [-h | --help] [--version] [--gpu <index>]
+  gfxrecon-replay.exe   [-h | --help] [--version] [--gpu <index>] [--gpu-group <index>]
                         [--pause-frame <N>] [--paused] [--sync] [--screenshot-all]
                         [--screenshots <N1(-N2),...>] [--screenshot-format <format>]
                         [--screenshot-dir <dir>] [--screenshot-prefix <file-prefix>]
-                        [--screenshot-scale SCALE] [--screenshot-size WIDTHxHEIGHT]
+                        [--screenshot-size <width>x<height>]
+                        [--screenshot-scale <scale>]
                         [--sfa | --skip-failed-allocations] [--replace-shaders <dir>]
                         [--opcd | --omit-pipeline-cache-data] [--wsi <platform>]
                         [--use-cached-psos] [--surface-index <N>]
                         [--remove-unsupported] [--validate]
                         [--onhb | --omit-null-hardware-buffers]
                         [-m <mode> | --memory-translation <mode>]
+                        [--swapchain <mode>]
+                        [--use-captured-swapchain-indices]
+                        [--mfr|--measurement-frame-range <start-frame>-<end-frame>]
+                        [--measurement-file <file>] [--quit-after-measurement-range]
+                        [--flush-measurement-range]
                         [--fw <width,height> | --force-windowed <width,height>]
                         [--log-level <level>] [--log-file <file>] [--log-debugview]
-                        [--batching-memory-usage <pct>]
+                        [--batching-memory-usage <pct>] [--loop-count <n>]
                         [--api <api>] <file>
 
 Required arguments:
@@ -243,6 +249,7 @@ Optional arguments:
                         Image file format to use for screenshot generation.
                         Available formats are:
                             bmp         Bitmap file format.  This is the default format.
+                            png         Portable Network Graphics file format.
   --screenshot-dir <dir>
                         Directory to write screenshots.  Default is the current
                         working directory.
@@ -250,16 +257,14 @@ Optional arguments:
                         Prefix to apply to the screenshot file name.  Default is
                         "screenshot", producing file names similar to
                         "screenshot_frame_8049.bmp".
-  --screenshot-scale SCALE
-                        Specify a decimal factor which will determine screenshot
-                        sizes. The factor will be multiplied with the swapchain
-                        images dimension to determine the screenshot dimensions.
-                        Default is 1.0.
-  --screenshot-size WIDTHxHEIGHT
-                        Specify desired screenshot dimensions. Leaving this
-                        unspecified screenshots will use the swapchain images
-                        dimensions. If --screenshot-scale is also specified then
-                        this option is ignored.
+  --screenshot-scale <factor>
+                        Specify a decimal factor which will determine screenshot sizes.
+                        The factor will be multiplied with the swapchain images
+                        dimension to determine the screenshot dimensions. Default is 1.0.
+  --screenshot-size <width>x<height>
+                        Specify desired screenshot dimensions. Leaving this unspecified
+                        screenshots will use the swapchain images dimensions. If
+                        --screenshot-scale is also specified then this option is ignored.
   --validate            Enables the Khronos Vulkan validation layer when replaying a
                         Vulkan capture or the Direct3D debug layer when replaying a
                         Direct3D 12 capture.
@@ -314,29 +319,65 @@ Vulkan-only:
                                         to different allocations with different
                                         offsets.  Uses VMA to manage allocations
                                         and suballocations.
+  --swapchain <mode>    Choose a swapchain mode to replay.
+                        Available modes are:
+                            virtual     Virtual Swapchain of images which match
+                                        the swapchain in effect at capture time and
+                                        which are copied to the underlying swapchain of the
+                                        implementation being replayed on. This is default.
+                            captured    Use the swapchain indices stored in the
+                                        capture directly on the swapchain setup for replay.
+                            offscreen   Disable creating swapchains, surfaces
+                                        and windows. To see rendering, add the --screenshots option.
+  --use-captured-swapchain-indices
+                        Same as "--swapchain captured".
+                        Ignored if the "--swapchain" option is used.
+  --measurement-frame-range <start_frame>-<end_frame>
+                        Custom framerange to measure FPS for.
+                        This range will include the start frame but not the end frame.
+                        The measurement frame range defaults to all frames except the loading
+                        frame but can be configured for any range. If the end frame is past the
+                        last frame in the trace it will be clamped to the frame after the last
+                        (so in that case the results would include the last frame).
+  --measurement-file <file>
+                        Write measurements to a file at the specified path.
+                        Default is: '/sdcard/gfxrecon-measurements.json' on android and
+                        './gfxrecon-measurements.json' on desktop.
+  --quit-after-measurement-range
+                        If this is specified the replayer will abort
+                        when it reaches the <end_frame> specified in
+                        the --measurement-frame-range argument.
+  --flush-measurement-range
+                        If this is specified the replayer will flush
+                        and wait for all current GPU work to finish at the
+                        start and end of the measurement range.
+  --gpu-group <index>   Use the specified device group for replay, where index
+                        is the zero-based index to the array of physical device group
+                        returned by vkEnumeratePhysicalDeviceGroups.  Replay may fail
+                        if the specified device group is not compatible with the
+                        original capture device group.
 
 D3D12-only:
-  --use-cached-psos            Permit using cached PSOs when creating graphics or compute pipelines.
-                               Using cached PSOs may reduce PSO creation time but may result in replay errors.
-  --debug-device-lost          Enables automatic injection of breadcrumbs into command buffers
-                               and page fault reporting.
-                               Used to debug Direct3D 12 device removed problems.
-  --fw <width,height>          Setup windowed and override resolution.
-                               (Same as --force-windowed)
-  --create-dummy-allocations   Enables creation of dummy heaps and resources
-                               for replay validation.
+  --use-cached-psos     Permit using cached PSOs when creating graphics or compute pipelines.
+                        Using cached PSOs may reduce PSO creation time but may result in replay errors.
+  --debug-device-lost   Enables automatic injection of breadcrumbs into command buffers
+                        and page fault reporting.
+                        Used to debug Direct3D 12 device removed problems.
+  --fw <width,height>   Setup windowed and override resolution.
+                        (Same as --force-windowed)
+  --create-dummy-allocations Enables creation of dummy heaps and resources
+                             for replay validation.
   --dx12-override-object-names Generates unique names for all ID3D12Objects and
                                assigns each object the generated name.
                                This is intended to assist replay debugging.
   --batching-memory-usage <pct>
-                               Limits the max amount of additional memory that can be used to batch
-                               resource data uploads during trim state load. Batching resource data
-                               uploads may reduce the number of GPU submissions required to load the
-                               trim state. <pct> is applied to the total available physical system memory
-                               and to the application's GPU memory budget. This only limits memory use
-                               for batching and does not guarantee overall max memory usage.
-                               Acceptable values range from 0 to 100 (default: 80). 0 means no batching,
-                               100 means use all available system and GPU memory.
+                        Max amount of memory consumption while loading a trimmed capture file.
+                        Acceptable values range from 0 to 100 (default: 80)
+                        0 means no batching at all
+                        100 means use all available system and GPU memory
+  --loop-count <n>      If <file> is loopable, loop <n> times. If <n> is 0, loop
+                        until the replayer is closed. If <n> is 1, looping is disabled.
+                        The default is 1.
 ```
 
 

@@ -70,6 +70,8 @@ class Application final
 
     void SetPauseFrame(uint32_t pause_frame) { pause_frame_ = pause_frame; }
 
+    void SetLoopCount(uint32_t loop_count) { total_loop_count_ = loop_count; };
+
     bool PlaySingleFrame();
 
     void ProcessEvents(bool wait_for_input);
@@ -94,7 +96,8 @@ class Application final
     std::unordered_map<std::string, std::unique_ptr<WsiContext>> wsi_contexts_;      ///< Loaded WSI contexts from CLI and VkInstanceCreateInfo
     std::string                                                  cli_wsi_extension_; ///< WSI extension selected on CLI, empty string if no CLI selection
     graphics::FpsInfo*                                           fps_info_;          ///< A optional FPS info object that logs the FPS across a configured framerange.
-                                                                                     ///< capture file data.
+    uint32_t                                                     completed_loop_count_;
+    uint32_t                                                     total_loop_count_;
     // clang-format on
 };
 
