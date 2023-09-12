@@ -72,7 +72,7 @@ class Dx12StateWriter
     void StandardCreateWrite(const Dx12StateTable& state_table)
     {
         std::set<util::MemoryOutputStream*> processed;
-        state_table.VisitWrappers([&](const Wrapper* wrapper) {
+        state_table.VisitWrappers([&](format::HandleId id, const Wrapper* wrapper) {
             assert(wrapper != nullptr);
             assert(wrapper->GetObjectInfo() != nullptr);
             assert(wrapper->GetObjectInfo()->create_parameters != nullptr);

@@ -139,7 +139,7 @@ class Dx12StateTableHeaderGenerator(Dx12BaseGenerator):
             self.remove_wrapper_code += '    bool RemoveWrapper(const {0}* wrapper) {{ return RemoveEntry(wrapper, {0}_map_); }}\n'.format(
                 name_wrapper
             )
-            self.visit_wrappers_code += '    void VisitWrappers(std::function<void({0}*)> visitor) const {{ for (auto entry : {0}_map_) {{ visitor(entry.second); }} }}\n'.format(
+            self.visit_wrappers_code += '    void VisitWrappers(std::function<void(format::HandleId, {0}*)> visitor) const {{ for (auto entry : {0}_map_) {{ visitor(entry.first, entry.second); }} }}\n'.format(
                 name_wrapper
             )
             self.get_wrapper_code += '    {0}* Get{0}(format::HandleId id) {{ return GetWrapper<{0}>(id, {0}_map_); }}\n'.format(
