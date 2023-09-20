@@ -94,6 +94,11 @@ void VulkanCaptureManager::WriteTrackedState(util::FileOutputStream* file_stream
     thread_data->block_index_ = block_index_;
 }
 
+void VulkanCaptureManager::WriteLoopState(util::FileOutputStream* file_stream, format::ThreadId thread_id)
+{
+    GFXRECON_LOG_ERROR("Loop capture is not supported for Vulkan.");
+}
+
 void VulkanCaptureManager::SetLayerFuncs(PFN_vkCreateInstance create_instance, PFN_vkCreateDevice create_device)
 {
     assert((create_instance != nullptr) && (create_device != nullptr));

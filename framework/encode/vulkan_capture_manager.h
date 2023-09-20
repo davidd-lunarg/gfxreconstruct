@@ -1244,6 +1244,8 @@ class VulkanCaptureManager : public CaptureManager
 
     virtual void WriteTrackedState(util::FileOutputStream* file_stream, format::ThreadId thread_id) override;
 
+    virtual void WriteLoopState(util::FileOutputStream* file_stream, format::ThreadId thread_id) override;
+
   private:
     struct HardwareBufferInfo
     {

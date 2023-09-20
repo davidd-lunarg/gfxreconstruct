@@ -161,7 +161,14 @@ void D3D12CaptureManager::EndCommandListMethodCallCapture(ID3D12CommandList_Wrap
 void D3D12CaptureManager::WriteTrackedState(util::FileOutputStream* file_stream, format::ThreadId thread_id)
 {
     Dx12StateWriter state_writer(file_stream, compressor_.get(), thread_id);
-    state_tracker_->WriteState(&state_writer, GetCurrentFrame());
+    state_tracker_->WriteState(&state_writer, GetCurrentFrame(), GetCaptureLoopSetting());
+}
+
+void D3D12CaptureManager::WriteLoopState(util::FileOutputStream* file_stream, format::ThreadId thread_id)
+{
+    Dx12LoopStateWriter loop_state_writer(file_stream, compressor_.get(), thread_id);
+    GFXRECON_ASSERT(GetCaptureLoopSetting());
+    state_tracker_->WriteLoopState(&loop_state_writer, GetCurrentFrame());
 }
 
 void D3D12CaptureManager::PreAcquireSwapChainImages(IDXGISwapChain_Wrapper* wrapper,

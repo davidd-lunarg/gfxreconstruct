@@ -45,15 +45,34 @@ Dx12StateTracker::Dx12StateTracker() : accel_struct_id_(1) {}
 
 Dx12StateTracker::~Dx12StateTracker() {}
 
-void Dx12StateTracker::WriteState(Dx12StateWriter* writer, uint64_t frame_number)
+void Dx12StateTracker::WriteState(Dx12StateWriter* writer, uint64_t frame_number, bool save_state)
+{
+    if (writer != nullptr)
+    {
+        std::unique_lock<std::mutex> lock(state_table_mutex_);
+        Dx12SavedState*              saved_state = nullptr;
+        if (save_state)
+        {
+            saved_state_ = Dx12SavedState();
+            saved_state  = &saved_state_;
+        }
+#ifdef GFXRECON_AGS_SUPPORT
+        writer->WriteState(state_table_, ags_state_table_, frame_number, saved_state);
+#else
+        writer->WriteState(state_table_, frame_number, saved_state);
+#endif // GFXRECON_AGS_SUPPORT
+    }
+}
+
+void Dx12StateTracker::WriteLoopState(Dx12LoopStateWriter* writer, uint64_t frame_number)
 {
     if (writer != nullptr)
     {
         std::unique_lock<std::mutex> lock(state_table_mutex_);
 #ifdef GFXRECON_AGS_SUPPORT
-        writer->WriteState(state_table_, ags_state_table_, frame_number, nullptr);
+        writer->WriteState(state_table_, ags_state_table_, frame_number, &saved_state_);
 #else
-        writer->WriteState(state_table_, frame_number, nullptr);
+        writer->WriteState(state_table_, frame_number, &saved_state_);
 #endif // GFXRECON_AGS_SUPPORT
     }
 }

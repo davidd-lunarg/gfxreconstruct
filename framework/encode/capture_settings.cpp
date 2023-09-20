@@ -94,6 +94,8 @@ GFXRECON_BEGIN_NAMESPACE(encode)
 #define CAPTURE_IUNKNOWN_WRAPPING_UPPER                      "CAPTURE_IUNKNOWN_WRAPPING"
 #define CAPTURE_QUEUE_SUBMITS_LOWER                          "capture_queue_submits"
 #define CAPTURE_QUEUE_SUBMITS_UPPER                          "CAPTURE_QUEUE_SUBMITS"
+#define CAPTURE_LOOP_LOWER                                   "capture_loop"
+#define CAPTURE_LOOP_UPPER                                   "CAPTURE_LOOP"
 #define PAGE_GUARD_COPY_ON_MAP_LOWER                         "page_guard_copy_on_map"
 #define PAGE_GUARD_COPY_ON_MAP_UPPER                         "PAGE_GUARD_COPY_ON_MAP"
 #define PAGE_GUARD_SEPARATE_READ_LOWER                       "page_guard_separate_read"
@@ -166,6 +168,7 @@ const char kCaptureTriggerEnvVar[]                           = GFXRECON_ENV_VAR_
 const char kCaptureTriggerFramesEnvVar[]                     = GFXRECON_ENV_VAR_PREFIX CAPTURE_TRIGGER_FRAMES_LOWER;
 const char kCaptureIUnknownWrappingEnvVar[]                  = GFXRECON_ENV_VAR_PREFIX CAPTURE_IUNKNOWN_WRAPPING_LOWER;
 const char kCaptureQueueSubmitsEnvVar[]                      = GFXRECON_ENV_VAR_PREFIX CAPTURE_QUEUE_SUBMITS_LOWER;
+const char kCaptureLoopEnvVar[]                              = GFXRECON_ENV_VAR_PREFIX CAPTURE_LOOP_LOWER;
 const char kPageGuardCopyOnMapEnvVar[]                       = GFXRECON_ENV_VAR_PREFIX PAGE_GUARD_COPY_ON_MAP_LOWER;
 const char kPageGuardSeparateReadEnvVar[]                    = GFXRECON_ENV_VAR_PREFIX PAGE_GUARD_SEPARATE_READ_LOWER;
 const char kPageGuardPersistentMemoryEnvVar[]                = GFXRECON_ENV_VAR_PREFIX PAGE_GUARD_PERSISTENT_MEMORY_LOWER;
@@ -228,6 +231,7 @@ const char kCaptureTriggerEnvVar[]                           = GFXRECON_ENV_VAR_
 const char kCaptureTriggerFramesEnvVar[]                     = GFXRECON_ENV_VAR_PREFIX CAPTURE_TRIGGER_FRAMES_UPPER;
 const char kCaptureIUnknownWrappingEnvVar[]                  = GFXRECON_ENV_VAR_PREFIX CAPTURE_IUNKNOWN_WRAPPING_UPPER;
 const char kCaptureQueueSubmitsEnvVar[]                      = GFXRECON_ENV_VAR_PREFIX CAPTURE_QUEUE_SUBMITS_UPPER;
+const char kCaptureLoopEnvVar[]                              = GFXRECON_ENV_VAR_PREFIX CAPTURE_LOOP_UPPER;
 const char kDebugLayerEnvVar[]                               = GFXRECON_ENV_VAR_PREFIX DEBUG_LAYER_UPPER;
 const char kDebugDeviceLostEnvVar[]                          = GFXRECON_ENV_VAR_PREFIX DEBUG_DEVICE_LOST_UPPER;
 const char kDisableDxrEnvVar[]                               = GFXRECON_ENV_VAR_PREFIX DISABLE_DXR_UPPER;
@@ -270,6 +274,7 @@ const std::string kOptionKeyCaptureTrigger                           = std::stri
 const std::string kOptionKeyCaptureTriggerFrames                     = std::string(kSettingsFilter) + std::string(CAPTURE_TRIGGER_FRAMES_LOWER);
 const std::string kOptionKeyCaptureIUnknownWrapping                  = std::string(kSettingsFilter) + std::string(CAPTURE_IUNKNOWN_WRAPPING_LOWER);
 const std::string kOptionKeyCaptureQueueSubmits                      = std::string(kSettingsFilter) + std::string(CAPTURE_QUEUE_SUBMITS_LOWER);
+const std::string kOptionKeyCaptureLoop                              = std::string(kSettingsFilter) + std::string(CAPTURE_LOOP_LOWER);
 const std::string kOptionKeyPageGuardCopyOnMap                       = std::string(kSettingsFilter) + std::string(PAGE_GUARD_COPY_ON_MAP_LOWER);
 const std::string kOptionKeyPageGuardSeparateRead                    = std::string(kSettingsFilter) + std::string(PAGE_GUARD_SEPARATE_READ_LOWER);
 const std::string kOptionKeyPageGuardPersistentMemory                = std::string(kSettingsFilter) + std::string(PAGE_GUARD_PERSISTENT_MEMORY_LOWER);
@@ -407,6 +412,7 @@ void CaptureSettings::LoadOptionsEnvVar(OptionsMap* options)
     LoadSingleOptionEnvVar(options, kCaptureTriggerEnvVar, kOptionKeyCaptureTrigger);
     LoadSingleOptionEnvVar(options, kCaptureTriggerFramesEnvVar, kOptionKeyCaptureTriggerFrames);
     LoadSingleOptionEnvVar(options, kCaptureQueueSubmitsEnvVar, kOptionKeyCaptureQueueSubmits);
+    LoadSingleOptionEnvVar(options, kCaptureLoopEnvVar, kOptionKeyCaptureLoop);
 
     // Page guard environment variables
     LoadSingleOptionEnvVar(options, kPageGuardCopyOnMapEnvVar, kOptionKeyPageGuardCopyOnMap);
@@ -538,6 +544,29 @@ void CaptureSettings::ProcessOptions(OptionsMap* options, CaptureSettings* setti
         else
         {
             GFXRECON_LOG_WARNING("Settings Loader: Ignoring trim key setting as trim ranges has been specified.");
+        }
+    }
+
+    std::string capture_loop_string = FindOption(options, kOptionKeyCaptureLoop);
+    if (!capture_loop_string.empty())
+    {
+        settings->trace_settings_.capture_loop =
+            ParseBoolString(capture_loop_string, settings->trace_settings_.capture_loop);
+
+        if (settings->trace_settings_.capture_loop)
+        {
+            if (settings->trace_settings_.trim_boundary == TrimBoundary::kUnknown)
+            {
+                settings->trace_settings_.capture_loop = false;
+                GFXRECON_LOG_WARNING(
+                    "Settings Loader: Ignoring GFXRECON_CAPTURE_LOOP. Trimming must be enabled to capture a loop.");
+            }
+            else
+            {
+                GFXRECON_LOG_INFO(
+                    "Settings Loader: GFXRECON_CAPTURE_LOOP is enabled along with trimmed capture. In order to produce "
+                    "a looping capture file the trim range must be completed before exiting the application.");
+            }
         }
     }
 

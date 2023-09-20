@@ -99,7 +99,7 @@ CaptureManager::CaptureManager(format::ApiFamilyId api_family) :
     previous_runtime_trigger_state_(CaptureSettings::RuntimeTriggerState::kNotUsed), debug_layer_(false),
     debug_device_lost_(false), screenshot_prefix_(""), screenshots_enabled_(false), disable_dxr_(false),
     accel_struct_padding_(0), iunknown_wrapping_(false), force_command_serialization_(false), queue_zero_only_(false),
-    allow_pipeline_compile_required_(false), quit_after_frame_ranges_(false)
+    allow_pipeline_compile_required_(false), quit_after_frame_ranges_(false), capture_loop_(false)
 {}
 
 CaptureManager::~CaptureManager()
@@ -336,6 +336,7 @@ bool CaptureManager::Initialize(std::string base_filename, const CaptureSettings
         trim_enabled_            = true;
         trim_boundary_           = trace_settings.trim_boundary;
         quit_after_frame_ranges_ = trace_settings.quit_after_frame_ranges;
+        capture_loop_            = trace_settings.capture_loop;
 
         // Check if trim ranges were specified.
         if (!trace_settings.trim_ranges.empty())
@@ -901,6 +902,14 @@ void CaptureManager::DeactivateTrimming()
 
     assert(file_stream_);
     file_stream_->Flush();
+
+    if (capture_loop_)
+    {
+        auto thread_data = GetThreadData();
+        GFXRECON_ASSERT(thread_data != nullptr);
+        WriteLoopState(file_stream_.get(), thread_data->thread_id_);
+    }
+
     file_stream_ = nullptr;
 }
 

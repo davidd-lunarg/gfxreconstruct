@@ -696,6 +696,8 @@ class D3D12CaptureManager : public CaptureManager
 
     virtual void WriteTrackedState(util::FileOutputStream* file_stream, format::ThreadId thread_id) override;
 
+    virtual void WriteLoopState(util::FileOutputStream* file_stream, format::ThreadId thread_id) override;
+
     void PreAcquireSwapChainImages(IDXGISwapChain_Wrapper* wrapper,
                                    IUnknown*               command_queue,
                                    uint32_t                image_count,

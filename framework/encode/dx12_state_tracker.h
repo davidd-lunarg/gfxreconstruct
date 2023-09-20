@@ -25,8 +25,10 @@
 #define GFXRECON_ENCODE_DX12_STATE_TRACKER_H
 
 #include "encode/custom_ags_state_table.h"
+#include "encode/dx12_saved_state.h"
 #include "encode/dx12_state_tracker_initializers.h"
 #include "encode/dx12_state_writer.h"
+#include "encode/dx12_loop_state_writer.h"
 #include "generated/generated_dx12_state_table.h"
 #include "generated/generated_dx12_wrapper_creators.h"
 #include "generated/generated_dx12_add_entries.h"
@@ -45,7 +47,9 @@ class Dx12StateTracker
 
     ~Dx12StateTracker();
 
-    void WriteState(Dx12StateWriter* writer, uint64_t frame_number);
+    void WriteState(Dx12StateWriter* writer, uint64_t frame_number, bool save_state);
+
+    void WriteLoopState(Dx12LoopStateWriter* writer, uint64_t frame_number);
 
     template <typename ParentWrapper>
     void AddEntry(REFIID                          riid,
@@ -274,6 +278,8 @@ class Dx12StateTracker
     std::mutex           state_table_mutex_;
     Dx12StateTable       state_table_;
     std::atomic_uint64_t accel_struct_id_;
+
+    Dx12SavedState saved_state_;
 
 #ifdef GFXRECON_AGS_SUPPORT
     // TODO: to merge the ags table into Dx12 table above. With a change to the code generator.

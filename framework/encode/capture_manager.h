@@ -234,6 +234,7 @@ class CaptureManager
     virtual void CreateStateTracker()                                                               = 0;
     virtual void DestroyStateTracker()                                                              = 0;
     virtual void WriteTrackedState(util::FileOutputStream* file_stream, format::ThreadId thread_id) = 0;
+    virtual void WriteLoopState(util::FileOutputStream* file_stream, format::ThreadId thread_id)    = 0;
 
     ThreadData* GetThreadData()
     {
@@ -257,6 +258,7 @@ class CaptureManager
     bool                                GetDebugDeviceLostSetting() const { return debug_device_lost_; }
     bool                                GetDisableDxrSetting() const { return disable_dxr_; }
     auto                                GetAccelStructPaddingSetting() const { return accel_struct_padding_; }
+    auto                                GetCaptureLoopSetting() const { return capture_loop_; }
 
     std::string CreateTrimFilename(const std::string& base_filename, const util::UintRange& trim_range);
     bool        CreateCaptureFile(const std::string& base_filename);
@@ -359,6 +361,7 @@ class CaptureManager
     bool                                    allow_pipeline_compile_required_;
     bool                                    quit_after_frame_ranges_;
     static std::function<void()>            delete_instance_func_;
+    bool                                    capture_loop_;
 
     struct
     {
