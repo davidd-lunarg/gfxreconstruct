@@ -36,7 +36,7 @@ GFXRECON_BEGIN_NAMESPACE(util)
 class MemoryOutputStream : public OutputStream
 {
   public:
-    const size_t kDefaultBufferSize = 512;
+    static const size_t kDefaultBufferSize = 512;
 
   public:
     MemoryOutputStream();

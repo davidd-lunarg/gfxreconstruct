@@ -46,36 +46,36 @@ Dx12StateWriterBase::Dx12StateWriterBase(util::FileOutputStream* output_stream,
 Dx12StateWriterBase::~Dx12StateWriterBase() {}
 
 void Dx12StateWriterBase::StandardCreateWrite(format::HandleId     object_id,
-                                              const DxWrapperInfo& wrapper_info,
+                                              const DxWrapperInfo* wrapper_info,
                                               unsigned long        target_ref_count)
 {
-    if (wrapper_info.create_object_id == format::kNullHandleId)
+    if (wrapper_info->create_object_id == format::kNullHandleId)
     {
-        WriteFunctionCall(wrapper_info.create_call_id, wrapper_info.create_parameters.get());
+        WriteFunctionCall(wrapper_info->create_call_id, wrapper_info->create_parameters.get());
     }
     else
     {
-        bool create_temp_object_dependency = ((wrapper_info.create_object_info != nullptr) &&
-                                              (wrapper_info.create_object_info->GetWrapper() == nullptr));
+        bool create_temp_object_dependency = ((wrapper_info->create_object_info != nullptr) &&
+                                              (wrapper_info->create_object_info->GetWrapper() == nullptr));
 
         // Write a create call for the parent object if its wrapper has been destroyed.
         if (create_temp_object_dependency)
         {
-            StandardCreateWrite(wrapper_info.create_object_id, *wrapper_info.create_object_info.get(), 1);
+            StandardCreateWrite(wrapper_info->create_object_id, wrapper_info->create_object_info.get(), 1);
         }
 
         WriteMethodCall(
-            wrapper_info.create_call_id, wrapper_info.create_object_id, wrapper_info.create_parameters.get());
+            wrapper_info->create_call_id, wrapper_info->create_object_id, wrapper_info->create_parameters.get());
 
         // Release any temporarily created parent object.
         if (create_temp_object_dependency)
         {
-            WriteReleaseCommand(wrapper_info.create_object_id, 0);
+            WriteReleaseCommand(wrapper_info->create_object_id, 0);
         }
     }
 
     WriteAddRefAndReleaseCommands(object_id, 1, target_ref_count);
-    WritePrivateData(object_id, wrapper_info);
+    WritePrivateData(object_id, *wrapper_info);
 }
 
 void Dx12StateWriterBase::WriteFunctionCall(format::ApiCallId call_id, util::MemoryOutputStream* parameter_buffer)
@@ -278,6 +278,81 @@ void Dx12StateWriterBase::WaitForCommandQueues(const Dx12StateTable& state_table
                                result);
         }
     });
+}
+
+void Dx12StateWriterBase::WriteCommandListState(
+    const std::vector<CreateInfo<ID3D12CommandListInfo>>& bundle_command_lists,
+    const std::vector<CreateInfo<ID3D12CommandListInfo>>& direct_command_lists,
+    const Dx12StateTable&                                 state_table)
+{
+    std::vector<CreateInfo<ID3D12CommandListInfo>> open_command_lists;
+
+    // Write closed bundle command lists. Save open command lists to be written afterward.
+    for (auto create_info : bundle_command_lists)
+    {
+        if (create_info.object_info->is_closed)
+        {
+            WriteCommandListCreation(create_info);
+            WriteCommandListCommands(create_info.object_id, create_info.object_info, state_table);
+        }
+        else
+        {
+            open_command_lists.push_back(create_info);
+        }
+    }
+
+    // Write closed primary/direct command lists. Save open command lists to be written afterward.
+    for (auto create_info : direct_command_lists)
+    {
+        if (create_info.object_info->is_closed)
+        {
+            WriteCommandListCreation(create_info);
+            WriteCommandListCommands(create_info.object_id, create_info.object_info, state_table);
+        }
+        else
+        {
+            open_command_lists.push_back(create_info);
+        }
+    }
+
+    // Write open command lists.
+    for (auto create_info : open_command_lists)
+    {
+        // If the command list is open and has been reset since creation, create and close it here.
+        const auto* list_info = create_info.object_info;
+        if (list_info->was_reset)
+        {
+            WriteCommandListCreation(create_info);
+        }
+    }
+    for (auto create_info : open_command_lists)
+    {
+        // Write creation calls for command lists that were never reset.
+        const auto* list_info = create_info.object_info;
+        if (!list_info->was_reset)
+        {
+            WriteCommandListCreation(create_info);
+        }
+
+        // Write commands for all open command lists.
+        WriteCommandListCommands(create_info.object_id, list_info, state_table);
+    }
+}
+
+void Dx12StateWriterBase::WriteCommandListCreation(const CreateInfo<ID3D12CommandListInfo>& create_info)
+{
+    // Write call to create the command list.
+    StandardCreateWrite(create_info);
+    auto list_info = create_info.object_info;
+
+    // If the command list was created open and reset since creation, write a command to close it. This frees up the
+    // command allocator used in creation. This list's command_data will contain a reset, possibly with a different
+    // command allocator.
+    bool created_open = (list_info->create_call_id == format::ApiCall_ID3D12Device_CreateCommandList);
+    if (list_info->was_reset && created_open)
+    {
+        WriteCommandListClose(create_info.object_id);
+    }
 }
 
 void Dx12StateWriterBase::WriteCommandListCommands(format::HandleId             list_id,

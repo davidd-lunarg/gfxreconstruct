@@ -79,7 +79,7 @@ class Dx12LoopStateWriter : public Dx12StateWriterBase
                 {
                     GFXRECON_ASSERT(saved_object_state != nullptr);
                     Dx12StateWriterBase::StandardCreateWrite(
-                        id, *saved_object_state->object_info.get(), saved_object_state->ref_count);
+                        id, saved_object_state->object_info.get(), saved_object_state->ref_count);
                 }
                 // If the object exists in both the saved and current state, match ref count to saved state.
                 else

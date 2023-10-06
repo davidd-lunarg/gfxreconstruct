@@ -83,13 +83,13 @@ struct DxWrapperInfo
     const IUnknown_Wrapper* GetWrapper() const { return wrapper_; }
 
     format::ApiCallId                         create_call_id{ format::ApiCallId::ApiCall_Unknown };
-    std::unique_ptr<util::MemoryOutputStream> create_parameters;
+    std::shared_ptr<util::MemoryOutputStream> create_parameters;
 
     // Info for the object that created this object (if any).
     format::HandleId                     create_object_id{ format::kNullHandleId };
     std::shared_ptr<const DxWrapperInfo> create_object_info;
 
-    std::unordered_map<const GUID, std::vector<uint8_t>, GUID_Hash, GUID_Equal> private_datas;
+    std::unordered_map<GUID, std::vector<uint8_t>, GUID_Hash, GUID_Equal> private_datas;
 
   private:
     // A pointer to the wrapper that owns/created this info struct, or nullptr if the wrapper no longer exists.
@@ -269,6 +269,9 @@ struct ID3D12FenceInfo : public DxWrapperInfo
 {
     std::mutex                            pending_events_mutex;
     std::map<UINT64, std::vector<HANDLE>> pending_events;
+
+    ID3D12FenceInfo() = default;
+    ID3D12FenceInfo(const ID3D12FenceInfo& other) : DxWrapperInfo(other), pending_events(other.pending_events) {}
 };
 
 struct ID3D12PipelineStateInfo : public DxWrapperInfo

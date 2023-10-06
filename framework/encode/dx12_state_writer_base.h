@@ -47,6 +47,14 @@ class Dx12StateWriterBase
     ~Dx12StateWriterBase();
 
   protected:
+    template <typename T>
+    struct CreateInfo
+    {
+        format::HandleId object_id;
+        const T*         object_info;
+        unsigned long    ref_count;
+    };
+
     template <typename Wrapper>
     void StandardCreateWrite(const Wrapper& wrapper)
     {
@@ -54,10 +62,16 @@ class Dx12StateWriterBase
         assert(wrapper->GetObjectInfo() != nullptr);
         assert(wrapper->GetObjectInfo()->create_parameters != nullptr);
 
-        StandardCreateWrite(wrapper->GetCaptureId(), *wrapper->GetObjectInfo().get(), wrapper->GetRefCount());
+        StandardCreateWrite(wrapper->GetCaptureId(), wrapper->GetObjectInfo().get(), wrapper->GetRefCount());
     }
 
-    void StandardCreateWrite(format::HandleId object_id, const DxWrapperInfo& wrapper_info, unsigned long ref_count);
+    template <typename T>
+    void StandardCreateWrite(const CreateInfo<T>& create_info)
+    {
+        StandardCreateWrite(create_info.object_id, create_info.object_info, create_info.ref_count);
+    }
+
+    void StandardCreateWrite(format::HandleId object_id, const DxWrapperInfo* wrapper_info, unsigned long ref_count);
 
     void WriteFunctionCall(format::ApiCallId call_id, util::MemoryOutputStream* parameter_buffer);
 
@@ -75,6 +89,12 @@ class Dx12StateWriterBase
 
     // Sync to ensure all pending command queues are completed before processing state writing.
     void WaitForCommandQueues(const Dx12StateTable& state_table);
+
+    void WriteCommandListState(const std::vector<CreateInfo<ID3D12CommandListInfo>>& bundle_command_lists,
+                               const std::vector<CreateInfo<ID3D12CommandListInfo>>& direct_command_lists,
+                               const Dx12StateTable&                                 state_table);
+
+    void WriteCommandListCreation(const CreateInfo<ID3D12CommandListInfo>& create_info);
 
     void WriteCommandListCommands(format::HandleId             list_id,
                                   const ID3D12CommandListInfo* list_info,

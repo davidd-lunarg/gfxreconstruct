@@ -126,8 +126,6 @@ class Dx12StateWriter : public Dx12StateWriterBase
 
     void WriteCommandListState(const Dx12StateTable& state_table);
 
-    void WriteCommandListCreation(const ID3D12CommandList_Wrapper* list_wrapper);
-
     void WriteSwapChainState(const Dx12StateTable& state_table);
 
     void WriteEnableDebugLayer();

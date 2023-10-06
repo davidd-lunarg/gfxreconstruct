@@ -47,12 +47,13 @@ struct Dx12SavedSwapChainState : Dx12SavedObjectState
 
 struct Dx12SavedFenceState : Dx12SavedObjectState
 {
-    UINT64                                completed_value{ 0 };
-    std::map<UINT64, std::vector<HANDLE>> pending_events;
+    UINT64 completed_value{ 0 };
 };
 
 struct Dx12SavedCommandListState : Dx12SavedObjectState
-{};
+{
+    D3D12_COMMAND_LIST_TYPE list_type{ D3D12_COMMAND_LIST_TYPE_NONE };
+};
 
 class Dx12SavedState
 {
@@ -127,12 +128,9 @@ class Dx12SavedState
                         std::shared_ptr<const ID3D12FenceInfo> fence_info,
                         UINT64                                 completed_value)
     {
-        saved_object_states_[fence_id] = std::shared_ptr<Dx12SavedFenceState>(new Dx12SavedFenceState{
-            ref_count,
-            fence_info,
-            completed_value,
-            fence_info->pending_events,
-        });
+        auto info_copy = std::make_shared<ID3D12FenceInfo>(*fence_info.get());
+        saved_object_states_[fence_id] =
+            std::shared_ptr<Dx12SavedFenceState>(new Dx12SavedFenceState{ ref_count, info_copy, completed_value });
     }
 
     const Dx12SavedFenceState* GetSavedFenceState(format::HandleId fence_id) const
@@ -141,10 +139,14 @@ class Dx12SavedState
         return reinterpret_cast<const Dx12SavedFenceState*>(saved_object_state);
     }
 
-    void SaveCommandListState(const ID3D12CommandList_Wrapper* list_wrapper)
+    void SaveCommandListState(format::HandleId                       id,
+                              std::shared_ptr<ID3D12CommandListInfo> list_info,
+                              unsigned long                          ref_count,
+                              D3D12_COMMAND_LIST_TYPE                list_type)
     {
-        saved_object_states_[list_wrapper->GetCaptureId()] = std::shared_ptr<Dx12SavedCommandListState>(
-            new Dx12SavedCommandListState{ list_wrapper->GetRefCount(), list_wrapper->GetObjectInfo() });
+        auto info_copy           = std::make_shared<ID3D12CommandListInfo>(*list_info.get());
+        saved_object_states_[id] = std::shared_ptr<Dx12SavedCommandListState>(
+            new Dx12SavedCommandListState{ ref_count, info_copy, list_type });
     }
 
     const Dx12SavedCommandListState* GetSavedCommandListState(format::HandleId list_id) const

@@ -202,7 +202,7 @@ void Dx12LoopStateWriter::WriteFenceState(const Dx12StateTable& state_table)
                 if (fence_wrapper == nullptr)
                 {
                     Dx12StateWriterBase::StandardCreateWrite(
-                        id, *saved_fence_state->object_info.get(), saved_fence_state->ref_count);
+                        id, saved_fence_state->object_info.get(), saved_fence_state->ref_count);
                 }
                 // If the object exists in both the saved and current state, match ref count to saved state.
                 else
@@ -211,12 +211,13 @@ void Dx12LoopStateWriter::WriteFenceState(const Dx12StateTable& state_table)
 
                     WriteAddRefAndReleaseCommands(id, fence_wrapper->GetRefCount(), saved_fence_state->ref_count);
 
-                    auto fence = fence_wrapper->GetWrappedObjectAs<ID3D12Fence>();
+                    auto fence      = fence_wrapper->GetWrappedObjectAs<ID3D12Fence>();
+                    auto fence_info = fence_wrapper->GetObjectInfo();
 
                     UINT64 current_completed_fence_value = fence->GetCompletedValue();
 
                     UINT64 max_pending_event_signal_value = 0;
-                    for (const auto& events : saved_fence_state->pending_events)
+                    for (const auto& events : fence_info->pending_events)
                     {
                         UINT64 event_signal_value = events.first;
 
@@ -253,64 +254,40 @@ void Dx12LoopStateWriter::WriteFenceState(const Dx12StateTable& state_table)
 
 void Dx12LoopStateWriter::WriteCommandListState(const Dx12StateTable& state_table)
 {
+    std::vector<CreateInfo<ID3D12CommandListInfo>> bundle_command_lists;
+    std::vector<CreateInfo<ID3D12CommandListInfo>> direct_command_lists;
+
     saved_state_->VisitWrappersForReset<ID3D12CommandList_Wrapper>(
         state_table, [&](format::HandleId id, ID3D12CommandList_Wrapper* list_wrapper) {
             GFXRECON_ASSERT(list_wrapper != nullptr);
             GFXRECON_ASSERT(list_wrapper->GetWrappedObject() != nullptr);
             GFXRECON_ASSERT(list_wrapper->GetObjectInfo() != nullptr);
 
-            auto list      = list_wrapper->GetWrappedObjectAs<ID3D12CommandList>();
-            auto list_info = list_wrapper->GetObjectInfo();
-
-            GFXRECON_ASSERT(list_info->create_parameters != nullptr);
-            GFXRECON_ASSERT(list_info->create_object_id != format::kNullHandleId);
-
-            WriteCommandListCreation(id, list_wrapper);
-        });
-}
-
-void Dx12LoopStateWriter::WriteCommandListCreation(format::HandleId id, const ID3D12CommandList_Wrapper* list_wrapper)
-{
-    auto saved_list_state = saved_state_->GetSavedCommandListState(id);
-    if (saved_list_state == nullptr)
-    {
-        GFXRECON_ASSERT(list_wrapper != nullptr);
-
-        // If the object doesn't exist in the saved state, release it.
-        WriteAddRefAndReleaseCommands(id, list_wrapper->GetRefCount(), 0);
-    }
-    else
-    {
-        auto saved_list_info = reinterpret_cast<const ID3D12CommandListInfo*>(saved_list_state->object_info.get());
-
-        // If the object only exists in the saved state, recreate it.
-        if (list_wrapper == nullptr)
-        {
-            Dx12StateWriterBase::StandardCreateWrite(
-                id, *saved_list_state->object_info.get(), saved_list_state->ref_count);
-
-            bool created_open = (saved_list_info->create_call_id == format::ApiCall_ID3D12Device_CreateCommandList);
-            if (saved_list_info->is_closed && created_open)
+            // Release all command lists.
+            if (list_wrapper != nullptr)
             {
-                WriteCommandListClose(id);
+                WriteAddRefAndReleaseCommands(id, list_wrapper->GetRefCount(), 0);
             }
-        }
-        // If the object exists in both the saved and current state, match closed state.
-        else
-        {
-            GFXRECON_ASSERT(list_wrapper->GetCaptureId() == id);
-            WriteAddRefAndReleaseCommands(id, list_wrapper->GetRefCount(), saved_list_state->ref_count);
 
-            // bool currently_closed = list_wrapper->GetObjectInfo()->is_closed;
-            // if (saved_list_info->is_closed && !currently_closed)
-            //{
-            //    WriteCommandListClose(id);
-            //    WriteCommandListCommands(list_wrapper, saved_state_->GetSavedStateTable());
-            //}
-        }
+            auto saved_list_state = saved_state_->GetSavedCommandListState(id);
+            if (saved_list_state != nullptr)
+            {
+                auto list_info = reinterpret_cast<const ID3D12CommandListInfo*>(saved_list_state->object_info.get());
+                auto ref_count = saved_list_state->ref_count;
 
-        WriteCommandListCommands(id, saved_list_info, saved_state_->GetSavedStateTable());
-    }
+                // Keep track of bundled and direct command lists.
+                if (saved_list_state->list_type == D3D12_COMMAND_LIST_TYPE_BUNDLE)
+                {
+                    bundle_command_lists.push_back({ id, list_info, ref_count });
+                }
+                else
+                {
+                    direct_command_lists.push_back({ id, list_info, ref_count });
+                }
+            }
+        });
+
+    Dx12StateWriterBase::WriteCommandListState(bundle_command_lists, direct_command_lists, state_table);
 }
 
 void Dx12LoopStateWriter::WriteSwapChainState(const Dx12StateTable& state_table)
@@ -333,7 +310,7 @@ void Dx12LoopStateWriter::WriteSwapChainState(const Dx12StateTable& state_table)
                 if (swapchain_wrapper == nullptr)
                 {
                     Dx12StateWriterBase::StandardCreateWrite(
-                        id, *saved_swapchain_state->object_info.get(), saved_swapchain_state->ref_count);
+                        id, saved_swapchain_state->object_info.get(), saved_swapchain_state->ref_count);
                 }
                 // If the object exists in both the saved and current state, match ref count to saved state.
                 else

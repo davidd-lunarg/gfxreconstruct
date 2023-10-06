@@ -53,7 +53,7 @@ InitializeState(Wrapper*                        wrapper,
 
     wrapper_info->create_call_id = create_call_id;
     wrapper_info->create_parameters =
-        std::make_unique<util::MemoryOutputStream>(create_parameters->GetData(), create_parameters->GetDataSize());
+        std::make_shared<util::MemoryOutputStream>(create_parameters->GetData(), create_parameters->GetDataSize());
 
     wrapper_info->create_object_id   = create_object_wrapper->GetCaptureId();
     wrapper_info->create_object_info = create_object_wrapper->GetObjectInfo();
@@ -78,7 +78,7 @@ InitializeState(Wrapper*                        wrapper,
 
     wrapper_info->create_call_id = create_call_id;
     wrapper_info->create_parameters =
-        std::make_unique<util::MemoryOutputStream>(create_parameters->GetData(), create_parameters->GetDataSize());
+        std::make_shared<util::MemoryOutputStream>(create_parameters->GetData(), create_parameters->GetDataSize());
 
     wrapper_info->create_object_id   = create_object_wrapper->GetCaptureId();
     wrapper_info->create_object_info = nullptr;
