@@ -124,14 +124,14 @@ class Dx12ReplayConsumerBase : public Dx12Consumer
                                                            UINT                                     src_row_pitch,
                                                            UINT src_depth_pitch) override;
 
-	void Process_ID3D12Device12_GetResourceAllocationInfo3(
+    void Process_ID3D12Device12_GetResourceAllocationInfo3(
         format::HandleId                                               object_id,
         Decoded_D3D12_RESOURCE_ALLOCATION_INFO                         return_value,
         UINT                                                           visibleMask,
         UINT                                                           numResourceDescs,
         StructPointerDecoder<Decoded_D3D12_RESOURCE_DESC1>*            pResourceDescs,
         PointerDecoder<UINT>*                                          pNumCastableFormats,
-        HandlePointerDecoder<DXGI_FORMAT*>*                            ppCastableFormats,
+        PointerDecoder<DXGI_FORMAT*>*                                  ppCastableFormats,
         StructPointerDecoder<Decoded_D3D12_RESOURCE_ALLOCATION_INFO1>* pResourceAllocationInfo1) override;
 
     template <typename T>
