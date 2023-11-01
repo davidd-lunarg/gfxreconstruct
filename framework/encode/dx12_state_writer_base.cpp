@@ -535,5 +535,30 @@ bool Dx12StateWriterBase::CheckDescriptorObjects(const DxDescriptorInfo& descrip
     return true;
 }
 
+bool Dx12StateWriterBase::WriteCreateHeapAllocationCmd(const void* address)
+{
+    MEMORY_BASIC_INFORMATION info{};
+
+    auto result = VirtualQuery(address, &info, sizeof(info));
+    if (result > 0)
+    {
+        format::CreateHeapAllocationCommand allocation_cmd;
+
+        allocation_cmd.meta_header.block_header.type = format::BlockType::kMetaDataBlock;
+        allocation_cmd.meta_header.block_header.size = format::GetMetaDataBlockBaseSize(allocation_cmd);
+        allocation_cmd.meta_header.meta_data_id      = format::MakeMetaDataId(
+            format::ApiFamilyId::ApiFamily_D3D12, format::MetaDataType::kCreateHeapAllocationCommand);
+        allocation_cmd.thread_id       = thread_id_;
+        allocation_cmd.allocation_id   = reinterpret_cast<uint64_t>(address);
+        allocation_cmd.allocation_size = info.RegionSize;
+
+        output_stream_->Write(&allocation_cmd, sizeof(allocation_cmd));
+
+        return true;
+    }
+
+    return false;
+}
+
 GFXRECON_END_NAMESPACE(encode)
 GFXRECON_END_NAMESPACE(gfxrecon)

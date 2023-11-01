@@ -112,6 +112,9 @@ class Dx12StateWriterBase
 
     bool CheckDescriptorObjects(const DxDescriptorInfo& descriptor_info, const Dx12StateTable& state_table);
 
+    // Returns true if memory information was successfully retrieved and written and false otherwise.
+    bool WriteCreateHeapAllocationCmd(const void* address);
+
     util::FileOutputStream*  output_stream_;
     util::Compressor*        compressor_;
     std::vector<uint8_t>     compressed_parameter_buffer_;

@@ -101,9 +101,6 @@ class Dx12StateWriter : public Dx12StateWriterBase
 
     void WriteHeapState(const Dx12StateTable& state_table);
 
-    // Returns true if memory information was successfully retrieved and written and false otherwise.
-    bool WriteCreateHeapAllocationCmd(const void* address);
-
     void WriteDescriptorState(const Dx12StateTable& state_table);
 
     void WriteResidencyPriority(const Dx12StateTable& state_table);

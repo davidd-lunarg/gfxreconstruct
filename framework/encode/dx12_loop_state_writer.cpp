@@ -70,23 +70,23 @@ void Dx12LoopStateWriter::WriteState(const Dx12StateTable& state_table,
 
     // Debug objects
     // LOOP_TODO: WriteEnableDebugLayer();
-    StandardCreateWrite<ID3D12Debug_Wrapper>(state_table);
-    StandardCreateWrite<ID3D12Debug1_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12Debug_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12Debug1_Wrapper>(state_table);
     // LOOP_TODO: WriteEnableDRED();
-    StandardCreateWrite<ID3D12DeviceRemovedExtendedDataSettings_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12DeviceRemovedExtendedDataSettings_Wrapper>(state_table);
 
     // DXGI objects
-    StandardCreateWrite<IDXGIFactory_Wrapper>(state_table);
-    StandardCreateWrite<IDXGISurface_Wrapper>(state_table);
-    StandardCreateWrite<IDXGIFactoryMedia_Wrapper>(state_table);
-    StandardCreateWrite<IDXGIDecodeSwapChain_Wrapper>(state_table);
-    StandardCreateWrite<IDXGIAdapter_Wrapper>(state_table);
-    StandardCreateWrite<IDXGIDevice_Wrapper>(state_table);
-    StandardCreateWrite<IDXGIDisplayControl_Wrapper>(state_table);
-    StandardCreateWrite<IDXGIKeyedMutex_Wrapper>(state_table);
-    StandardCreateWrite<IDXGIOutput_Wrapper>(state_table);
-    StandardCreateWrite<IDXGIOutputDuplication_Wrapper>(state_table);
-    StandardCreateWrite<IDXGIResource_Wrapper>(state_table);
+    StandardProcessObjectsReset<IDXGIFactory_Wrapper>(state_table);
+    StandardProcessObjectsReset<IDXGISurface_Wrapper>(state_table);
+    StandardProcessObjectsReset<IDXGIFactoryMedia_Wrapper>(state_table);
+    StandardProcessObjectsReset<IDXGIDecodeSwapChain_Wrapper>(state_table);
+    StandardProcessObjectsReset<IDXGIAdapter_Wrapper>(state_table);
+    StandardProcessObjectsReset<IDXGIDevice_Wrapper>(state_table);
+    StandardProcessObjectsReset<IDXGIDisplayControl_Wrapper>(state_table);
+    StandardProcessObjectsReset<IDXGIKeyedMutex_Wrapper>(state_table);
+    StandardProcessObjectsReset<IDXGIOutput_Wrapper>(state_table);
+    StandardProcessObjectsReset<IDXGIOutputDuplication_Wrapper>(state_table);
+    StandardProcessObjectsReset<IDXGIResource_Wrapper>(state_table);
 
 #ifdef GFXRECON_AGS_SUPPORT
     // AGS calls
@@ -95,11 +95,11 @@ void Dx12LoopStateWriter::WriteState(const Dx12StateTable& state_table,
 #endif // GFXRECON_AGS_SUPPORT
 
     // Device
-    StandardCreateWrite<ID3D12Device_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12Device_Wrapper>(state_table);
 
     // Agility SDK constructs
-    StandardCreateWrite<ID3D12DeviceFactory_Wrapper>(state_table);
-    StandardCreateWrite<ID3D12DeviceConfiguration_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12DeviceFactory_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12DeviceConfiguration_Wrapper>(state_table);
 
     // Write this out before rendering begins
     // This ensures the replayer gets a chance to process the metadata command
@@ -108,24 +108,24 @@ void Dx12LoopStateWriter::WriteState(const Dx12StateTable& state_table,
     // LOOP_TODO: D3D12CaptureManager::Get()->WriteDx12RuntimeInfo();
 
     // Queue
-    StandardCreateWrite<ID3D12CommandQueue_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12CommandQueue_Wrapper>(state_table);
 
     // Swap chain
     WriteSwapChainState(state_table);
-    StandardCreateWrite<IDXGISwapChainMedia_Wrapper>(state_table);
-    StandardCreateWrite<ID3D12SwapChainAssistant_Wrapper>(state_table);
+    StandardProcessObjectsReset<IDXGISwapChainMedia_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12SwapChainAssistant_Wrapper>(state_table);
 
     // Fences
-    WriteFenceState(state_table);
+    ProcessObjectsReset<ID3D12Fence_Wrapper, Dx12SavedFenceState>(state_table);
 
     // Heaps
-    StandardCreateWrite<ID3D10Blob_Wrapper>(state_table);
-    // LOOP_TODO: WriteHeapState(state_table);
+    StandardProcessObjectsReset<ID3D10Blob_Wrapper>(state_table);
+    ProcessObjectsReset<ID3D12Heap_Wrapper, Dx12SavedObjectState>(state_table);
 
     // Root signatures
-    StandardCreateWrite<ID3D12RootSignature_Wrapper>(state_table);
-    StandardCreateWrite<ID3D12RootSignatureDeserializer_Wrapper>(state_table);
-    StandardCreateWrite<ID3D12VersionedRootSignatureDeserializer_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12RootSignature_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12RootSignatureDeserializer_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12VersionedRootSignatureDeserializer_Wrapper>(state_table);
 
     // State objects
     // LOOP_TODO: WriteStateObjectsState(state_table);
@@ -142,41 +142,41 @@ void Dx12LoopStateWriter::WriteState(const Dx12StateTable& state_table,
     // LOOP_TODO: WriteResourceSnapshots(resource_snapshots, max_resource_sizes);
 
     // Other
-    StandardCreateWrite<ID3D12DeviceRemovedExtendedData_Wrapper>(state_table);
-    StandardCreateWrite<ID3D12LifetimeOwner_Wrapper>(state_table);
-    StandardCreateWrite<ID3D12LifetimeTracker_Wrapper>(state_table);
-    StandardCreateWrite<ID3D12MetaCommand_Wrapper>(state_table);
-    StandardCreateWrite<ID3D12ProtectedResourceSession_Wrapper>(state_table);
-    StandardCreateWrite<ID3D12QueryHeap_Wrapper>(state_table);
-    StandardCreateWrite<ID3D12Tools_Wrapper>(state_table);
-    StandardCreateWrite<ID3DDestructionNotifier_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12DeviceRemovedExtendedData_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12LifetimeOwner_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12LifetimeTracker_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12MetaCommand_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12ProtectedResourceSession_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12QueryHeap_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12Tools_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3DDestructionNotifier_Wrapper>(state_table);
 
     // Pipelines
-    StandardCreateWrite<ID3D12PipelineLibrary_Wrapper>(state_table);
-    StandardCreateWrite<ID3D12PipelineState_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12PipelineLibrary_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12PipelineState_Wrapper>(state_table);
 
     // Debug objects
-    StandardCreateWrite<ID3D12Debug2_Wrapper>(state_table);
-    StandardCreateWrite<ID3D12DebugDevice1_Wrapper>(state_table);
-    StandardCreateWrite<ID3D12DebugDevice_Wrapper>(state_table);
-    StandardCreateWrite<ID3D12DebugCommandQueue_Wrapper>(state_table);
-    StandardCreateWrite<ID3D12DebugCommandList1_Wrapper>(state_table);
-    StandardCreateWrite<ID3D12DebugCommandList_Wrapper>(state_table);
-    StandardCreateWrite<ID3D12SharingContract_Wrapper>(state_table);
-    StandardCreateWrite<ID3D12InfoQueue_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12Debug2_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12DebugDevice1_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12DebugDevice_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12DebugCommandQueue_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12DebugCommandList1_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12DebugCommandList_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12SharingContract_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12InfoQueue_Wrapper>(state_table);
 
     // Acceleration structures
     // LOOP_TODO: WriteAccelerationStructuresState(state_table);
 
     // Command lists
-    StandardCreateWrite<ID3D12CommandAllocator_Wrapper>(state_table);
-    StandardCreateWrite<ID3D12CommandSignature_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12CommandAllocator_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12CommandSignature_Wrapper>(state_table);
     // LOOP_TODO: WriteResidencyPriority(state_table);
     WriteCommandListState(state_table);
 
     // TODO: Determine dependencies for creation of ID3D12VirtualizationGuestDevice
     // Since the dependency chain is unclear, just write their state at the very end
-    StandardCreateWrite<ID3D12VirtualizationGuestDevice_Wrapper>(state_table);
+    StandardProcessObjectsReset<ID3D12VirtualizationGuestDevice_Wrapper>(state_table);
 
     marker.marker_type = format::kEndMarker;
     output_stream_->Write(&marker, sizeof(marker));
@@ -184,72 +184,79 @@ void Dx12LoopStateWriter::WriteState(const Dx12StateTable& state_table,
     saved_state_ = nullptr;
 }
 
-void Dx12LoopStateWriter::WriteFenceState(const Dx12StateTable& state_table)
+template <>
+bool Dx12LoopStateWriter::ProcessObjectReset(Dx12ObjectResetInfo<ID3D12Fence_Wrapper, Dx12SavedFenceState>& reset_info)
 {
-    saved_state_->VisitWrappersForReset<ID3D12Fence_Wrapper>(
-        state_table, [&](format::HandleId id, ID3D12Fence_Wrapper* fence_wrapper) {
-            auto saved_fence_state = saved_state_->GetSavedFenceState(id);
-            if (saved_fence_state == nullptr)
+    GFXRECON_LOG_INFO_ONCE("Processing Fence Reset");
+
+    auto id                = reset_info.id;
+    auto fence_wrapper     = reset_info.wrapper;
+    auto saved_fence_state = reset_info.saved_state;
+
+    bool exists_before = (saved_fence_state == nullptr);
+    bool exists_after  = (fence_wrapper == nullptr);
+
+    bool changed = exists_before != exists_after;
+
+    // Signal all fences to allow all pending GPU work to complete.
+    if (exists_after)
+    {
+        auto fence      = fence_wrapper->GetWrappedObjectAs<ID3D12Fence>();
+        auto fence_info = fence_wrapper->GetObjectInfo();
+
+        UINT64 current_completed_fence_value = fence->GetCompletedValue();
+
+        UINT64 max_pending_event_signal_value = current_completed_fence_value;
+        for (const auto& events : fence_info->pending_events)
+        {
+            UINT64 event_signal_value = events.first;
+
+            // Ignore any events that have already been signaled.
+            if (event_signal_value <= current_completed_fence_value)
             {
-                GFXRECON_ASSERT(fence_wrapper != nullptr);
-
-                // If the object doesn't exist in the saved state, release it.
-                WriteAddRefAndReleaseCommands(id, fence_wrapper->GetRefCount(), 0);
+                continue;
             }
-            else
-            {
-                // If the object only exists in the saved state, recreate it.
-                if (fence_wrapper == nullptr)
-                {
-                    Dx12StateWriterBase::StandardCreateWrite(
-                        id, saved_fence_state->object_info.get(), saved_fence_state->ref_count);
-                }
-                // If the object exists in both the saved and current state, match ref count to saved state.
-                else
-                {
-                    GFXRECON_ASSERT(fence_wrapper->GetCaptureId() == id);
 
-                    WriteAddRefAndReleaseCommands(id, fence_wrapper->GetRefCount(), saved_fence_state->ref_count);
+            max_pending_event_signal_value = std::max(max_pending_event_signal_value, event_signal_value);
+        }
 
-                    auto fence      = fence_wrapper->GetWrappedObjectAs<ID3D12Fence>();
-                    auto fence_info = fence_wrapper->GetObjectInfo();
+        if (max_pending_event_signal_value > current_completed_fence_value)
+        {
+            // Write call to signal the fence to clear out pending events.
+            encoder_.EncodeUInt64Value(max_pending_event_signal_value);
+            encoder_.EncodeInt32Value(S_OK);
+            WriteMethodCall(
+                format::ApiCallId::ApiCall_ID3D12Fence_Signal, fence_wrapper->GetCaptureId(), &parameter_stream_);
+            parameter_stream_.Reset();
+        }
 
-                    UINT64 current_completed_fence_value = fence->GetCompletedValue();
+        // Release the fence if it was created during the loop.
+        if (!exists_before)
+        {
+            WriteAddRefAndReleaseCommands(id, fence_wrapper->GetRefCount(), 0);
+        }
 
-                    UINT64 max_pending_event_signal_value = 0;
-                    for (const auto& events : fence_info->pending_events)
-                    {
-                        UINT64 event_signal_value = events.first;
+        changed = changed || (max_pending_event_signal_value != saved_fence_state->completed_value);
+    }
 
-                        // Ignore any events that have already been signaled.
-                        if (event_signal_value <= current_completed_fence_value)
-                        {
-                            continue;
-                        }
+    if (changed && exists_before)
+    {
+        // Create the fence if it was deleted during the loop.
+        if (!exists_after)
+        {
+            Dx12StateWriterBase::StandardCreateWrite(
+                id, saved_fence_state->object_info.get(), saved_fence_state->ref_count);
+        }
 
-                        max_pending_event_signal_value = std::max(max_pending_event_signal_value, event_signal_value);
-                    }
+        // Write call to signal the fence to its saved value.
+        encoder_.EncodeUInt64Value(saved_fence_state->completed_value);
+        encoder_.EncodeInt32Value(S_OK);
+        WriteMethodCall(
+            format::ApiCallId::ApiCall_ID3D12Fence_Signal, fence_wrapper->GetCaptureId(), &parameter_stream_);
+        parameter_stream_.Reset();
+    }
 
-                    if (max_pending_event_signal_value > current_completed_fence_value)
-                    {
-                        // Write call to signal the fence to clear out pending events.
-                        encoder_.EncodeUInt64Value(max_pending_event_signal_value);
-                        encoder_.EncodeInt32Value(S_OK);
-                        WriteMethodCall(format::ApiCallId::ApiCall_ID3D12Fence_Signal,
-                                        fence_wrapper->GetCaptureId(),
-                                        &parameter_stream_);
-                        parameter_stream_.Reset();
-                    }
-                }
-
-                // Write call to signal the fence to its saved value.
-                encoder_.EncodeUInt64Value(saved_fence_state->completed_value);
-                encoder_.EncodeInt32Value(S_OK);
-                WriteMethodCall(
-                    format::ApiCallId::ApiCall_ID3D12Fence_Signal, fence_wrapper->GetCaptureId(), &parameter_stream_);
-                parameter_stream_.Reset();
-            }
-        });
+    return changed;
 }
 
 void Dx12LoopStateWriter::WriteCommandListState(const Dx12StateTable& state_table)
@@ -257,11 +264,13 @@ void Dx12LoopStateWriter::WriteCommandListState(const Dx12StateTable& state_tabl
     std::vector<CreateInfo<ID3D12CommandListInfo>> bundle_command_lists;
     std::vector<CreateInfo<ID3D12CommandListInfo>> direct_command_lists;
 
-    saved_state_->VisitWrappersForReset<ID3D12CommandList_Wrapper>(
-        state_table, [&](format::HandleId id, ID3D12CommandList_Wrapper* list_wrapper) {
-            GFXRECON_ASSERT(list_wrapper != nullptr);
-            GFXRECON_ASSERT(list_wrapper->GetWrappedObject() != nullptr);
-            GFXRECON_ASSERT(list_wrapper->GetObjectInfo() != nullptr);
+    saved_state_->VisitObjectsForReset<ID3D12CommandList_Wrapper, Dx12SavedCommandListState>(
+        state_table, [&](Dx12ObjectResetInfo<ID3D12CommandList_Wrapper, Dx12SavedCommandListState> reset_info) {
+            GFXRECON_LOG_INFO_ONCE("Processing Command List Reset");
+
+            auto id               = reset_info.id;
+            auto list_wrapper     = reset_info.wrapper;
+            auto saved_list_state = reset_info.saved_state;
 
             // Release all command lists.
             if (list_wrapper != nullptr)
@@ -269,7 +278,6 @@ void Dx12LoopStateWriter::WriteCommandListState(const Dx12StateTable& state_tabl
                 WriteAddRefAndReleaseCommands(id, list_wrapper->GetRefCount(), 0);
             }
 
-            auto saved_list_state = saved_state_->GetSavedCommandListState(id);
             if (saved_list_state != nullptr)
             {
                 auto list_info = reinterpret_cast<const ID3D12CommandListInfo*>(saved_list_state->object_info.get());
@@ -292,9 +300,14 @@ void Dx12LoopStateWriter::WriteCommandListState(const Dx12StateTable& state_tabl
 
 void Dx12LoopStateWriter::WriteSwapChainState(const Dx12StateTable& state_table)
 {
-    saved_state_->VisitWrappersForReset<IDXGISwapChain_Wrapper>(
-        state_table, [&](format::HandleId id, IDXGISwapChain_Wrapper* swapchain_wrapper) {
-            auto saved_swapchain_state = saved_state_->GetSavedSwapChainState(id);
+    saved_state_->VisitObjectsForReset<IDXGISwapChain_Wrapper, Dx12SavedSwapChainState>(
+        state_table, [&](Dx12ObjectResetInfo<IDXGISwapChain_Wrapper, Dx12SavedSwapChainState> reset_info) {
+            GFXRECON_LOG_INFO_ONCE("Processing Swap Chain Reset");
+
+            auto id                    = reset_info.id;
+            auto swapchain_wrapper     = reset_info.wrapper;
+            auto saved_swapchain_state = reset_info.saved_state;
+
             if (saved_swapchain_state == nullptr)
             {
                 GFXRECON_ASSERT(swapchain_wrapper != nullptr);
@@ -390,6 +403,44 @@ void Dx12LoopStateWriter::WriteSwapChainState(const Dx12StateTable& state_table)
                 }
             }
         });
+}
+
+template <>
+bool Dx12LoopStateWriter::ProcessObjectReset(Dx12ObjectResetInfo<ID3D12Heap_Wrapper, Dx12SavedObjectState>& reset_info)
+{
+    GFXRECON_LOG_INFO_ONCE("Processing Heap Reset");
+
+    bool object_exists_before = (reset_info.saved_state != nullptr);
+    bool object_exists_after  = (reset_info.wrapper != nullptr);
+    bool object_changed       = object_exists_before != object_exists_after;
+
+    if (object_changed)
+    {
+        // Release the object if it exists after the loop.
+        if (object_exists_after)
+        {
+            WriteAddRefAndReleaseCommands(reset_info.id, reset_info.wrapper->GetRefCount(), 0);
+        }
+        // Create the object from the saved state if it existed before the loop.
+        else if (object_exists_before)
+        {
+            auto wrapper_info = reinterpret_cast<const ID3D12HeapInfo*>(reset_info.saved_state->object_info.get());
+            if (wrapper_info->open_existing_address != nullptr)
+            {
+                if (!WriteCreateHeapAllocationCmd(wrapper_info->open_existing_address))
+                {
+                    GFXRECON_LOG_ERROR("Failed to retrieve memory information for address specified to "
+                                       "ID3D12Device3::OpenExistingHeapFromAddress (error = %d)",
+                                       GetLastError());
+                }
+            }
+
+            StandardCreateWrite(
+                reset_info.id, reset_info.saved_state->object_info.get(), reset_info.saved_state->ref_count);
+        }
+    }
+
+    return object_changed;
 }
 
 GFXRECON_END_NAMESPACE(encode)

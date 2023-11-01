@@ -62,44 +62,77 @@ class Dx12LoopStateWriter : public Dx12StateWriterBase
 #endif // GFXRECON_AGS_SUPPORT
 
   protected:
-    template <typename Wrapper>
-    void StandardCreateWrite(const Dx12StateTable& state_table)
+    // Process existing objects at the end of the loop. Return whether or not the current object state differs from the
+    // saved object state.
+    template <typename W, typename S>
+    bool ProcessObjectReset(Dx12ObjectResetInfo<W, S>& reset_info)
     {
-        saved_state_->VisitWrappersForReset<Wrapper>(state_table, [&](format::HandleId id, const Wrapper* wrapper) {
-            auto saved_object_state = saved_state_->GetSavedObjectState(id);
-            if (saved_object_state == nullptr)
-            {
-                // If the object doesn't exist in the saved state, release it.
-                WriteAddRefAndReleaseCommands(wrapper->GetCaptureId(), wrapper->GetRefCount(), 0);
-            }
-            else
-            {
-                // If the object only exists in the saved state, recreate it.
-                if (wrapper == nullptr)
-                {
-                    GFXRECON_ASSERT(saved_object_state != nullptr);
-                    Dx12StateWriterBase::StandardCreateWrite(
-                        id, saved_object_state->object_info.get(), saved_object_state->ref_count);
-                }
-                // If the object exists in both the saved and current state, match ref count to saved state.
-                else
-                {
-                    GFXRECON_ASSERT(wrapper->GetCaptureId() == id);
+        bool object_exists_before = (reset_info.saved_state != nullptr);
+        bool object_exists_after  = (reset_info.wrapper != nullptr);
+        bool object_changed       = object_exists_before != object_exists_after;
 
-                    WriteAddRefAndReleaseCommands(id, wrapper->GetRefCount(), saved_object_state->ref_count);
-                }
+        // Default behavior to reset an object is to release it then recreate it. Specializations of WriteObjectReset
+        // may take a more nuanced approach.
+        if (object_changed)
+        {
+            // Release the object if it exists after the loop.
+            if (object_exists_after)
+            {
+                WriteAddRefAndReleaseCommands(reset_info.id, reset_info.wrapper->GetRefCount(), 0);
             }
-        });
+            // Create the object from the saved state if it existed before the loop.
+            else if (object_exists_before)
+            {
+                StandardCreateWrite(
+                    reset_info.id, reset_info.saved_state->object_info.get(), reset_info.saved_state->ref_count);
+            }
+        }
+
+        return object_changed;
     }
 
-    void WriteFenceState(const Dx12StateTable& state_table);
+    template <typename Wrapper, typename SavedState>
+    void ProcessObjectsReset(const Dx12StateTable& state_table)
+    {
+        saved_state_->VisitObjectsForReset<Wrapper, SavedState>(
+            state_table, [&](Dx12ObjectResetInfo<Wrapper, SavedState> reset_info) {
+                auto id                 = reset_info.id;
+                auto object_wrapper     = reset_info.wrapper;
+                auto saved_object_state = reset_info.saved_state;
 
+                if (!ProcessObjectReset(reset_info))
+                {
+                    // The object exists before and after the loop and didn't change. Fixup object ref counts.
+                    if (reset_info.saved_state != nullptr)
+                    {
+                        GFXRECON_ASSERT(object_wrapper->GetCaptureId() == id);
+                        WriteAddRefAndReleaseCommands(id, object_wrapper->GetRefCount(), saved_object_state->ref_count);
+                    }
+                }
+            });
+    }
+
+    template <typename Wrapper>
+    void StandardProcessObjectsReset(const Dx12StateTable& state_table)
+    {
+        ProcessObjectsReset<Wrapper, Dx12SavedObjectState>(state_table);
+    }
+
+    // Fence processing
+    template <>
+    bool ProcessObjectReset(Dx12ObjectResetInfo<ID3D12Fence_Wrapper, Dx12SavedFenceState>& reset_info);
+
+    // Command list processing
     void WriteCommandListState(const Dx12StateTable& state_table);
 
-    void WriteCommandListCreation(format::HandleId id, const ID3D12CommandList_Wrapper* list_wrapper);
-
+    // Swap chain processing
     void WriteSwapChainState(const Dx12StateTable& state_table);
 
+    // Heap processing
+    template <>
+    bool ProcessObjectReset(Dx12ObjectResetInfo<ID3D12Heap_Wrapper, Dx12SavedObjectState>& reset_info);
+
+    // Dx12SavedState stores saved object state and state table.
     Dx12SavedState* saved_state_;
 };
 

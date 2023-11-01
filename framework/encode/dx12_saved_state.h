@@ -55,6 +55,14 @@ struct Dx12SavedCommandListState : Dx12SavedObjectState
     D3D12_COMMAND_LIST_TYPE list_type{ D3D12_COMMAND_LIST_TYPE_NONE };
 };
 
+template <typename Wrapper, typename SavedState>
+struct Dx12ObjectResetInfo
+{
+    format::HandleId  id{ format::kNullHandleId };
+    Wrapper*          wrapper{ nullptr };
+    const SavedState* saved_state{ nullptr };
+};
+
 class Dx12SavedState
 {
   public:
@@ -62,9 +70,9 @@ class Dx12SavedState
 
     // Combines the wrappers of type Wrapper in state_table with those in saved_state_table_ and visits each unique
     // wrapper.
-    template <typename Wrapper>
-    void VisitWrappersForReset(const Dx12StateTable&                              current_state_table,
-                               std::function<void(format::HandleId id, Wrapper*)> visitor)
+    template <typename Wrapper, typename SavedState>
+    void VisitObjectsForReset(const Dx12StateTable& current_state_table,
+                              std::function<void(Dx12ObjectResetInfo<Wrapper, SavedState> reset_info)> visitor)
     {
         temp_combined_wrappers.clear();
 
@@ -79,7 +87,11 @@ class Dx12SavedState
 
         for (auto& id_wrapper_pair : temp_combined_wrappers)
         {
-            visitor(id_wrapper_pair.first, reinterpret_cast<Wrapper*>(id_wrapper_pair.second));
+            Dx12ObjectResetInfo<Wrapper, SavedState> reset_info;
+            reset_info.id          = id_wrapper_pair.first;
+            reset_info.wrapper     = reinterpret_cast<Wrapper*>(id_wrapper_pair.second);
+            reset_info.saved_state = GetSavedObjectState<SavedState>(id_wrapper_pair.first);
+            visitor(reset_info);
         }
     }
 
@@ -117,12 +129,6 @@ class Dx12SavedState
             ref_count, swapchain_info, std::move(saved_resize_info), last_presented_image });
     }
 
-    const Dx12SavedSwapChainState* GetSavedSwapChainState(format::HandleId swapchain_id) const
-    {
-        auto saved_object_state = GetSavedObjectState(swapchain_id);
-        return reinterpret_cast<const Dx12SavedSwapChainState*>(saved_object_state);
-    }
-
     void SaveFenceState(format::HandleId                       fence_id,
                         unsigned long                          ref_count,
                         std::shared_ptr<const ID3D12FenceInfo> fence_info,
@@ -131,12 +137,6 @@ class Dx12SavedState
         auto info_copy = std::make_shared<ID3D12FenceInfo>(*fence_info.get());
         saved_object_states_[fence_id] =
             std::shared_ptr<Dx12SavedFenceState>(new Dx12SavedFenceState{ ref_count, info_copy, completed_value });
-    }
-
-    const Dx12SavedFenceState* GetSavedFenceState(format::HandleId fence_id) const
-    {
-        auto saved_object_state = GetSavedObjectState(fence_id);
-        return reinterpret_cast<const Dx12SavedFenceState*>(saved_object_state);
     }
 
     void SaveCommandListState(format::HandleId                       id,
@@ -149,10 +149,11 @@ class Dx12SavedState
             new Dx12SavedCommandListState{ ref_count, info_copy, list_type });
     }
 
-    const Dx12SavedCommandListState* GetSavedCommandListState(format::HandleId list_id) const
+    template <typename T>
+    const T* GetSavedObjectState(format::HandleId list_id)
     {
         auto saved_object_state = GetSavedObjectState(list_id);
-        return reinterpret_cast<const Dx12SavedCommandListState*>(saved_object_state);
+        return reinterpret_cast<const T*>(saved_object_state);
     }
 
   private:
