@@ -55,6 +55,24 @@ class Dx12StateWriterBase
         unsigned long    ref_count;
     };
 
+    struct ResourceSnapshotInfo
+    {
+        format::HandleId                    resource_id{ format::kNullHandleId };
+        std::shared_ptr<ID3D12ResourceInfo> resource_info{ nullptr };
+        ID3D12Resource*                     resource{ nullptr };
+    };
+
+    typedef std::unordered_map<format::HandleId, std::vector<ResourceSnapshotInfo>> ResoruceSnapshotsMap;
+
+    struct MappedSubresourceInfo
+    {
+        format::HandleId                    resource_id;
+        std::shared_ptr<ID3D12ResourceInfo> resource_info{ nullptr };
+        ID3D12Resource*                     resource;
+        UINT                                subresource;
+        int32_t                             map_count;
+    };
+
     template <typename Wrapper>
     void StandardCreateWrite(const Wrapper& wrapper)
     {
@@ -115,6 +133,25 @@ class Dx12StateWriterBase
     // Returns true if memory information was successfully retrieved and written and false otherwise.
     bool WriteCreateHeapAllocationCmd(const void* address);
 
+    void WriteResourceCreation(const Dx12StateTable&                           state_table,
+                               format::HandleId                                resource_id,
+                               std::shared_ptr<ID3D12ResourceInfo>             resource_info,
+                               ID3D12Resource*                                 resource,
+                               unsigned long                                   ref_count,
+                               ResoruceSnapshotsMap&                           snapshots,
+                               std::vector<MappedSubresourceInfo>&             mapped_subresources,
+                               std::unordered_map<format::HandleId, uint64_t>& max_resource_sizes);
+
+    void WriteResourceMappings(const std::vector<MappedSubresourceInfo>& mapped_subresources);
+
+    void WriteTileMappings(const Dx12StateTable& state_table, ID3D12ResourceInfo* resource_info);
+
+    void WriteResourceSnapshots(const ResoruceSnapshotsMap&                           snapshots,
+                                const std::unordered_map<format::HandleId, uint64_t>& max_resource_sizes);
+
+    void WriteResourceSnapshot(graphics::Dx12ResourceDataUtil* resource_data_util,
+                               const ResourceSnapshotInfo&     snapshot);
+
     util::FileOutputStream*  output_stream_;
     util::Compressor*        compressor_;
     std::vector<uint8_t>     compressed_parameter_buffer_;
@@ -122,6 +159,13 @@ class Dx12StateWriterBase
     util::MemoryOutputStream parameter_stream_;
     ParameterEncoder         encoder_;
     graphics::Dx12GpuVaMap   gpu_va_map_;
+
+  private:
+    // Temporary vectors.
+    std::vector<uint8_t>           temp_subresource_data_;
+    std::vector<uint64_t>          temp_subresource_sizes_;
+    std::vector<uint64_t>          temp_subresource_offsets_;
+    std::vector<DxTileMappingInfo> temp_tile_mappings_;
 };
 
 GFXRECON_END_NAMESPACE(encode)

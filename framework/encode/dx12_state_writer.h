@@ -68,11 +68,6 @@ class Dx12StateWriter : public Dx12StateWriterBase
 
 
   private:
-    struct ResourceSnapshotInfo
-    {
-        ID3D12Resource_Wrapper* resource_wrapper{ nullptr };
-    };
-
     // TODO: This is similar to the method in VulkanStateWriter. Possibly refactor to share common code.
     template <typename Wrapper>
     void StandardCreateWrite(const Dx12StateTable& state_table)
@@ -110,15 +105,6 @@ class Dx12StateWriter : public Dx12StateWriterBase
         std::unordered_map<format::HandleId, std::vector<ResourceSnapshotInfo>>& resource_snapshots,
         std::unordered_map<format::HandleId, uint64_t>&                          max_resource_sizes);
 
-    void WriteTileMappings(const Dx12StateTable& state_table, ID3D12ResourceInfo* resource_info);
-
-    void
-    WriteResourceSnapshots(const std::unordered_map<format::HandleId, std::vector<ResourceSnapshotInfo>>& snapshots,
-                           const std::unordered_map<format::HandleId, uint64_t>& max_resource_sizes);
-
-    void WriteResourceSnapshot(graphics::Dx12ResourceDataUtil* resource_data_util,
-                               const ResourceSnapshotInfo&     snapshot);
-
     void WriteFenceState(const Dx12StateTable& state_table);
 
     void WriteCommandListState(const Dx12StateTable& state_table);
@@ -152,12 +138,6 @@ class Dx12StateWriter : public Dx12StateWriterBase
     // Track the list of objects that have been written in WriteState.
     std::unordered_set<format::HandleId> written_objects_;
 #endif
-
-    // Temporary vectors.
-    std::vector<uint8_t>           temp_subresource_data_;
-    std::vector<uint64_t>          temp_subresource_sizes_;
-    std::vector<uint64_t>          temp_subresource_offsets_;
-    std::vector<DxTileMappingInfo> temp_tile_mappings_;
 
     // If provided, store the pointer for Dx12SavedState for use during WriteState.
     Dx12SavedState* saved_state_;

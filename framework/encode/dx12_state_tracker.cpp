@@ -74,6 +74,9 @@ void Dx12StateTracker::WriteLoopState(Dx12LoopStateWriter* writer, uint64_t fram
 #else
         writer->WriteState(state_table_, frame_number, &saved_state_);
 #endif // GFXRECON_AGS_SUPPORT
+
+        // LOOP_TODO: Clean up state table and write loop state if trimming is still active when application is closed.
+        saved_state_ = Dx12SavedState();
     }
 }
 
