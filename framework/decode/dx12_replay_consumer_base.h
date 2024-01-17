@@ -1068,6 +1068,12 @@ class Dx12ReplayConsumerBase : public Dx12Consumer
     std::unordered_map<ID3D12Resource*, ResourceInitInfo> resource_init_infos_;
     std::unique_ptr<graphics::Dx12DumpResources>          dump_resources_;
     graphics::TrackDumpResources                          track_dump_resources_;
+
+    // Temporary values for debugging:
+  public:
+    uint64_t                             frame_index   = 0;
+    uint64_t                             execute_index = 0;
+    std::map<format::HandleId, uint64_t> drawcall_count;
 };
 
 GFXRECON_END_NAMESPACE(decode)

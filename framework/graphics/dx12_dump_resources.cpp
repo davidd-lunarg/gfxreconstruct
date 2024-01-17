@@ -36,7 +36,7 @@ GFXRECON_BEGIN_NAMESPACE(graphics)
 // But here uses fixed type.
 // float for vertex, index, constant buffer, shader resource(buffer), ExecuteIndirect
 // image for shader resource(texture), render target.
-const bool TEST_READABLE = false;
+const bool TEST_READABLE = true;
 
 Dx12DumpResources::Dx12DumpResources() : json_file_handle_(nullptr) {}
 
