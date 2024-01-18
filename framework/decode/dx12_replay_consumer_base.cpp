@@ -3918,6 +3918,124 @@ void Dx12ReplayConsumerBase::PostCall_ID3D12Device_CreateDepthStencilView(
     heap_extra_info->depth_stencil_infos[DestDescriptor.index] = std::move(info);
 }
 
+void Dx12ReplayConsumerBase::PostCall_ID3D12Device_CopyDescriptors(
+    const ApiCallInfo&                                         call_info,
+    DxObjectInfo*                                              device_object_info,
+    UINT                                                       NumDestDescriptorRanges,
+    StructPointerDecoder<Decoded_D3D12_CPU_DESCRIPTOR_HANDLE>* pDestDescriptorRangeStarts,
+    PointerDecoder<UINT>*                                      pDestDescriptorRangeSizes,
+    UINT                                                       NumSrcDescriptorRanges,
+    StructPointerDecoder<Decoded_D3D12_CPU_DESCRIPTOR_HANDLE>* pSrcDescriptorRangeStarts,
+    PointerDecoder<UINT>*                                      pSrcDescriptorRangeSizes,
+    D3D12_DESCRIPTOR_HEAP_TYPE                                 DescriptorHeapsType)
+{
+    UINT dest_range_i = 0;
+    UINT src_range_i  = 0;
+    UINT dest_i       = 0;
+    UINT src_i        = 0;
+
+    auto dest_range_sizes = pDestDescriptorRangeSizes->GetPointer();
+    auto src_range_sizes  = pSrcDescriptorRangeSizes->GetPointer();
+
+    auto dest_range_starts = pDestDescriptorRangeStarts->GetMetaStructPointer();
+    auto src_range_starts  = pSrcDescriptorRangeStarts->GetMetaStructPointer();
+
+    while (dest_range_i < NumDestDescriptorRanges && src_range_i < NumSrcDescriptorRanges)
+    {
+        auto dest_range_size = (dest_range_sizes != nullptr) ? dest_range_sizes[dest_range_i] : 1;
+        auto src_range_size  = (src_range_sizes != nullptr) ? src_range_sizes[src_range_i] : 1;
+
+        auto dest_size = dest_range_size - dest_i;
+        auto src_size  = src_range_size - src_i;
+
+        auto copy_size = std::min(dest_size, src_size);
+
+        // TODO
+        auto dest_descriptor_info  = dest_range_starts[dest_range_i];
+        auto dest_heap_object_info = GetObjectInfo(dest_descriptor_info.heap_id);
+        auto dest_heap_extra_info  = GetExtraInfo<D3D12DescriptorHeapInfo>(dest_heap_object_info);
+        auto src_descriptor_info   = src_range_starts[dest_range_i];
+        auto src_heap_object_info  = GetObjectInfo(src_descriptor_info.heap_id);
+        auto src_heap_extra_info   = GetExtraInfo<D3D12DescriptorHeapInfo>(src_heap_object_info);
+
+        for (UINT i = 0; i < copy_size; ++i)
+        {
+            auto dest_idx = dest_descriptor_info.index + i;
+            auto src_idx  = src_descriptor_info.index + i;
+
+            if (src_heap_extra_info->constant_buffer_infos.count(src_idx) > 0)
+            {
+                dest_heap_extra_info->constant_buffer_infos[dest_idx] =
+                    src_heap_extra_info->constant_buffer_infos[src_idx];
+            }
+            if (src_heap_extra_info->shader_resource_infos.count(src_idx) > 0)
+            {
+                dest_heap_extra_info->shader_resource_infos[dest_idx] =
+                    src_heap_extra_info->shader_resource_infos[src_idx];
+            }
+            if (src_heap_extra_info->render_target_infos.count(src_idx) > 0)
+            {
+                dest_heap_extra_info->render_target_infos[dest_idx] = src_heap_extra_info->render_target_infos[src_idx];
+            }
+            if (src_heap_extra_info->depth_stencil_infos.count(src_idx) > 0)
+            {
+                dest_heap_extra_info->depth_stencil_infos[dest_idx] = src_heap_extra_info->depth_stencil_infos[src_idx];
+            }
+        }
+
+        dest_i += copy_size;
+        src_i += copy_size;
+
+        if (dest_i == dest_range_size)
+        {
+            dest_i = 0;
+            ++dest_range_i;
+        }
+        if (src_i == src_range_size)
+        {
+            src_i = 0;
+            ++src_range_i;
+        }
+    }
+}
+
+void Dx12ReplayConsumerBase::PostCall_ID3D12Device_CopyDescriptorsSimple(
+    const ApiCallInfo&                  call_info,
+    DxObjectInfo*                       device_object_info,
+    UINT                                NumDescriptors,
+    Decoded_D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptorRangeStart,
+    Decoded_D3D12_CPU_DESCRIPTOR_HANDLE SrcDescriptorRangeStart,
+    D3D12_DESCRIPTOR_HEAP_TYPE          DescriptorHeapsType)
+{
+    auto dest_heap_object_info = GetObjectInfo(DestDescriptorRangeStart.heap_id);
+    auto dest_heap_extra_info  = GetExtraInfo<D3D12DescriptorHeapInfo>(dest_heap_object_info);
+    auto src_heap_object_info  = GetObjectInfo(SrcDescriptorRangeStart.heap_id);
+    auto src_heap_extra_info   = GetExtraInfo<D3D12DescriptorHeapInfo>(src_heap_object_info);
+
+    for (UINT i = 0; i < NumDescriptors; ++i)
+    {
+        auto dest_idx = DestDescriptorRangeStart.index + i;
+        auto src_idx  = SrcDescriptorRangeStart.index + i;
+
+        if (src_heap_extra_info->constant_buffer_infos.count(src_idx) > 0)
+        {
+            dest_heap_extra_info->constant_buffer_infos[dest_idx] = src_heap_extra_info->constant_buffer_infos[src_idx];
+        }
+        if (src_heap_extra_info->shader_resource_infos.count(src_idx) > 0)
+        {
+            dest_heap_extra_info->shader_resource_infos[dest_idx] = src_heap_extra_info->shader_resource_infos[src_idx];
+        }
+        if (src_heap_extra_info->render_target_infos.count(src_idx) > 0)
+        {
+            dest_heap_extra_info->render_target_infos[dest_idx] = src_heap_extra_info->render_target_infos[src_idx];
+        }
+        if (src_heap_extra_info->depth_stencil_infos.count(src_idx) > 0)
+        {
+            dest_heap_extra_info->depth_stencil_infos[dest_idx] = src_heap_extra_info->depth_stencil_infos[src_idx];
+        }
+    }
+}
+
 void Dx12ReplayConsumerBase::PostCall_ID3D12GraphicsCommandList_OMSetRenderTargets(
     const ApiCallInfo&                                         call_info,
     DxObjectInfo*                                              object_info,

@@ -164,6 +164,24 @@ class Dx12ReplayConsumerBase : public Dx12Consumer
                                                  StructPointerDecoder<Decoded_D3D12_DEPTH_STENCIL_VIEW_DESC>* pDesc,
                                                  Decoded_D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor);
 
+    void PostCall_ID3D12Device_CopyDescriptors(
+        const ApiCallInfo&                                         call_info,
+        DxObjectInfo*                                              device_object_info,
+        UINT                                                       NumDestDescriptorRanges,
+        StructPointerDecoder<Decoded_D3D12_CPU_DESCRIPTOR_HANDLE>* pDestDescriptorRangeStarts,
+        PointerDecoder<UINT>*                                      pDestDescriptorRangeSizes,
+        UINT                                                       NumSrcDescriptorRanges,
+        StructPointerDecoder<Decoded_D3D12_CPU_DESCRIPTOR_HANDLE>* pSrcDescriptorRangeStarts,
+        PointerDecoder<UINT>*                                      pSrcDescriptorRangeSizes,
+        D3D12_DESCRIPTOR_HEAP_TYPE                                 DescriptorHeapsType);
+
+    void PostCall_ID3D12Device_CopyDescriptorsSimple(const ApiCallInfo&          call_info,
+                                                     DxObjectInfo*               device_object_info,
+                                                     UINT                                NumDescriptors,
+                                                     Decoded_D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptorRangeStart,
+                                                     Decoded_D3D12_CPU_DESCRIPTOR_HANDLE SrcDescriptorRangeStart,
+                                                     D3D12_DESCRIPTOR_HEAP_TYPE          DescriptorHeapsType);
+
     void PostCall_ID3D12GraphicsCommandList_OMSetRenderTargets(
         const ApiCallInfo&                                         call_info,
         DxObjectInfo*                                              object_info,
