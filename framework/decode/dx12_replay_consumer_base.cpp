@@ -3896,6 +3896,21 @@ void Dx12ReplayConsumerBase::PostCall_ID3D12Device_CreateRenderTargetView(
     heap_extra_info->render_target_infos[DestDescriptor.index] = std::move(info);
 }
 
+std::vector<UINT> GetDescriptorSubresourceIndices(
+    UINT first_mip_slice, UINT mip_size, UINT first_array_slice, UINT array_size, UINT total_mip_count)
+{
+    std::vector<UINT> result;
+    result.reserve(mip_size * array_size);
+    for (UINT array_index = first_array_slice; array_index < (first_array_slice + array_size); ++array_index)
+    {
+        for (UINT mip_index = first_mip_slice; mip_index < (first_mip_slice + mip_size); ++mip_index)
+        {
+            result.push_back(array_index * total_mip_count + mip_index);
+        }
+    }
+    return result;
+}
+
 void Dx12ReplayConsumerBase::PostCall_ID3D12Device_CreateDepthStencilView(
     const ApiCallInfo&                                           call_info,
     DxObjectInfo*                                                object_info,
@@ -3909,6 +3924,9 @@ void Dx12ReplayConsumerBase::PostCall_ID3D12Device_CreateDepthStencilView(
     DepthStencilInfo info;
     info.resource_id   = pResource;
     info.replay_handle = *DestDescriptor.decoded_value;
+
+    auto mip_count = reinterpret_cast<ID3D12Resource*>(GetObjectInfo(pResource)->object)->GetDesc().MipLevels;
+
     if (pDesc->IsNull())
     {
         info.is_view_null = true;
@@ -3917,6 +3935,41 @@ void Dx12ReplayConsumerBase::PostCall_ID3D12Device_CreateDepthStencilView(
     {
         info.view         = *(pDesc->GetMetaStructPointer()->decoded_value);
         info.is_view_null = false;
+
+        switch (info.view.ViewDimension)
+        {
+            case D3D12_DSV_DIMENSION_TEXTURE1D:
+                info.subresources = GetDescriptorSubresourceIndices(info.view.Texture1D.MipSlice, 1, 0, 1, mip_count);
+                break;
+            case D3D12_DSV_DIMENSION_TEXTURE1DARRAY:
+                info.subresources = GetDescriptorSubresourceIndices(info.view.Texture1DArray.MipSlice,
+                                                                    1,
+                                                                    info.view.Texture1DArray.FirstArraySlice,
+                                                                    info.view.Texture1DArray.ArraySize,
+                                                                    mip_count);
+                break;
+            case D3D12_DSV_DIMENSION_TEXTURE2D:
+                info.subresources = GetDescriptorSubresourceIndices(info.view.Texture2D.MipSlice, 1, 0, 1, mip_count);
+                break;
+            case D3D12_DSV_DIMENSION_TEXTURE2DARRAY:
+                info.subresources = GetDescriptorSubresourceIndices(info.view.Texture2DArray.MipSlice,
+                                                                    1,
+                                                                    info.view.Texture2DArray.FirstArraySlice,
+                                                                    info.view.Texture2DArray.ArraySize,
+                                                                    mip_count);
+                break;
+            case D3D12_DSV_DIMENSION_TEXTURE2DMS:
+                info.subresources = GetDescriptorSubresourceIndices(0, 1, 0, 1, mip_count);
+                break;
+            case D3D12_DSV_DIMENSION_TEXTURE2DMSARRAY:
+                info.subresources = GetDescriptorSubresourceIndices(
+                    0, 1, info.view.Texture2DMSArray.FirstArraySlice, info.view.Texture2DMSArray.ArraySize, mip_count);
+                break;
+            case D3D12_DSV_DIMENSION_UNKNOWN:
+            default:
+                GFXRECON_LOG_ERROR("Unknown D3D12_DSV_DIMENSION.");
+                break;
+        }
     }
     heap_extra_info->depth_stencil_infos[DestDescriptor.index] = std::move(info);
 }
@@ -4418,7 +4471,7 @@ void Dx12ReplayConsumerBase::AddCopyResourceCommandsForBeforeDrawcall(format::Ha
 
                     graphics::CopyResourceData copy_resource_data;
                     AddCopyResourceCommandForBeforeDrawcall(
-                        command_list_id, info.resource_id, offset, size, copy_resource_data);
+                        command_list_id, info.resource_id, offset, size, copy_resource_data, 0);
 
                     track_dump_resources_.descriptor_heap_datas[heap_index].copy_shader_resources.emplace_back(
                         std::move(copy_resource_data));
@@ -4443,7 +4496,7 @@ void Dx12ReplayConsumerBase::AddCopyResourceCommandsForBeforeDrawcall(format::Ha
             {
                 // TODO: Set offset and size by info.view.ViewDimension.
                 AddCopyResourceCommandForBeforeDrawcall(
-                    command_list_id, info.resource_id, 0, 0, track_dump_resources_.copy_render_target_resources[i]);
+                    command_list_id, info.resource_id, 0, 0, track_dump_resources_.copy_render_target_resources[i], 0);
                 break;
             }
         }
@@ -4460,9 +4513,22 @@ void Dx12ReplayConsumerBase::AddCopyResourceCommandsForBeforeDrawcall(format::Ha
             const auto& info = info_pair.second;
             if (info.replay_handle.ptr == track_dump_resources_.replay_depth_stencil_handle.ptr)
             {
+                auto dsv_size = info.subresources.size();
+                track_dump_resources_.copy_depth_stencil_resources.resize(dsv_size);
+
                 // TODO: Set offset and size by info.view.ViewDimension.
-                AddCopyResourceCommandForBeforeDrawcall(
-                    command_list_id, info.resource_id, 0, 0, track_dump_resources_.copy_depth_stencil_resource);
+                uint32_t current_copy_resource = 0;
+                for (UINT subresource : info.subresources)
+                {
+                    AddCopyResourceCommandForBeforeDrawcall(
+                        command_list_id,
+                        info.resource_id,
+                        0,
+                        0,
+                        track_dump_resources_.copy_depth_stencil_resources[current_copy_resource],
+                        subresource);
+                    ++current_copy_resource;
+                }
                 break;
             }
         }
@@ -4473,12 +4539,14 @@ void Dx12ReplayConsumerBase::AddCopyResourceCommandsForBeforeDrawcall(format::Ha
                                             track_dump_resources_.target.exe_indirect_argument_id,
                                             track_dump_resources_.target.exe_indirect_argument_offset,
                                             0,
-                                            track_dump_resources_.copy_exe_indirect_argument);
+                                            track_dump_resources_.copy_exe_indirect_argument,
+                                            0);
     AddCopyResourceCommandForBeforeDrawcall(command_list_id,
                                             track_dump_resources_.target.exe_indirect_count_id,
                                             track_dump_resources_.target.exe_indirect_count_offset,
                                             0,
-                                            track_dump_resources_.copy_exe_indirect_count);
+                                            track_dump_resources_.copy_exe_indirect_count,
+                                            0);
 }
 
 bool Dx12ReplayConsumerBase::MatchDescriptorCPUGPUHandle(size_t   replay_cpu_addr_begin,
@@ -4516,7 +4584,8 @@ void Dx12ReplayConsumerBase::AddCopyResourceCommandForBeforeDrawcallByGPUVA(
                                             copy_resource_data.source_resource_id,
                                             (captured_source_gpu_va - source_resource_extra_info->capture_address_),
                                             source_size,
-                                            copy_resource_data);
+                                            copy_resource_data,
+                                            0);
 }
 
 // If source_size = 0, the meaning is the whole after offset.
@@ -4524,7 +4593,8 @@ void Dx12ReplayConsumerBase::AddCopyResourceCommandForBeforeDrawcall(format::Han
                                                                      format::HandleId            source_resource_id,
                                                                      uint64_t                    source_offset,
                                                                      uint64_t                    source_size,
-                                                                     graphics::CopyResourceData& copy_resource_data)
+                                                                     graphics::CopyResourceData& copy_resource_data,
+                                                                     UINT                        subresource)
 {
     if (source_resource_id == 0)
     {
@@ -4532,19 +4602,26 @@ void Dx12ReplayConsumerBase::AddCopyResourceCommandForBeforeDrawcall(format::Han
     }
     copy_resource_data.source_resource_id = source_resource_id;
 
-    auto source_resource_object_info = GetObjectInfo(copy_resource_data.source_resource_id);
-    auto source_resource             = reinterpret_cast<ID3D12Resource*>(source_resource_object_info->object);
-    auto device                      = graphics::dx12::GetDeviceComPtrFromChild<ID3D12Device>(source_resource);
-    auto source_desc                 = source_resource->GetDesc();
-    copy_resource_data.desc          = source_desc;
-    copy_resource_data.source_offset = source_offset;
-    copy_resource_data.source_size   = source_size;
+    auto source_resource_object_info      = GetObjectInfo(copy_resource_data.source_resource_id);
+    auto source_resource                  = reinterpret_cast<ID3D12Resource*>(source_resource_object_info->object);
+    auto device                           = graphics::dx12::GetDeviceComPtrFromChild<ID3D12Device>(source_resource);
+    auto source_desc                      = source_resource->GetDesc();
+    copy_resource_data.desc               = source_desc;
+    copy_resource_data.source_offset      = source_offset;
+    copy_resource_data.source_size        = source_size;
+    copy_resource_data.source_subresource = subresource;
 
     UINT   num_row           = 0;
     UINT64 row_size_in_bytes = 0;
     UINT64 total_bytes       = 0;
-    device->GetCopyableFootprints(
-        &source_desc, 0, 1, 0, &copy_resource_data.source_footprint, &num_row, &row_size_in_bytes, &total_bytes);
+    device->GetCopyableFootprints(&source_desc,
+                                  subresource,
+                                  1,
+                                  0,
+                                  &copy_resource_data.source_footprint,
+                                  &num_row,
+                                  &row_size_in_bytes,
+                                  &total_bytes);
 
     if (copy_resource_data.source_size == 0)
     {
@@ -4627,7 +4704,7 @@ void Dx12ReplayConsumerBase::AddCopyResourceCommandsForAfterDrawcall(format::Han
 
     // render target
     AddCopyResourceCommandsForAfterDrawcall(command_list_id, track_dump_resources_.copy_render_target_resources);
-    AddCopyResourceCommandForAfterDrawcall(command_list_id, track_dump_resources_.copy_depth_stencil_resource);
+    AddCopyResourceCommandsForAfterDrawcall(command_list_id, track_dump_resources_.copy_depth_stencil_resources);
 
     // ExecuteIndirect
     AddCopyResourceCommandForAfterDrawcall(command_list_id, track_dump_resources_.copy_exe_indirect_argument);
@@ -4693,7 +4770,7 @@ void Dx12ReplayConsumerBase::AddCopyResourceCommand(format::HandleId            
         barrier.Transition.pResource   = source_resource;
         barrier.Transition.StateBefore = current_state;
         barrier.Transition.StateAfter  = D3D12_RESOURCE_STATE_COMMON;
-        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barrier.Transition.Subresource = copy_resource_data.source_subresource;
         commandlist->ResourceBarrier(1, &barrier);
         changed_state = true;
     }
@@ -4714,7 +4791,7 @@ void Dx12ReplayConsumerBase::AddCopyResourceCommand(format::HandleId            
         D3D12_TEXTURE_COPY_LOCATION src_location = {};
         src_location.pResource                   = source_resource;
         src_location.Type                        = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        src_location.SubresourceIndex            = 0;
+        src_location.SubresourceIndex            = copy_resource_data.source_subresource;
         commandlist->CopyTextureRegion(&dst_location, 0, 0, 0, &src_location, nullptr);
     }
 
@@ -4728,7 +4805,7 @@ void Dx12ReplayConsumerBase::AddCopyResourceCommand(format::HandleId            
         barrier.Transition.pResource   = source_resource;
         barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
         barrier.Transition.StateAfter  = current_state;
-        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barrier.Transition.Subresource = copy_resource_data.source_subresource;
         commandlist->ResourceBarrier(1, &barrier);
     }
 }

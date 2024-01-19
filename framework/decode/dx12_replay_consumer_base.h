@@ -1017,7 +1017,8 @@ class Dx12ReplayConsumerBase : public Dx12Consumer
                                                  format::HandleId            source_resource_id,
                                                  uint64_t                    source_offset,
                                                  uint64_t                    source_size,
-                                                 graphics::CopyResourceData& copy_resource_data);
+                                                 graphics::CopyResourceData& copy_resource_data,
+                                                 UINT                        subresource);
 
     void AddCopyResourceCommandsForAfterDrawcall(const ApiCallInfo& call_info, DxObjectInfo* object_info);
 

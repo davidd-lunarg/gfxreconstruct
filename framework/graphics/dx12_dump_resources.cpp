@@ -65,6 +65,7 @@ void Dx12DumpResources::WriteResource(nlohmann::ordered_json& jdata,
     if (resource_data.before_resource)
     {
         util::FieldToJson(jdata["resource_id"], resource_data.source_resource_id, json_options_);
+        util::FieldToJson(jdata["subresource"], resource_data.source_subresource, json_options_);
         util::FieldToJson(jdata["offset"], resource_data.source_offset, json_options_);
         util::FieldToJson(jdata["size"], resource_data.source_size, json_options_);
 
@@ -132,7 +133,7 @@ void Dx12DumpResources::WriteResources(const TrackDumpResources& resources)
 
         // render target
         WriteResources(jdata["render_target"], json_options_.data_sub_dir, resources.copy_render_target_resources);
-        WriteResource(jdata["depth_stencil"], json_options_.data_sub_dir, resources.copy_depth_stencil_resource);
+        WriteResources(jdata["depth_stencil"], json_options_.data_sub_dir, resources.copy_depth_stencil_resources);
 
         // ExecuteIndirect
         WriteResource(
@@ -179,7 +180,7 @@ void Dx12DumpResources::WriteResources(const TrackDumpResources& resources)
 
         // render target
         TestWriteImageResources(prefix_file_name, resources.copy_render_target_resources);
-        TestWriteImageResource(prefix_file_name, resources.copy_depth_stencil_resource);
+        TestWriteImageResources(prefix_file_name, resources.copy_depth_stencil_resources);
 
         // ExecuteIndirect
         TestWriteFloatResource(prefix_file_name, resources.copy_exe_indirect_argument);

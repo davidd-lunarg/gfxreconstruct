@@ -53,6 +53,7 @@ struct CopyResourceData
     uint64_t                           source_offset{ 0 };
     uint64_t                           source_size{ 0 };
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT source_footprint{};
+    UINT                               source_subresource{ 0 };
     D3D12_RESOURCE_DESC                desc{};
     dx12::ID3D12ResourceComPtr         before_resource{ nullptr }; // copy resource before drawcall
     dx12::ID3D12ResourceComPtr         after_resource{ nullptr };  // copy resource after drawcall
@@ -85,7 +86,7 @@ struct TrackDumpResources
     std::vector<CopyResourceData>            copy_render_target_resources;
     format::HandleId                         depth_stencil_heap_id{ format::kNullHandleId };
     D3D12_CPU_DESCRIPTOR_HANDLE              replay_depth_stencil_handle{ decode::kNullCpuAddress };
-    CopyResourceData                         copy_depth_stencil_resource;
+    std::vector<CopyResourceData>            copy_depth_stencil_resources;
 
     // record BeginRenderPass parameters
     std::vector<D3D12_RENDER_PASS_ENDING_ACCESS> record_render_target_ending_accesses;
