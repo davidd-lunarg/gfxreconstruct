@@ -105,6 +105,26 @@ struct CustomReplayPostCall<format::ApiCallId::ApiCall_ID3D12Device_CreateDepthS
 };
 
 template <>
+struct CustomReplayPostCall<format::ApiCallId::ApiCall_ID3D12Device_CopyDescriptors>
+{
+    template <typename... Args>
+    static void Dispatch(Dx12ReplayConsumerBase* replay, Args... args)
+    {
+        replay->PostCall_ID3D12Device_CopyDescriptors(args...);
+    }
+};
+
+template <>
+struct CustomReplayPostCall<format::ApiCallId::ApiCall_ID3D12Device_CopyDescriptorsSimple>
+{
+    template <typename... Args>
+    static void Dispatch(Dx12ReplayConsumerBase* replay, Args... args)
+    {
+        replay->PostCall_ID3D12Device_CopyDescriptorsSimple(args...);
+    }
+};
+
+template <>
 struct CustomReplayPostCall<format::ApiCallId::ApiCall_ID3D12GraphicsCommandList_OMSetRenderTargets>
 {
     template <typename... Args>
