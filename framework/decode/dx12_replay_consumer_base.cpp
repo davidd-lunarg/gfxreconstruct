@@ -4884,16 +4884,50 @@ void Dx12ReplayConsumerBase::CopyResource(const std::vector<format::HandleId>& f
         queue = swapchain_extra_info->command_queue;
     }
 
+    // TODO: Reuse Dx12ResourceDataUtil objects where possible to avoid reallocating objects and staging buffer. Task D5
     auto device = graphics::dx12::GetDeviceComPtrFromChild<ID3D12Device>(source_resource);
     std::unique_ptr<graphics::Dx12ResourceDataUtil> resource_data_util =
         std::make_unique<graphics::Dx12ResourceDataUtil>(device, copy_resource_data.source_size, queue);
 
-    std::vector<graphics::dx12::ResourceStateInfo> current_states{ current_state };
-    std::vector<uint64_t>                          offsets{ copy_resource_data.source_offset };
-    std::vector<uint64_t>                          sizes{ copy_resource_data.source_size };
+    // TODO: GetResourceCopyInfo is used here to get num_subresources. The other return values are ignored and
+    // GetResourceCopyInfo will be called again in ReadFromResource, so maybe there is a better way to get
+    // num_subresources. Once Task A1 is completed, num_subresources may already be known and this call can be removed.
+    size_t                                          num_subresources;
+    std::vector<uint64_t>                           subresource_offsets;
+    std::vector<uint64_t>                           subresource_sizes;
+    std::vector<D3D12_PLACED_SUBRESOURCE_FOOTPRINT> subresource_footprints;
+    uint64_t                                        total_size;
+    resource_data_util->GetResourceCopyInfo(
+        source_resource, num_subresources, subresource_offsets, subresource_sizes, subresource_footprints, total_size);
 
+    // TODO: This assumes all subresources are in the same state. Instead each subresource state should be tracked
+    // separately. Task A1
+    std::vector<graphics::dx12::ResourceStateInfo> current_states(num_subresources, current_state);
+
+    // TODO: This reads the data from all subresources of source_resource. It could be more efficient to read only the
+    // desired subresource. Task A5
+    std::vector<uint8_t> resource_data;
+    subresource_offsets.clear();
+    subresource_sizes.clear();
     HRESULT result = resource_data_util->ReadFromResource(
-        source_resource, true, current_states, current_states, copy_data, offsets, sizes, nullptr);
+        source_resource, true, current_states, current_states, resource_data, subresource_offsets, subresource_sizes);
+
+    // TODO: Read actual subresource(s) based on descriptor creation parameters, not always subresource 0. Task A2
+    const uint32_t subresource_index = 0;
+    if (SUCCEEDED(result))
+    {
+        auto data_offset = subresource_offsets[subresource_index] + copy_resource_data.source_offset;
+        auto data_size   = std::min(subresource_sizes[subresource_index], copy_resource_data.source_size);
+        copy_data =
+            std::vector<uint8_t>(resource_data.data() + data_offset, resource_data.data() + data_offset + data_size);
+    }
+    else
+    {
+        copy_data.clear();
+        GFXRECON_LOG_ERROR("Failed to read resource data for resource %" PRIu64 ", subresource %" PRIu32,
+                           copy_resource_data.source_resource_id,
+                           subresource_index);
+    }
 }
 
 GFXRECON_END_NAMESPACE(decode)
