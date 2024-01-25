@@ -282,6 +282,7 @@ struct DepthStencilInfo
     D3D12_DEPTH_STENCIL_VIEW_DESC view{};
     bool                          is_view_null{ false };
     D3D12_CPU_DESCRIPTOR_HANDLE   replay_handle{ kNullCpuAddress };
+    std::vector<UINT>             subresources;
 };
 
 struct D3D12DescriptorHeapInfo : DxObjectExtraInfo

@@ -38,6 +38,18 @@ GFXRECON_BEGIN_NAMESPACE(graphics)
 // image for shader resource(texture), render target.
 const bool TEST_READABLE = true;
 
+std::string MakeFileName(std::string             prefix_file_name,
+                         const CopyResourceData& resource_data,
+                         format::HandleId        heap_id = format::kNullHandleId)
+{
+    std::string result = prefix_file_name + "_resource_id_" + std::to_string(resource_data.source_resource_id);
+    if (resource_data.source_num_subresources > 1)
+    {
+        result += "_subresource_" + std::to_string(resource_data.source_subresource);
+    }
+    return result;
+}
+
 Dx12DumpResources::Dx12DumpResources() : json_file_handle_(nullptr) {}
 
 Dx12DumpResources::~Dx12DumpResources()
@@ -65,11 +77,11 @@ void Dx12DumpResources::WriteResource(nlohmann::ordered_json& jdata,
     if (!resource_data.before_data.empty())
     {
         util::FieldToJson(jdata["resource_id"], resource_data.source_resource_id, json_options_);
+        util::FieldToJson(jdata["subresource"], resource_data.source_subresource, json_options_);
         util::FieldToJson(jdata["offset"], resource_data.source_offset, json_options_);
         util::FieldToJson(jdata["size"], resource_data.source_size, json_options_);
 
-        std::string file_name =
-            prefix_file_name + "_resource_id_" + std::to_string(resource_data.source_resource_id) + "_before.bin";
+        std::string file_name = MakeFileName(prefix_file_name, resource_data) + "_before.bin";
         util::FieldToJson(jdata["before_file_name"], file_name.c_str(), json_options_);
 
         std::string filepath = gfxrecon::util::filepath::Join(json_options_.root_dir, file_name);
@@ -78,8 +90,7 @@ void Dx12DumpResources::WriteResource(nlohmann::ordered_json& jdata,
     // after
     if (!resource_data.after_data.empty())
     {
-        std::string file_name =
-            prefix_file_name + "_resource_id_" + std::to_string(resource_data.source_resource_id) + "_after.bin";
+        std::string file_name = MakeFileName(prefix_file_name, resource_data) + "_after.bin";
         util::FieldToJson(jdata["after_file_name"], file_name.c_str(), json_options_);
 
         std::string filepath = gfxrecon::util::filepath::Join(json_options_.root_dir, file_name);
@@ -111,7 +122,7 @@ void Dx12DumpResources::WriteResources(const TrackDumpResources& resources)
 
         // render target
         WriteResources(jdata["render_target"], json_options_.data_sub_dir, resources.copy_render_target_resources);
-        WriteResource(jdata["depth_stencil"], json_options_.data_sub_dir, resources.copy_depth_stencil_resource);
+        WriteResources(jdata["depth_stencil"], json_options_.data_sub_dir, resources.copy_depth_stencil_resources);
 
         // ExecuteIndirect
         WriteResource(
@@ -158,7 +169,7 @@ void Dx12DumpResources::WriteResources(const TrackDumpResources& resources)
 
         // render target
         TestWriteImageResources(prefix_file_name, resources.copy_render_target_resources);
-        TestWriteImageResource(prefix_file_name, resources.copy_depth_stencil_resource);
+        TestWriteImageResources(prefix_file_name, resources.copy_depth_stencil_resources);
 
         // ExecuteIndirect
         TestWriteFloatResource(prefix_file_name, resources.copy_exe_indirect_argument);
@@ -178,7 +189,7 @@ void Dx12DumpResources::TestWriteFloatResources(const std::string&              
 void Dx12DumpResources::TestWriteFloatResource(const std::string&      prefix_file_name,
                                                const CopyResourceData& resource_data)
 {
-    std::string file_name = prefix_file_name + "_resource_id_" + std::to_string(resource_data.source_resource_id);
+    std::string file_name = MakeFileName(prefix_file_name, resource_data);
 
     if (!resource_data.before_data.empty())
     {
@@ -228,7 +239,7 @@ void Dx12DumpResources::TestWriteImageResources(const std::string&              
 void Dx12DumpResources::TestWriteImageResource(const std::string&      prefix_file_name,
                                                const CopyResourceData& resource_data)
 {
-    std::string file_name = prefix_file_name + "_resource_id_" + std::to_string(resource_data.source_resource_id);
+    std::string file_name = MakeFileName(prefix_file_name, resource_data);
 
     // WriteBmpImage expects 4 bytes per pixel.
     double bytes_per_pixel = static_cast<double>(resource_data.source_size) /
