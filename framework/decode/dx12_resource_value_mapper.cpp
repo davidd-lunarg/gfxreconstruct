@@ -1330,8 +1330,8 @@ void Dx12ResourceValueMapper::MapResources(const ResourceValueInfoMap&          
                                                            temp_resource_states,
                                                            temp_resource_states,
                                                            temp_resource_data,
-                                                           temp_resource_sizes,
-                                                           temp_resource_offsets);
+                                                           temp_resource_offsets,
+                                                           temp_resource_sizes);
 
         if (SUCCEEDED(hr))
         {
@@ -1364,8 +1364,8 @@ void Dx12ResourceValueMapper::MapResources(const ResourceValueInfoMap&          
                                                           temp_resource_states,
                                                           temp_resource_states,
                                                           temp_resource_data,
-                                                          temp_resource_sizes,
-                                                          temp_resource_offsets);
+                                                          temp_resource_offsets,
+                                                          temp_resource_sizes);
             }
 
             if (FAILED(hr))

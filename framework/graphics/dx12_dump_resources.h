@@ -58,13 +58,22 @@ struct CopyResourceData
     std::vector<uint32_t>                           subresource_indices; // Buffer has one index: 0.
     std::vector<D3D12_PLACED_SUBRESOURCE_FOOTPRINT> footprints;
     uint64_t                                        total_size{ 0 };
-    std::vector<uint8_t>                            before_data; // copy resource before drawcall
-    std::vector<uint8_t>                            after_data;  // copy resource after drawcall
+    bool                                            is_cpu_accessible{ false };
+
+    std::vector<std::vector<uint8_t>> before_datas; // copy resource before drawcall
+    std::vector<std::vector<uint8_t>> after_datas;  // copy resource after drawcall
+
+    graphics::dx12::ID3D12CommandAllocatorComPtr    cmd_allocator{ nullptr };
+    graphics::dx12::ID3D12GraphicsCommandListComPtr cmd_list{ nullptr };
+    ID3D12Resource*                                 read_resource{ nullptr };
 
     void Clear()
     {
-        before_data.clear();
-        after_data.clear();
+        before_datas.clear();
+        after_datas.clear();
+        read_resource = nullptr;
+        cmd_list      = nullptr;
+        cmd_allocator = nullptr;
     }
 };
 

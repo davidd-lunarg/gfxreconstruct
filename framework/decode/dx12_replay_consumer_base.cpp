@@ -1970,18 +1970,14 @@ void Dx12ReplayConsumerBase::OverrideExecuteCommandLists(DxObjectInfo*          
                     replay_object->ExecuteCommandLists(modified_num_command_lists, modified_command_lists.data());
                     modified_command_lists.clear();
 
-                    auto hr = graphics::dx12::WaitForQueue(replay_object, track_dump_resources_.fence, UINT64_MAX);
-                    GFXRECON_ASSERT(SUCCEEDED(hr));
-
-                    CopyResourcesForBeforeDrawcall(front_command_list_ids);
+                    CopyResourcesForBeforeDrawcall(replay_object_info, front_command_list_ids);
 
                     ID3D12CommandList* ppCommandLists[] = { track_dump_resources_.split_command_sets[1].list };
                     replay_object->ExecuteCommandLists(1, ppCommandLists);
 
-                    hr = graphics::dx12::WaitForQueue(replay_object, track_dump_resources_.fence, UINT64_MAX);
-                    GFXRECON_ASSERT(SUCCEEDED(hr));
+                    CopyResourcesForAfterDrawcall(replay_object_info, front_command_list_ids);
 
-                    CopyResourcesForAfterDrawcall(front_command_list_ids);
+                    // DUMPTODO: don't write until everything else has completed.
                     dump_resources_->WriteResources(track_dump_resources_);
                     track_dump_resources_.Clear();
 
@@ -3700,6 +3696,8 @@ HRESULT Dx12ReplayConsumerBase::OverrideCreateRootSignature(DxObjectInfo*       
                     replay_result                     = D3D12SerializeVersionedRootSignature(
                         &modified_root_sig, &p_modified_blob, &p_modified_error_blob);
 
+                    // DUMPTODO: This assertion fails occasionally, same capture file, same arguments to
+                    // --dump-resources.
                     GFXRECON_ASSERT(SUCCEEDED(replay_result));
 
                     auto modified_size   = p_modified_blob->GetBufferSize();
@@ -5086,7 +5084,7 @@ void Dx12ReplayConsumerBase::PostCall_ID3D12Device_CopyDescriptors(
 
         auto copy_size = std::min(dest_size, src_size);
 
-        // TODO
+        // DUMPTODO: Test, cleanup, and share with code from CopyDescriptorsSimple
         auto dest_descriptor_info  = dest_range_starts[dest_range_i];
         auto dest_heap_object_info = GetObjectInfo(dest_descriptor_info.heap_id);
         auto dest_heap_extra_info  = GetExtraInfo<D3D12DescriptorHeapInfo>(dest_heap_object_info);
@@ -5198,7 +5196,8 @@ bool MatchDescriptorCPUGPUHandle(size_t                                      rep
     return false;
 }
 
-void Dx12ReplayConsumerBase::CopyResourcesForBeforeDrawcall(const std::vector<format::HandleId>& front_command_list_ids)
+void Dx12ReplayConsumerBase::CopyResourcesForBeforeDrawcall(DxObjectInfo*                        queue_object_info,
+                                                            const std::vector<format::HandleId>& front_command_list_ids)
 {
     // vertex
     for (const auto& view : track_dump_resources_.target.captured_vertex_buffer_views)
@@ -5206,14 +5205,15 @@ void Dx12ReplayConsumerBase::CopyResourcesForBeforeDrawcall(const std::vector<fo
         graphics::CopyResourceData copy_resource_data;
         copy_resource_data.subresource_indices.emplace_back(0);
         CopyResourceForBeforeDrawcallByGPUVA(
-            front_command_list_ids, view.BufferLocation, view.SizeInBytes, copy_resource_data);
+            queue_object_info, front_command_list_ids, view.BufferLocation, view.SizeInBytes, copy_resource_data);
 
         track_dump_resources_.copy_vertex_resources.emplace_back(std::move(copy_resource_data));
     }
 
     // index
     track_dump_resources_.copy_index_resource.subresource_indices.emplace_back(0);
-    CopyResourceForBeforeDrawcallByGPUVA(front_command_list_ids,
+    CopyResourceForBeforeDrawcallByGPUVA(queue_object_info,
+                                         front_command_list_ids,
                                          track_dump_resources_.target.captured_index_buffer_view.BufferLocation,
                                          track_dump_resources_.target.captured_index_buffer_view.SizeInBytes,
                                          track_dump_resources_.copy_index_resource);
@@ -5237,7 +5237,8 @@ void Dx12ReplayConsumerBase::CopyResourcesForBeforeDrawcall(const std::vector<fo
             {
                 graphics::CopyResourceData copy_resource_data;
                 copy_resource_data.subresource_indices.emplace_back(0);
-                CopyResourceForBeforeDrawcallByGPUVA(front_command_list_ids,
+                CopyResourceForBeforeDrawcallByGPUVA(queue_object_info,
+                                                     front_command_list_ids,
                                                      info.captured_view.BufferLocation,
                                                      info.captured_view.SizeInBytes,
                                                      copy_resource_data);
@@ -5280,7 +5281,7 @@ void Dx12ReplayConsumerBase::CopyResourcesForBeforeDrawcall(const std::vector<fo
                     graphics::CopyResourceData copy_resource_data;
                     copy_resource_data.subresource_indices = info.subresource_indices;
                     CopyResourceForBeforeDrawcall(
-                        front_command_list_ids, info.resource_id, offset, size, copy_resource_data);
+                        queue_object_info, front_command_list_ids, info.resource_id, offset, size, copy_resource_data);
 
                     track_dump_resources_.descriptor_heap_datas[heap_index].copy_shader_resources.emplace_back(
                         std::move(copy_resource_data));
@@ -5316,13 +5317,18 @@ void Dx12ReplayConsumerBase::CopyResourcesForBeforeDrawcall(const std::vector<fo
                     }
                     graphics::UnorderedAccess copy_resource_data;
                     copy_resource_data.resource.subresource_indices = info.subresource_indices;
-                    CopyResourceForBeforeDrawcall(
-                        front_command_list_ids, info.resource_id, offset, size, copy_resource_data.resource);
+                    CopyResourceForBeforeDrawcall(queue_object_info,
+                                                  front_command_list_ids,
+                                                  info.resource_id,
+                                                  offset,
+                                                  size,
+                                                  copy_resource_data.resource);
 
                     if (info.counter_resource_id != format::kNullHandleId)
                     {
                         copy_resource_data.counter_resource.subresource_indices.emplace_back(0);
-                        CopyResourceForBeforeDrawcall(front_command_list_ids,
+                        CopyResourceForBeforeDrawcall(queue_object_info,
+                                                      front_command_list_ids,
                                                       info.counter_resource_id,
                                                       info.view.Buffer.CounterOffsetInBytes,
                                                       0,
@@ -5365,7 +5371,8 @@ void Dx12ReplayConsumerBase::CopyResourcesForBeforeDrawcall(const std::vector<fo
                 }
 
                 track_dump_resources_.copy_render_target_resources[i].subresource_indices = info.subresource_indices;
-                CopyResourceForBeforeDrawcall(front_command_list_ids,
+                CopyResourceForBeforeDrawcall(queue_object_info,
+                                              front_command_list_ids,
                                               info.resource_id,
                                               0,
                                               0,
@@ -5387,8 +5394,12 @@ void Dx12ReplayConsumerBase::CopyResourcesForBeforeDrawcall(const std::vector<fo
             if (info.replay_handle.ptr == track_dump_resources_.replay_depth_stencil_handle.ptr)
             {
                 track_dump_resources_.copy_depth_stencil_resource.subresource_indices = info.subresource_indices;
-                CopyResourceForBeforeDrawcall(
-                    front_command_list_ids, info.resource_id, 0, 0, track_dump_resources_.copy_depth_stencil_resource);
+                CopyResourceForBeforeDrawcall(queue_object_info,
+                                              front_command_list_ids,
+                                              info.resource_id,
+                                              0,
+                                              0,
+                                              track_dump_resources_.copy_depth_stencil_resource);
                 break;
             }
         }
@@ -5396,14 +5407,16 @@ void Dx12ReplayConsumerBase::CopyResourcesForBeforeDrawcall(const std::vector<fo
 
     // ExecuteIndirect
     track_dump_resources_.copy_exe_indirect_argument.subresource_indices.emplace_back(0);
-    CopyResourceForBeforeDrawcall(front_command_list_ids,
+    CopyResourceForBeforeDrawcall(queue_object_info,
+                                  front_command_list_ids,
                                   track_dump_resources_.target.exe_indirect_argument_id,
                                   track_dump_resources_.target.exe_indirect_argument_offset,
                                   0,
                                   track_dump_resources_.copy_exe_indirect_argument);
 
     track_dump_resources_.copy_exe_indirect_count.subresource_indices.emplace_back(0);
-    CopyResourceForBeforeDrawcall(front_command_list_ids,
+    CopyResourceForBeforeDrawcall(queue_object_info,
+                                  front_command_list_ids,
                                   track_dump_resources_.target.exe_indirect_count_id,
                                   track_dump_resources_.target.exe_indirect_count_offset,
                                   0,
@@ -5411,6 +5424,7 @@ void Dx12ReplayConsumerBase::CopyResourcesForBeforeDrawcall(const std::vector<fo
 }
 
 void Dx12ReplayConsumerBase::CopyResourceForBeforeDrawcallByGPUVA(
+    DxObjectInfo*                        queue_object_info,
     const std::vector<format::HandleId>& front_command_list_ids,
     D3D12_GPU_VIRTUAL_ADDRESS            captured_source_gpu_va,
     uint64_t                             source_size,
@@ -5425,7 +5439,8 @@ void Dx12ReplayConsumerBase::CopyResourceForBeforeDrawcallByGPUVA(
     auto source_resource_object_info = GetObjectInfo(copy_resource_data.source_resource_id);
     auto source_resource_extra_info  = GetExtraInfo<D3D12ResourceInfo>(source_resource_object_info);
 
-    CopyResourceForBeforeDrawcall(front_command_list_ids,
+    CopyResourceForBeforeDrawcall(queue_object_info,
+                                  front_command_list_ids,
                                   copy_resource_data.source_resource_id,
                                   (captured_source_gpu_va - source_resource_extra_info->capture_address_),
                                   source_size,
@@ -5433,7 +5448,8 @@ void Dx12ReplayConsumerBase::CopyResourceForBeforeDrawcallByGPUVA(
 }
 
 // If source_size = 0, the meaning is the whole after offset.
-void Dx12ReplayConsumerBase::CopyResourceForBeforeDrawcall(const std::vector<format::HandleId>& front_command_list_ids,
+void Dx12ReplayConsumerBase::CopyResourceForBeforeDrawcall(DxObjectInfo*                        queue_object_info,
+                                                           const std::vector<format::HandleId>& front_command_list_ids,
                                                            format::HandleId                     source_resource_id,
                                                            uint64_t                             source_offset,
                                                            uint64_t                             source_size,
@@ -5450,166 +5466,316 @@ void Dx12ReplayConsumerBase::CopyResourceForBeforeDrawcall(const std::vector<for
     auto device                      = graphics::dx12::GetDeviceComPtrFromChild<ID3D12Device>(source_resource);
     copy_resource_data.desc          = source_resource->GetDesc();
 
-    auto              sub_count = graphics::dx12::GetSubresourceCount(source_resource);
-    std::vector<UINT> num_rows;
-    num_rows.resize(sub_count);
+    size_t subresource_count;
+    copy_resource_data.offsets.clear();
+    copy_resource_data.sizes.clear();
+    copy_resource_data.footprints.clear();
+    copy_resource_data.total_size = 0;
+    graphics::Dx12ResourceDataUtil::GetResourceCopyInfo(source_resource,
+                                                        subresource_count,
+                                                        copy_resource_data.offsets,
+                                                        copy_resource_data.sizes,
+                                                        copy_resource_data.footprints,
+                                                        copy_resource_data.total_size);
 
-    std::vector<UINT64> row_size_in_bytess;
-    row_size_in_bytess.resize(sub_count);
-    copy_resource_data.footprints.resize(sub_count);
+    copy_resource_data.before_datas.resize(subresource_count);
+    copy_resource_data.after_datas.resize(subresource_count);
 
-    UINT64 total_bytes = 0;
-    device->GetCopyableFootprints(&copy_resource_data.desc,
-                                  0,
-                                  sub_count,
-                                  0,
-                                  copy_resource_data.footprints.data(),
-                                  num_rows.data(),
-                                  row_size_in_bytess.data(),
-                                  &copy_resource_data.total_size);
-
-    if (copy_resource_data.desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+    copy_resource_data.is_cpu_accessible = false;
+    HRESULT hr                           = graphics::Dx12ResourceDataUtil::IsResourceCpuAccessible(
+        source_resource, graphics::Dx12ResourceDataUtil::kCopyTypeRead, copy_resource_data.is_cpu_accessible);
+    if (!SUCCEEDED(hr))
     {
-        // Buffer has its offset and size, no offsets and sizes for subresources.
-        // Texture has offsets and sizes for subresources, but no its offset and size.
-        if (source_size == 0)
-        {
-            source_size = copy_resource_data.total_size - source_offset;
-        }
-        copy_resource_data.offsets.emplace_back(source_offset);
-        copy_resource_data.sizes.emplace_back(source_size);
+        GFXRECON_LOG_WARNING("Failed to determine if resoruce is CPU accessible. Using a command queue to copy "
+                             "resource data to staging buffer.");
     }
 
-    CopyResource(front_command_list_ids, copy_resource_data, copy_resource_data.before_data);
+    CopyResourceAsync(queue_object_info, front_command_list_ids, copy_resource_data, copy_resource_data.before_datas);
 }
 
-void Dx12ReplayConsumerBase::CopyResourcesForAfterDrawcall(const std::vector<format::HandleId>& front_command_list_ids)
+void Dx12ReplayConsumerBase::CopyResourcesForAfterDrawcall(DxObjectInfo*                        queue_object_info,
+                                                           const std::vector<format::HandleId>& front_command_list_ids)
 {
     // vertex
-    CopyResourcesForAfterDrawcall(front_command_list_ids, track_dump_resources_.copy_vertex_resources);
+    CopyResourcesForAfterDrawcall(
+        queue_object_info, front_command_list_ids, track_dump_resources_.copy_vertex_resources);
 
     // index
-    CopyResourceForAfterDrawcall(front_command_list_ids, track_dump_resources_.copy_index_resource);
+    CopyResourceForAfterDrawcall(queue_object_info, front_command_list_ids, track_dump_resources_.copy_index_resource);
 
     // descriptor
     for (auto& heap_data : track_dump_resources_.descriptor_heap_datas)
     {
         // constant buffer
-        CopyResourcesForAfterDrawcall(front_command_list_ids, heap_data.copy_constant_buffer_resources);
+        CopyResourcesForAfterDrawcall(
+            queue_object_info, front_command_list_ids, heap_data.copy_constant_buffer_resources);
 
         if (TEST_SHADER_RES)
         {
             // shader resource
-            CopyResourcesForAfterDrawcall(front_command_list_ids, heap_data.copy_shader_resources);
+            CopyResourcesForAfterDrawcall(queue_object_info, front_command_list_ids, heap_data.copy_shader_resources);
 
             // unordered access
             for (auto& uav : heap_data.copy_unordered_accesses)
             {
-                CopyResourceForAfterDrawcall(front_command_list_ids, uav.resource);
-                CopyResourceForAfterDrawcall(front_command_list_ids, uav.counter_resource);
+                CopyResourceForAfterDrawcall(queue_object_info, front_command_list_ids, uav.resource);
+                CopyResourceForAfterDrawcall(queue_object_info, front_command_list_ids, uav.counter_resource);
             }
         }
     }
 
     // render target
-    CopyResourcesForAfterDrawcall(front_command_list_ids, track_dump_resources_.copy_render_target_resources);
-    CopyResourceForAfterDrawcall(front_command_list_ids, track_dump_resources_.copy_depth_stencil_resource);
+    CopyResourcesForAfterDrawcall(
+        queue_object_info, front_command_list_ids, track_dump_resources_.copy_render_target_resources);
+    CopyResourceForAfterDrawcall(
+        queue_object_info, front_command_list_ids, track_dump_resources_.copy_depth_stencil_resource);
 
     // ExecuteIndirect
-    CopyResourceForAfterDrawcall(front_command_list_ids, track_dump_resources_.copy_exe_indirect_argument);
-    CopyResourceForAfterDrawcall(front_command_list_ids, track_dump_resources_.copy_exe_indirect_count);
+    CopyResourceForAfterDrawcall(
+        queue_object_info, front_command_list_ids, track_dump_resources_.copy_exe_indirect_argument);
+    CopyResourceForAfterDrawcall(
+        queue_object_info, front_command_list_ids, track_dump_resources_.copy_exe_indirect_count);
 }
 
-void Dx12ReplayConsumerBase::CopyResourcesForAfterDrawcall(const std::vector<format::HandleId>& front_command_list_ids,
+void Dx12ReplayConsumerBase::CopyResourcesForAfterDrawcall(DxObjectInfo*                        queue_object_info,
+                                                           const std::vector<format::HandleId>& front_command_list_ids,
                                                            std::vector<graphics::CopyResourceData>& copy_resource_datas)
 {
     for (auto& copy_resource : copy_resource_datas)
     {
-        CopyResourceForAfterDrawcall(front_command_list_ids, copy_resource);
+        CopyResourceForAfterDrawcall(queue_object_info, front_command_list_ids, copy_resource);
     }
 }
 
-void Dx12ReplayConsumerBase::CopyResourceForAfterDrawcall(const std::vector<format::HandleId>& front_command_list_ids,
+void Dx12ReplayConsumerBase::CopyResourceForAfterDrawcall(DxObjectInfo*                        queue_object_info,
+                                                          const std::vector<format::HandleId>& front_command_list_ids,
                                                           graphics::CopyResourceData&          copy_resource_data)
 {
     if (copy_resource_data.source_resource_id == 0)
     {
         return;
     }
-    CopyResource(front_command_list_ids, copy_resource_data, copy_resource_data.after_data);
+    CopyResourceAsync(queue_object_info, front_command_list_ids, copy_resource_data, copy_resource_data.after_datas);
 }
 
-void Dx12ReplayConsumerBase::CopyResource(const std::vector<format::HandleId>& front_command_list_ids,
-                                          graphics::CopyResourceData&          copy_resource_data,
-                                          std::vector<uint8_t>&                copy_data)
+bool Dx12ReplayConsumerBase::CopyResourceAsyncQueue(const std::vector<format::HandleId>& front_command_list_ids,
+                                                    graphics::CopyResourceData&          copy_resource_data,
+                                                    ID3D12CommandQueue*                  draw_call_queue,
+                                                    ID3D12Fence*                         fence,
+                                                    UINT64                               fence_signal_value,
+                                                    UINT64                               fence_wait_value)
 {
 
     auto source_resource_object_info = GetObjectInfo(copy_resource_data.source_resource_id);
     auto source_resource             = reinterpret_cast<ID3D12Resource*>(source_resource_object_info->object);
     auto source_resource_extra_info  = GetExtraInfo<D3D12ResourceInfo>(source_resource_object_info);
 
-    std::vector<graphics::dx12::ResourceStateInfo> res_infos = source_resource_extra_info->resource_state_infos;
-
-    auto size = front_command_list_ids.size();
-    for (uint32_t i = 0; i < size; ++i)
-    {
-        auto cmd_list_extra_info = GetExtraInfo<D3D12CommandListInfo>(GetObjectInfo(front_command_list_ids[i]));
-        auto pending_states_iter =
-            cmd_list_extra_info->pending_resource_states.find(source_resource_object_info->capture_id);
-        if (pending_states_iter != cmd_list_extra_info->pending_resource_states.end())
-        {
-            for (const auto& state : pending_states_iter->second)
-            {
-                bool is_update = true;
-                if (i == (size - 1))
-                {
-                    if (state.code_index > track_dump_resources_.target.drawcall_code_index)
-                    {
-                        is_update = false;
-                    }
-                }
-                if (is_update)
-                {
-                    if (state.transition.Subresource == D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES)
-                    {
-                        for (auto& info : res_infos)
-                        {
-                            info.states        = state.transition.StateAfter;
-                            info.barrier_flags = state.barrier_flags;
-                        }
-                    }
-                    else
-                    {
-                        res_infos[state.transition.Subresource].states        = state.transition.StateAfter;
-                        res_infos[state.transition.Subresource].barrier_flags = state.barrier_flags;
-                    }
-                }
-            }
-        }
-    }
     graphics::dx12::ID3D12CommandQueueComPtr queue = nullptr;
     if (source_resource_extra_info->swap_chain_id != format::kNullHandleId)
     {
         auto swapchain_extra_info =
             GetExtraInfo<DxgiSwapchainInfo>(GetObjectInfo(source_resource_extra_info->swap_chain_id));
-        queue = swapchain_extra_info->command_queue;
+        if (draw_call_queue != swapchain_extra_info->command_queue)
+        {
+            // Can only read swapchain buffers from the swapchain's queue.
+            GFXRECON_LOG_ERROR("TODO: Is the swapchain queue always the same as the draw call queue?");
+        }
     }
 
-    auto device = graphics::dx12::GetDeviceComPtrFromChild<ID3D12Device>(source_resource);
-    std::unique_ptr<graphics::Dx12ResourceDataUtil> resource_data_util =
-        std::make_unique<graphics::Dx12ResourceDataUtil>(device, copy_resource_data.total_size, queue);
-
-    std::vector<uint64_t> offsets;
-    std::vector<uint64_t> sizes;
-    HRESULT               result = resource_data_util->ReadFromResource(
-        source_resource, true, res_infos, res_infos, copy_data, offsets, sizes, nullptr);
-
-    if (copy_resource_data.desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
+    HRESULT hr = S_OK;
+    if (copy_resource_data.is_cpu_accessible)
     {
-        // Buffer has its offset and size, no offsets and sizes for subresources.
-        // Texture has offsets and sizes for subresources, but no its offset and size.
-        copy_resource_data.offsets = offsets;
-        copy_resource_data.sizes   = sizes;
+        // If the source_resource is CPU accessible, it can be read from directly.
+        copy_resource_data.read_resource = source_resource;
+    }
+    else
+    {
+        // If the source_resource is not CPU accessible, build and execute a command list to copy data from the
+        // source_resource to a staging_buffer.
+
+        HRESULT hr     = E_UNEXPECTED;
+        auto    device = graphics::dx12::GetDeviceComPtrFromChild<ID3D12Device>(source_resource);
+        if (device != nullptr)
+        {
+            // Get or create staging buffer.
+            // DUMPTODO: Use a single staging buffer, pre compute max needed size.
+            if (dump_resources_staging_buffers_.empty() ||
+                (dump_resources_staging_buffer_sizes_.back() < copy_resource_data.total_size))
+            {
+                auto new_staging_buffer = graphics::Dx12ResourceDataUtil::CreateStagingBuffer(
+                    device, graphics::Dx12ResourceDataUtil::CopyType::kCopyTypeRead, copy_resource_data.total_size);
+                dump_resources_staging_buffers_.push_back(new_staging_buffer);
+                dump_resources_staging_buffer_sizes_.push_back(copy_resource_data.total_size);
+            }
+            copy_resource_data.read_resource = dump_resources_staging_buffers_.back();
+
+            // DUMPTODO: Should this share a command allocator between resources?
+            hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                IID_PPV_ARGS(&copy_resource_data.cmd_allocator));
+            if (SUCCEEDED(hr))
+            {
+                hr = device->CreateCommandList(0,
+                                               D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                               copy_resource_data.cmd_allocator,
+                                               nullptr,
+                                               IID_PPV_ARGS(&copy_resource_data.cmd_list));
+            }
+        }
+        if (!SUCCEEDED(hr))
+        {
+            GFXRECON_LOG_ERROR("Failed to create command list for copying resource.");
+            return false;
+        }
+
+        // Determine subresource states in order to transition to D3D12_RESOURCE_STATE_COPY_SOURCE.
+        std::vector<graphics::dx12::ResourceStateInfo> res_infos = source_resource_extra_info->resource_state_infos;
+        auto                                           size      = front_command_list_ids.size();
+        for (uint32_t i = 0; i < size; ++i)
+        {
+            auto cmd_list_extra_info = GetExtraInfo<D3D12CommandListInfo>(GetObjectInfo(front_command_list_ids[i]));
+            auto pending_states_iter =
+                cmd_list_extra_info->pending_resource_states.find(source_resource_object_info->capture_id);
+            if (pending_states_iter != cmd_list_extra_info->pending_resource_states.end())
+            {
+                for (const auto& state : pending_states_iter->second)
+                {
+                    bool is_update = true;
+                    if (i == (size - 1))
+                    {
+                        if (state.code_index > track_dump_resources_.target.drawcall_code_index)
+                        {
+                            is_update = false;
+                        }
+                    }
+                    if (is_update)
+                    {
+                        if (state.transition.Subresource == D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES)
+                        {
+                            for (auto& info : res_infos)
+                            {
+                                info.states        = state.transition.StateAfter;
+                                info.barrier_flags = state.barrier_flags;
+                            }
+                        }
+                        else
+                        {
+                            res_infos[state.transition.Subresource].states        = state.transition.StateAfter;
+                            res_infos[state.transition.Subresource].barrier_flags = state.barrier_flags;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Build command list for copying to staging buffer.
+        hr = graphics::Dx12ResourceDataUtil::RecordCommandsToCopyResource(copy_resource_data.cmd_list,
+                                                                          source_resource,
+                                                                          graphics::Dx12ResourceDataUtil::kCopyTypeRead,
+                                                                          copy_resource_data.total_size,
+                                                                          copy_resource_data.footprints,
+                                                                          res_infos,
+                                                                          res_infos,
+                                                                          copy_resource_data.read_resource);
+
+        if (SUCCEEDED(hr))
+        {
+            // Execute the command list.
+            hr                             = copy_resource_data.cmd_list->Close();
+            ID3D12CommandList* cmd_lists[] = { copy_resource_data.cmd_list };
+            draw_call_queue->ExecuteCommandLists(1, cmd_lists);
+        }
+        else
+        {
+            GFXRECON_LOG_ERROR("Failed to record commands to copy resource data for resource %" PRIu64,
+                               copy_resource_data.source_resource_id);
+        }
+    }
+
+    // Signal the fence to indicate that data has been copied to the staging resource.
+    hr = draw_call_queue->Signal(fence, fence_signal_value);
+    GFXRECON_ASSERT(SUCCEEDED(hr));
+
+    // Wait for the next fence value indicating that staging data has been read and is safe to continue.
+    hr = draw_call_queue->Wait(fence, fence_wait_value);
+    GFXRECON_ASSERT(SUCCEEDED(hr));
+
+    return true;
+}
+
+// Wait for the queued work to complete and then read the copied resource.
+void Dx12ReplayConsumerBase::CopyResourceAsyncRead(ID3D12Fence*                       fence,
+                                                   UINT64                             fence_wait_value,
+                                                   UINT64                             fence_signal_value,
+                                                   HANDLE                             fence_event,
+                                                   ID3D12Resource*                    resource,
+                                                   const std::vector<uint32_t>&       subresource_indicies,
+                                                   const std::vector<uint64_t>&       subresource_sizes,
+                                                   std::vector<std::vector<uint8_t>>& subresource_datas)
+{
+    // Wait for the command queue before reading data.
+    UINT64 completed_value = fence->GetCompletedValue();
+    if (completed_value == UINT64_MAX)
+    {
+        GFXRECON_LOG_FATAL(
+            "Invalid fence value (UINT64_MAX). Device may have been removed. GFXR is unable to continue.");
+        return;
+    }
+    if (completed_value < fence_wait_value)
+    {
+        ResetEvent(fence_event);
+        fence->SetEventOnCompletion(fence_wait_value, fence_event);
+        WaitForSingleObject(fence_event, INFINITE);
+    }
+
+    // Read staging buffer data.
+    for (auto i : subresource_indicies)
+    {
+        subresource_datas[i].resize(subresource_sizes[i]);
+        graphics::Dx12ResourceDataUtil::MapSubresourceAndReadData(
+            resource, i, subresource_sizes[i], subresource_datas[i].data());
+    }
+
+    // DUMPTODO: write data to disk immediately, freeing up memory.
+
+    // Signal command queue to continue execution.
+    fence->Signal(fence_signal_value);
+}
+
+void Dx12ReplayConsumerBase::CopyResourceAsync(DxObjectInfo*                        queue_object_info,
+                                               const std::vector<format::HandleId>& front_command_list_ids,
+                                               graphics::CopyResourceData&          copy_resource_data,
+                                               std::vector<std::vector<uint8_t>>&   copy_datas)
+{
+    auto fence               = track_dump_resources_.fence;
+    auto fence_current_value = fence->GetCompletedValue();
+    auto queue_extra_info    = GetExtraInfo<D3D12CommandQueueInfo>(queue_object_info);
+    auto queue               = static_cast<ID3D12CommandQueue*>(queue_object_info->object);
+
+    // Precondition: staging buffer is already big enough for the largest copy.
+
+    bool queued_success = CopyResourceAsyncQueue(
+        front_command_list_ids, copy_resource_data, queue, fence, fence_current_value + 1, fence_current_value + 2);
+
+    if (queued_success)
+    {
+        if (queue_extra_info->pending_events.empty())
+        {
+            CopyResourceAsyncRead(fence,
+                                  fence_current_value + 1,
+                                  fence_current_value + 2,
+                                  0,
+                                  copy_resource_data.read_resource,
+                                  copy_resource_data.subresource_indices,
+                                  copy_resource_data.sizes,
+                                  copy_datas);
+        }
+        else
+        {
+            GFXRECON_LOG_ERROR("TODO: CreateCopyResourceAsyncReadQueueSyncEvent not implemented.");
+            // DUMPTODO: Add CopyResourceAsyncRead to queue's pending_events to be processed later.
+            // command_queue_info->pending_events.push_back(
+            //     CreateCopyResourceAsyncReadQueueSyncEvent(command_queue_info, command_queue_info->sync_value));
+        }
     }
 }
 
