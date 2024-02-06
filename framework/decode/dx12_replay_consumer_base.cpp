@@ -365,8 +365,7 @@ void Dx12ReplayConsumerBase::ApplyBatchedResourceInitInfo(
                                                      resource_info.second.data,
                                                      resource_info.second.subresource_offsets,
                                                      resource_info.second.subresource_sizes,
-                                                     resource_info.second.staging_resource,
-                                                     true);
+                                                     resource_info.second.staging_resource);
             }
             auto object_info = GetObjectInfo(resource_info.second.resource_id);
             if (object_info->extra_info != nullptr)
