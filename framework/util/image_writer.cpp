@@ -77,8 +77,8 @@ bool WriteBmpImage(
         row_pitch = pitch;
     }
 
-    uint32_t image_size = height * row_pitch;
-    if (image_size <= data_size)
+    uint32_t bmp_image_size = height * width * kImageBpp;
+    if (bmp_image_size <= data_size)
     {
         FILE*   file   = nullptr;
         int32_t result = util::platform::FileOpen(&file, filename.c_str(), "wb");
@@ -92,7 +92,7 @@ bool WriteBmpImage(
             file_header.reserved1 = 0;
             file_header.reserved2 = 0;
             file_header.off_bits  = sizeof(file_header) + sizeof(info_header);
-            file_header.size      = image_size + file_header.off_bits;
+            file_header.size      = bmp_image_size + file_header.off_bits;
 
             info_header.size             = sizeof(info_header);
             info_header.width            = width;
