@@ -5489,6 +5489,7 @@ void Dx12ReplayConsumer::Process_ID3D12GraphicsCommandList_DrawInstanced(
     UINT                                        StartVertexLocation,
     UINT                                        StartInstanceLocation)
 {
+    ++drawcall_count[object_id];
     auto replay_object = GetObjectInfo(object_id);
     if ((replay_object != nullptr) && (replay_object->object != nullptr))
     {
@@ -5532,6 +5533,7 @@ void Dx12ReplayConsumer::Process_ID3D12GraphicsCommandList_DrawIndexedInstanced(
     INT                                         BaseVertexLocation,
     UINT                                        StartInstanceLocation)
 {
+    ++drawcall_count[object_id];
     auto replay_object = GetObjectInfo(object_id);
     if ((replay_object != nullptr) && (replay_object->object != nullptr))
     {
@@ -5577,6 +5579,7 @@ void Dx12ReplayConsumer::Process_ID3D12GraphicsCommandList_Dispatch(
     UINT                                        ThreadGroupCountY,
     UINT                                        ThreadGroupCountZ)
 {
+    ++drawcall_count[object_id];
     auto replay_object = GetObjectInfo(object_id);
     if ((replay_object != nullptr) && (replay_object->object != nullptr))
     {
@@ -7223,6 +7226,7 @@ void Dx12ReplayConsumer::Process_ID3D12GraphicsCommandList_ExecuteIndirect(
     format::HandleId                            pCountBuffer,
     UINT64                                      CountBufferOffset)
 {
+    ++drawcall_count[object_id];
     auto replay_object = GetObjectInfo(object_id);
     if ((replay_object != nullptr) && (replay_object->object != nullptr))
     {

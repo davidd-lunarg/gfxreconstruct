@@ -35,7 +35,7 @@ GFXRECON_BEGIN_NAMESPACE(graphics)
 // TEST_READABLE is only for test because data type could be various.
 // But here uses fixed type.
 // According to the resource's desc.Dimension, float is for buffer, image is for the others.
-const bool TEST_READABLE = false;
+const bool TEST_READABLE = true;
 
 Dx12DumpResources::Dx12DumpResources() : json_file_handle_(nullptr) {}
 

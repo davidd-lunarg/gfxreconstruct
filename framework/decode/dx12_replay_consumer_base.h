@@ -1026,6 +1026,12 @@ class Dx12ReplayConsumerBase : public Dx12Consumer
 
     std::vector<graphics::dx12::ID3D12ResourceComPtr> dump_resources_staging_buffers_;
     std::vector<uint64_t>                             dump_resources_staging_buffer_sizes_;
+
+    // Temporary values for debugging:
+  public:
+    uint64_t                             frame_index   = 0;
+    uint64_t                             execute_index = 0;
+    std::map<format::HandleId, uint64_t> drawcall_count;
 };
 
 GFXRECON_END_NAMESPACE(decode)
