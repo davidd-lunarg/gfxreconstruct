@@ -76,6 +76,7 @@ struct DxObjectInfo;
 struct D3D12StateObjectInfo;
 struct D3D12ResourceInfo;
 struct D3D12CommandSignatureInfo;
+struct D3D12CommandQueueInfo;
 
 // Util function for getting the extra info object from a DxObjectInfo.
 template <typename T>
@@ -206,8 +207,9 @@ struct DxgiSwapchainInfo : DxObjectExtraInfo
 
     graphics::dx12::ID3D12CommandQueueComPtr command_queue{
         nullptr
-    };                           ///< The command queue that was used to create the swapchain.
-    bool is_fullscreen{ false }; ///< Swapchain full screen flag.
+    }; ///< The command queue that was used to create the swapchain.
+    D3D12CommandQueueInfo* queue_extra_info{ nullptr };
+    bool                   is_fullscreen{ false }; ///< Swapchain full screen flag.
 };
 
 struct D3D12CommandQueueInfo : DxObjectExtraInfo
