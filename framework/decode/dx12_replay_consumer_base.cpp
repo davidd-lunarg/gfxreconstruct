@@ -1081,8 +1081,9 @@ void Dx12ReplayConsumerBase::DetectAdapters()
     }
 }
 
-void Dx12ReplayConsumerBase::InitCommandQueueExtraInfo(ID3D12Device*                device,
-                                                       HandlePointerDecoder<void*>* command_queue_decoder)
+void Dx12ReplayConsumerBase::InitCommandQueueExtraInfo(ID3D12Device*                   device,
+                                                       HandlePointerDecoder<void*>*    command_queue_decoder,
+                                                       const D3D12_COMMAND_QUEUE_DESC& dec)
 {
     auto command_queue_info = std::make_unique<D3D12CommandQueueInfo>();
 
@@ -1091,6 +1092,7 @@ void Dx12ReplayConsumerBase::InitCommandQueueExtraInfo(ID3D12Device*            
     // the command queue in OverrideExecuteCommandLists and wait on in WaitForCommandListExecution.
     auto fence_result = device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&command_queue_info->sync_fence));
 
+    command_queue_info->create_type = dec.Type;
     if (SUCCEEDED(fence_result))
     {
         command_queue_info->sync_event = CreateEventA(nullptr, TRUE, FALSE, nullptr);
@@ -1120,7 +1122,7 @@ HRESULT Dx12ReplayConsumerBase::OverrideCreateCommandQueue(DxObjectInfo* replay_
 
     if (SUCCEEDED(replay_result))
     {
-        InitCommandQueueExtraInfo(replay_object, command_queue);
+        InitCommandQueueExtraInfo(replay_object, command_queue, *desc->GetPointer());
     }
 
     return replay_result;
@@ -1145,7 +1147,7 @@ Dx12ReplayConsumerBase::OverrideCreateCommandQueue1(DxObjectInfo* device9_object
 
     if (SUCCEEDED(replay_result))
     {
-        InitCommandQueueExtraInfo(device9, command_queue_decoder);
+        InitCommandQueueExtraInfo(device9, command_queue_decoder, *desc->GetPointer());
     }
 
     return replay_result;
@@ -5952,12 +5954,13 @@ void Dx12ReplayConsumerBase::CopyResourceForBeforeDrawcall(DxObjectInfo*        
             copy_resource_data.read_resource                   = dump_resources_staging_buffers_.back();
             copy_resource_data.read_resource_is_staging_buffer = true;
 
-            hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+            auto queue_extra_info = GetExtraInfo<D3D12CommandQueueInfo>(queue_object_info);
+            hr                    = device->CreateCommandAllocator(queue_extra_info->create_type,
                                                 IID_PPV_ARGS(&copy_resource_data.cmd_allocator));
             if (SUCCEEDED(hr))
             {
                 hr = device->CreateCommandList(0,
-                                               D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                               queue_extra_info->create_type,
                                                copy_resource_data.cmd_allocator,
                                                nullptr,
                                                IID_PPV_ARGS(&copy_resource_data.cmd_list));
@@ -6060,15 +6063,16 @@ void Dx12ReplayConsumerBase::CopyResourceForAfterDrawcall(DxObjectInfo*         
 
 bool Dx12ReplayConsumerBase::CopyResourceAsyncQueue(const std::vector<format::HandleId>& front_command_list_ids,
                                                     graphics::CopyResourceData&          copy_resource_data,
-                                                    ID3D12CommandQueue*                  draw_call_queue,
+                                                    DxObjectInfo*                        queue_object_info,
                                                     ID3D12Fence*                         fence,
                                                     UINT64                               fence_signal_value,
                                                     UINT64                               fence_wait_value)
 {
-
     auto source_resource_object_info = GetObjectInfo(copy_resource_data.source_resource_id);
     auto source_resource             = reinterpret_cast<ID3D12Resource*>(source_resource_object_info->object);
     auto source_resource_extra_info  = GetExtraInfo<D3D12ResourceInfo>(source_resource_object_info);
+    auto draw_call_queue             = static_cast<ID3D12CommandQueue*>(queue_object_info->object);
+    auto queue_extra_info            = GetExtraInfo<D3D12CommandQueueInfo>(queue_object_info);
 
     graphics::dx12::ID3D12CommandQueueComPtr queue = nullptr;
     if (source_resource_extra_info->swap_chain_id != format::kNullHandleId)
@@ -6131,6 +6135,20 @@ bool Dx12ReplayConsumerBase::CopyResourceAsyncQueue(const std::vector<format::Ha
                         }
                     }
                 }
+            }
+        }
+
+        // TODO: Some resource states are not avaiable for compute type queue. This error could cause devie lost,
+        // so remove them. It might have more unavailable states that should be removed.But this's not a good idea.
+        // A better way might be that using a new direct type queue to copy resources. But it has two issues.
+        // 1: If the resource is swapchain, it has to use its queue.
+        // 2: It has to deal with sync issue between the new queue and the original queue.
+        if (queue_extra_info->create_type == D3D12_COMMAND_LIST_TYPE_COMPUTE)
+        {
+            for (auto& info : res_infos)
+            {
+                info.states =
+                    info.states & ~(D3D12_RESOURCE_STATE_INDEX_BUFFER | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             }
         }
 
@@ -6240,10 +6258,13 @@ void Dx12ReplayConsumerBase::CopyResourceAsync(DxObjectInfo*                    
     auto fence_current_value = fence->GetCompletedValue();
     auto fence_event         = track_dump_resources_.fence_event;
     auto queue_extra_info    = GetExtraInfo<D3D12CommandQueueInfo>(queue_object_info);
-    auto queue               = static_cast<ID3D12CommandQueue*>(queue_object_info->object);
 
-    bool queued_success = CopyResourceAsyncQueue(
-        front_command_list_ids, copy_resource_data, queue, fence, fence_current_value + 1, fence_current_value + 2);
+    bool queued_success = CopyResourceAsyncQueue(front_command_list_ids,
+                                                 copy_resource_data,
+                                                 queue_object_info,
+                                                 fence,
+                                                 fence_current_value + 1,
+                                                 fence_current_value + 2);
 
     if (queued_success)
     {

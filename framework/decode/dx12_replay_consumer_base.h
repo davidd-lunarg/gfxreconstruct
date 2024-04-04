@@ -358,7 +358,9 @@ class Dx12ReplayConsumerBase : public Dx12Consumer
 
     void ProcessDxgiAdapterInfo(const format::DxgiAdapterInfoCommandHeader& adapter_info_header);
 
-    void InitCommandQueueExtraInfo(ID3D12Device* device, HandlePointerDecoder<void*>* command_queue_decoder);
+    void InitCommandQueueExtraInfo(ID3D12Device*                   device,
+                                   HandlePointerDecoder<void*>*    command_queue_decoder,
+                                   const D3D12_COMMAND_QUEUE_DESC& dec);
 
     HRESULT OverrideCreateCommandQueue(DxObjectInfo*                                           replay_object_info,
                                        HRESULT                                                 original_result,
@@ -1028,7 +1030,7 @@ class Dx12ReplayConsumerBase : public Dx12Consumer
 
     bool CopyResourceAsyncQueue(const std::vector<format::HandleId>& front_command_list_ids,
                                 graphics::CopyResourceData&          copy_resource_data,
-                                ID3D12CommandQueue*                  queue,
+                                DxObjectInfo*                        queue_object_info,
                                 ID3D12Fence*                         fence,
                                 UINT64                               fence_signal_value,
                                 UINT64                               fence_wait_value);
