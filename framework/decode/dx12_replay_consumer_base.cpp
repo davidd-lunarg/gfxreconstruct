@@ -783,6 +783,7 @@ void Dx12ReplayConsumerBase::PrePresent(DxObjectInfo* swapchain_object_info, UIN
 void Dx12ReplayConsumerBase::PostPresent()
 {
     ReadDebugMessages();
+    ++frame_index;
 }
 
 HRESULT Dx12ReplayConsumerBase::OverridePresent(DxObjectInfo* replay_object_info,
@@ -2117,6 +2118,12 @@ void Dx12ReplayConsumerBase::OverrideExecuteCommandLists(DxObjectInfo*          
 
     // Add a command queue signal and CPU wait after command list execution.
     bool do_sync_after_execute = options_.sync_queue_submissions && !command_lists->IsNull() && !needs_mapping;
+
+    auto command_queue_info = GetExtraInfo<D3D12CommandQueueInfo>(replay_object_info);
+    if (!command_queue_info->pending_events.empty())
+    {
+        GFXRECON_LOG_WARNING_ONCE("!command_queue_info->pending_events().empty()");
+    }
 
     // TODO: Determine why a sync is required after executing commands lists that contain DispatchRays or
     // BuildRayTracingAccelerationStructures.
@@ -3577,6 +3584,8 @@ HRESULT Dx12ReplayConsumerBase::OverrideCommandListReset(DxObjectInfo* command_l
         resource_value_mapper_->PostProcessCommandListReset(command_list_object_info);
     }
 
+    drawcall_count[command_list_object_info->capture_id] = 0;
+
     return replay_result;
 }
 
@@ -4961,6 +4970,18 @@ void Dx12ReplayConsumerBase::PostCall_ID3D12CommandQueue_ExecuteCommandLists(
         auto commandlist_id          = ppCommandLists->GetPointer()[i];
         auto command_list_extra_info = GetExtraInfo<D3D12CommandListInfo>(GetObjectInfo(commandlist_id));
 
+        GFXRECON_LOG_INFO("Frame %llu, ECL index %llu, ECL block index %llu, CL index %u, CL ID %llu, Num draws %llu, "
+                          "\n\tArgs %llu,%u,[0-%llu]",
+                          frame_index,
+                          execute_index,
+                          GetCurrentBlockIndex(),
+                          i,
+                          commandlist_id,
+                          drawcall_count[commandlist_id],
+                          execute_index,
+                          i,
+                          drawcall_count[commandlist_id] > 0 ? drawcall_count[commandlist_id] - 1 : 0);
+
         for (const auto& pair : command_list_extra_info->pending_resource_states)
         {
             auto resource_object_info = GetObjectInfo(pair.first);
@@ -4995,6 +5016,8 @@ void Dx12ReplayConsumerBase::PostCall_ID3D12CommandQueue_ExecuteCommandLists(
         }
         command_list_extra_info->pending_resource_states.clear();
     }
+
+    ++execute_index;
 }
 
 void Dx12ReplayConsumerBase::PostCall_ID3D12Device_CopyDescriptors(

@@ -1042,6 +1042,12 @@ class Dx12ReplayConsumerBase : public Dx12Consumer
     std::unique_ptr<ScreenshotHandlerBase>                screenshot_handler_;
     std::unordered_map<ID3D12Resource*, ResourceInitInfo> resource_init_infos_;
     uint64_t                                              frame_end_marker_count_;
+
+    // Temporary values for debugging:
+  public:
+    uint64_t                             frame_index   = 0;
+    uint64_t                             execute_index = 0;
+    std::map<format::HandleId, uint64_t> drawcall_count;
 };
 
 GFXRECON_END_NAMESPACE(decode)

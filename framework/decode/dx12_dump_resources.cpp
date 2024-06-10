@@ -43,7 +43,7 @@ GFXRECON_BEGIN_NAMESPACE(decode)
 // TEST_READABLE is only for test because data type could be various.
 // But here uses fixed type.
 // According to the resource's desc.Dimension, float is for buffer, image is for the others.
-constexpr bool TEST_READABLE   = false;
+constexpr bool TEST_READABLE   = true;
 constexpr bool TEST_SHADER_RES = true;
 
 static const char* Dx12ResourceTypeToString(Dx12DumpResourceType type)
