@@ -50,7 +50,7 @@ Dx12DumpResources::Dx12DumpResources(std::function<DxObjectInfo*(format::HandleI
                                      const graphics::Dx12GpuVaMap&                     gpu_va_map,
                                      DxReplayOptions&                                  options) :
     get_object_info_func_(get_object_info_func),
-    gpu_va_map_(gpu_va_map), options_(options)
+    gpu_va_map_(gpu_va_map), options_(options), delegate_(nullptr)
 {}
 
 void Dx12DumpResources::StartDump(ID3D12Device* device, const std::string& capture_file_name)
@@ -64,43 +64,14 @@ void Dx12DumpResources::StartDump(ID3D12Device* device, const std::string& captu
     track_dump_resources_.fence_event        = CreateEventA(nullptr, TRUE, FALSE, nullptr);
     track_dump_resources_.fence_signal_value = initial_fence_value;
 
-    // prepare for output data
-    json_options_.format = kDefaultDumpResourcesFileFormat;
-
-    json_filename_    = capture_file_name;
-    auto ext_pos      = json_filename_.find_last_of(".");
-    auto path_sep_pos = json_filename_.find_last_of(util::filepath::kPathSepStr);
-    if (ext_pos != std::string::npos && (path_sep_pos == std::string::npos || ext_pos > path_sep_pos))
+    if (delegate_ == nullptr)
     {
-        json_filename_ = json_filename_.substr(0, ext_pos);
+        // Use a default delegate if none was provided.
+        default_delegate_ = std::make_unique<DefaultDx12DumpResourcesDelegate>();
+        delegate_         = default_delegate_.get();
     }
-    json_filename_ += "_dr." + util::get_json_format(json_options_.format);
-    json_options_.data_sub_dir = util::filepath::GetFilenameStem(json_filename_);
-    json_options_.root_dir     = util::filepath::GetBasedir(json_filename_);
 
-    util::platform::FileOpen(&json_file_handle_, json_filename_.c_str(), "w");
-
-    header_["D3D12SDKVersion"] = std::to_string(D3D12SDKVersion);
-    header_["gfxreconversion"] = GFXRECON_PROJECT_VERSION_STRING;
-    header_["captureFile"]     = capture_file_name;
-
-    auto& dr_options       = header_["dumpResourcesOptions"];
-    dr_options["submit"]   = std::to_string(options_.dump_resources_target.submit_index);
-    dr_options["command"]  = std::to_string(options_.dump_resources_target.command_index);
-    dr_options["drawcall"] = std::to_string(options_.dump_resources_target.drawcall_index);
-
-    StartFile();
-
-    // Emit the header object as the first line of the file:
-    WriteBlockStart();
-    json_data_["header"] = header_;
-    WriteBlockEnd();
-
-    WriteBlockStart();
-
-    util::FieldToJson(drawcall_["block_index"], track_dump_resources_.target.drawcall_block_index, json_options_);
-    util::FieldToJson(
-        drawcall_["execute_block_index"], track_dump_resources_.target.execute_block_index, json_options_);
+    delegate_->BeginDumpResources(capture_file_name, track_dump_resources_);
 }
 
 void Dx12DumpResources::FinishDump(DxObjectInfo* queue_object_info)
@@ -124,9 +95,10 @@ void Dx12DumpResources::FinishDump(DxObjectInfo* queue_object_info)
 
 void Dx12DumpResources::CloseDump()
 {
-    json_data_[NameDrawCall()] = drawcall_;
-    WriteBlockEnd();
-    EndFile();
+    delegate_->EndDumpResources();
+
+    // Free the default delegate if it was used.
+    default_delegate_ = nullptr;
 }
 
 bool Dx12DumpResources::ExecuteCommandLists(DxObjectInfo*                             replay_object_info,
@@ -1164,7 +1136,7 @@ void Dx12DumpResources::CopyResourceAsyncRead(graphics::dx12::ID3D12FenceComPtr 
     }
 
     // After copying task is done, write the data to disk, and free it to reduce memory use.
-    WriteResource(copy_resource_data);
+    delegate_->DumpResource(copy_resource_data);
     copy_resource_data->Clear();
 
     // Signal command queue to continue execution.
@@ -1391,7 +1363,60 @@ std::vector<CommandSet> Dx12DumpResources::GetCommandListsForDumpResources(DxObj
     return cmd_sets;
 }
 
-void Dx12DumpResources::WriteResource(const CopyResourceDataPtr resource_data)
+void DefaultDx12DumpResourcesDelegate::BeginDumpResources(const std::string&        capture_file_name,
+                                                          const TrackDumpResources& track_dump_resources)
+{
+    // prepare for output data
+    json_options_.format = kDefaultDumpResourcesFileFormat;
+
+    json_filename_    = capture_file_name;
+    auto ext_pos      = json_filename_.find_last_of(".");
+    auto path_sep_pos = json_filename_.find_last_of(util::filepath::kPathSepStr);
+    if (ext_pos != std::string::npos && (path_sep_pos == std::string::npos || ext_pos > path_sep_pos))
+    {
+        json_filename_ += "_dr." + util::get_json_format(json_options_.format);
+    }
+
+    json_options_.data_sub_dir = util::filepath::GetFilenameStem(json_filename_);
+    json_options_.root_dir     = util::filepath::GetBasedir(json_filename_);
+
+    util::platform::FileOpen(&json_file_handle_, json_filename_.c_str(), "w");
+
+    header_["D3D12SDKVersion"] = std::to_string(D3D12SDKVersion);
+    header_["gfxreconversion"] = GFXRECON_PROJECT_VERSION_STRING;
+    header_["captureFile"]     = capture_file_name;
+
+    auto& dr_options       = header_["dumpResourcesOptions"];
+    dr_options["submit"]   = std::to_string(track_dump_resources.target.dump_resources_target.submit_index);
+    dr_options["command"]  = std::to_string(track_dump_resources.target.dump_resources_target.command_index);
+    dr_options["drawcall"] = std::to_string(track_dump_resources.target.dump_resources_target.drawcall_index);
+
+    StartFile();
+
+    // Emit the header object as the first line of the file:
+    WriteBlockStart();
+    json_data_["header"] = header_;
+    WriteBlockEnd();
+
+    WriteBlockStart();
+
+    util::FieldToJson(drawcall_["block_index"], track_dump_resources.target.drawcall_block_index, json_options_);
+    util::FieldToJson(drawcall_["execute_block_index"], track_dump_resources.target.execute_block_index, json_options_);
+}
+
+void DefaultDx12DumpResourcesDelegate::DumpResource(CopyResourceDataPtr resource_data)
+{
+    WriteResource(resource_data);
+}
+
+void DefaultDx12DumpResourcesDelegate::EndDumpResources()
+{
+    json_data_[NameDrawCall()] = drawcall_;
+    WriteBlockEnd();
+    EndFile();
+}
+
+void DefaultDx12DumpResourcesDelegate::WriteResource(const CopyResourceDataPtr resource_data)
 {
     if (resource_data->source_resource_id == format::kNullHandleId)
     {
@@ -1419,10 +1444,10 @@ void Dx12DumpResources::WriteResource(const CopyResourceDataPtr resource_data)
     }
 }
 
-void Dx12DumpResources::WriteResource(nlohmann::ordered_json&   jdata,
-                                      const std::string&        prefix_file_name,
-                                      const std::string&        suffix,
-                                      const CopyResourceDataPtr resource_data)
+void DefaultDx12DumpResourcesDelegate::WriteResource(nlohmann::ordered_json&   jdata,
+                                                     const std::string&        prefix_file_name,
+                                                     const std::string&        suffix,
+                                                     const CopyResourceDataPtr resource_data)
 {
     if (resource_data->source_resource_id == format::kNullHandleId)
     {
@@ -1454,9 +1479,9 @@ void Dx12DumpResources::WriteResource(nlohmann::ordered_json&   jdata,
     }
 }
 
-void Dx12DumpResources::TestWriteReadableResource(const std::string&        prefix_file_name,
-                                                  const std::string&        suffix,
-                                                  const CopyResourceDataPtr resource_data)
+void DefaultDx12DumpResourcesDelegate::TestWriteReadableResource(const std::string&        prefix_file_name,
+                                                                 const std::string&        suffix,
+                                                                 const CopyResourceDataPtr resource_data)
 {
     if (resource_data->source_resource_id == format::kNullHandleId)
     {
@@ -1473,9 +1498,9 @@ void Dx12DumpResources::TestWriteReadableResource(const std::string&        pref
     }
 }
 
-void Dx12DumpResources::TestWriteFloatResource(const std::string&        prefix_file_name,
-                                               const std::string&        suffix,
-                                               const CopyResourceDataPtr resource_data)
+void DefaultDx12DumpResourcesDelegate::TestWriteFloatResource(const std::string&        prefix_file_name,
+                                                              const std::string&        suffix,
+                                                              const CopyResourceDataPtr resource_data)
 {
     std::string file_name = prefix_file_name + "_res_id_" + std::to_string(resource_data->source_resource_id);
 
@@ -1505,9 +1530,9 @@ void Dx12DumpResources::TestWriteFloatResource(const std::string&        prefix_
     }
 }
 
-void Dx12DumpResources::TestWriteImageResource(const std::string&        prefix_file_name,
-                                               const std::string&        suffix,
-                                               const CopyResourceDataPtr resource_data)
+void DefaultDx12DumpResourcesDelegate::TestWriteImageResource(const std::string&        prefix_file_name,
+                                                              const std::string&        suffix,
+                                                              const CopyResourceDataPtr resource_data)
 {
     std::string file_name = prefix_file_name + "_res_id_" + std::to_string(resource_data->source_resource_id);
 
@@ -1554,7 +1579,7 @@ void Dx12DumpResources::TestWriteImageResource(const std::string&        prefix_
     }
 }
 
-void Dx12DumpResources::StartFile()
+void DefaultDx12DumpResourcesDelegate::StartFile()
 {
     num_objects_ = 0;
     if (json_options_.format == util::JsonFormat::JSON)
@@ -1563,7 +1588,7 @@ void Dx12DumpResources::StartFile()
     }
 }
 
-void Dx12DumpResources::EndFile()
+void DefaultDx12DumpResourcesDelegate::EndFile()
 {
     if (json_file_handle_ != nullptr)
     {
@@ -1580,13 +1605,13 @@ void Dx12DumpResources::EndFile()
     }
 }
 
-void Dx12DumpResources::WriteBlockStart()
+void DefaultDx12DumpResourcesDelegate::WriteBlockStart()
 {
     json_data_.clear(); // < Dominates profiling (1/2).
     num_objects_++;
 }
 
-void Dx12DumpResources::WriteBlockEnd()
+void DefaultDx12DumpResourcesDelegate::WriteBlockEnd()
 {
     if (num_objects_ > 1)
     {
@@ -1599,10 +1624,10 @@ void Dx12DumpResources::WriteBlockEnd()
     util::platform::FileFlush(json_file_handle_); /// @todo Implement a FileFlushNoLock() for all platforms.
 }
 
-bool Dx12DumpResources::WriteBinaryFile(const std::string&          filename,
-                                        const std::vector<uint8_t>& data,
-                                        uint64_t                    offset,
-                                        uint64_t                    size)
+bool DefaultDx12DumpResourcesDelegate::WriteBinaryFile(const std::string&          filename,
+                                                       const std::vector<uint8_t>& data,
+                                                       uint64_t                    offset,
+                                                       uint64_t                    size)
 {
     FILE* file_output = nullptr;
     if (util::platform::FileOpen(&file_output, filename.c_str(), "wb") == 0)
