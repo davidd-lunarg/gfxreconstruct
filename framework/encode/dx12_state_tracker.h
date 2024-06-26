@@ -153,7 +153,8 @@ class Dx12StateTracker
 
     void TrackCommandListCreation(ID3D12CommandList_Wrapper* list_wrapper,
                                   bool                       created_closed,
-                                  D3D12_COMMAND_LIST_TYPE    command_list_type);
+                                  D3D12_COMMAND_LIST_TYPE    command_list_type,
+                                  ID3D12CommandAllocator*    pCommandAllocator);
 
     void TrackAcquireImage(UINT image_index, IDXGISwapChain_Wrapper* wrapper);
 
