@@ -8206,6 +8206,15 @@ void Dx12ReplayConsumer::Process_ID3D12Device_CreateCommandAllocator(
     Decoded_GUID                                riid,
     HandlePointerDecoder<void*>*                ppCommandAllocator)
 {
+    static bool logged_once = false;
+    if(!logged_once)
+    {
+        auto   init_accel_struct_end_time = util::datetime::GetTimestamp();
+        double diff_time_sec          = GetElapsedSeconds(init_accel_struct_start_time_, init_accel_struct_end_time);
+        GFXRECON_LOG_ERROR("Accel struct load duration: %f", diff_time_sec);
+        logged_once = true;
+    }
+
     auto replay_object = GetObjectInfo(object_id);
     if ((replay_object != nullptr) && (replay_object->object != nullptr))
     {

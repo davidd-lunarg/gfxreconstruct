@@ -54,7 +54,19 @@ GFXRECON_BEGIN_NAMESPACE(decode)
 
 class Dx12ReplayConsumerBase : public Dx12Consumer
 {
+    void InitialResourceExtraInfo(HandlePointerDecoder<void*>* resource_decoder,
+                                  D3D12_RESOURCE_STATES        initial_state,
+                                  bool                         is_reserved_resource);
+
   public:
+    uint64_t      init_state_start_time_        = 0;
+    uint64_t      init_resource_start_time_     = 0;
+    uint64_t      init_accel_struct_start_time_ = 0;
+    static double GetElapsedSeconds(uint64_t start_time, uint64_t end_time)
+    {
+        return util::datetime::ConvertTimestampToSeconds(util::datetime::DiffTimestamps(start_time, end_time));
+    }
+
     Dx12ReplayConsumerBase(std::shared_ptr<application::Application> application, const DxReplayOptions& options);
 
     virtual ~Dx12ReplayConsumerBase() override;

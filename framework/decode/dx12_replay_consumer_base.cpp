@@ -54,10 +54,19 @@ void SetExtraInfo(HandlePointerDecoder<T>* decoder, std::unique_ptr<U>&& extra_i
     object_info->extra_info = std::move(extra_info);
 }
 
-void InitialResourceExtraInfo(HandlePointerDecoder<void*>* resource_decoder,
-                              D3D12_RESOURCE_STATES        initial_state,
-                              bool                         is_reserved_resource)
+void Dx12ReplayConsumerBase::InitialResourceExtraInfo(HandlePointerDecoder<void*>* resource_decoder,
+                                                      D3D12_RESOURCE_STATES        initial_state,
+                                                      bool                         is_reserved_resource)
 {
+    static bool logged_once = false;
+    if (!logged_once)
+    {
+        auto   current_time  = util::datetime::GetTimestamp();
+        double diff_time_sec = GetElapsedSeconds(init_state_start_time_, current_time);
+        GFXRECON_LOG_ERROR("Resource create start time: %f", diff_time_sec);
+        logged_once = true;
+    }
+
     auto res        = static_cast<ID3D12Resource*>(*resource_decoder->GetHandlePointer());
     auto extra_info = std::make_unique<D3D12ResourceInfo>();
 
@@ -226,6 +235,7 @@ Dx12ReplayConsumerBase::~Dx12ReplayConsumerBase()
 
 void Dx12ReplayConsumerBase::ProcessStateBeginMarker(uint64_t frame_number)
 {
+    init_state_start_time_ = util::datetime::GetTimestamp();
     GFXRECON_UNREFERENCED_PARAMETER(frame_number);
     loading_trim_state_ = true;
 }
@@ -399,6 +409,10 @@ void Dx12ReplayConsumerBase::ProcessBeginResourceInitCommand(format::HandleId de
     GFXRECON_UNREFERENCED_PARAMETER(max_copy_size);
     GFXRECON_CHECK_CONVERSION_DATA_LOSS(size_t, max_resource_size);
 
+    init_resource_start_time_ = util::datetime::GetTimestamp();
+    double diff_time_sec      = GetElapsedSeconds(init_state_start_time_, init_resource_start_time_);
+    GFXRECON_LOG_ERROR("Resource load start time: %f", diff_time_sec);
+
     auto device         = MapObject<ID3D12Device>(device_id);
     resource_data_util_ = std::make_unique<graphics::Dx12ResourceDataUtil>(device, max_resource_size);
 }
@@ -407,6 +421,10 @@ void Dx12ReplayConsumerBase::ProcessEndResourceInitCommand(format::HandleId devi
 {
     ApplyBatchedResourceInitInfo(resource_init_infos_);
     resource_data_util_ = nullptr;
+
+    auto   init_resource_end_time = util::datetime::GetTimestamp();
+    double diff_time_sec          = GetElapsedSeconds(init_resource_start_time_, init_resource_end_time);
+    GFXRECON_LOG_ERROR("Resource load duration: %f", diff_time_sec);
 }
 
 void Dx12ReplayConsumerBase::ProcessInitSubresourceCommand(const format::InitSubresourceCommandHeader& command_header,
@@ -501,6 +519,10 @@ void Dx12ReplayConsumerBase::ProcessInitDx12AccelerationStructureCommand(
 {
     if (!accel_struct_builder_)
     {
+        init_accel_struct_start_time_ = util::datetime::GetTimestamp();
+        double diff_time_sec          = GetElapsedSeconds(init_state_start_time_, init_accel_struct_start_time_);
+        GFXRECON_LOG_ERROR("Accel struct load start time: %f", diff_time_sec);
+
         format::HandleId dest_resource_id = format::kNullHandleId;
         gpu_va_map_.Map(command_header.dest_acceleration_structure_data, &dest_resource_id);
         GFXRECON_ASSERT(dest_resource_id != format::kNullHandleId);
@@ -522,6 +544,15 @@ void Dx12ReplayConsumerBase::ProcessSetSwapchainImageStateQueueSubmit(ID3D12Comm
                                                                       uint32_t            current_buffer_index)
 {
     GFXRECON_ASSERT((current_buffer_index != std::numeric_limits<uint32_t>::max()));
+
+    static bool logged_once = false;
+    if (!logged_once)
+    {
+        auto   current_time  = util::datetime::GetTimestamp();
+        double diff_time_sec = GetElapsedSeconds(init_state_start_time_, current_time);
+        GFXRECON_LOG_ERROR("Swapchain load start time: %f", diff_time_sec);
+        logged_once = true;
+    }
 
     graphics::dx12::ID3D12DeviceComPtr device = nullptr;
     HRESULT                            ret    = command_queue->GetDevice(IID_PPV_ARGS(&device));
@@ -966,6 +997,15 @@ HRESULT Dx12ReplayConsumerBase::OverrideD3D12CreateDevice(HRESULT               
                                                           Decoded_GUID                 riid,
                                                           HandlePointerDecoder<void*>* device)
 {
+    static bool logged_once = false;
+    if (!logged_once)
+    {
+        auto   current_time  = util::datetime::GetTimestamp();
+        double diff_time_sec = GetElapsedSeconds(init_state_start_time_, current_time);
+        GFXRECON_LOG_ERROR("Device load start time: %f", diff_time_sec);
+        logged_once = true;
+    }
+
     GFXRECON_UNREFERENCED_PARAMETER(original_result);
 
     GFXRECON_ASSERT(device != nullptr);
@@ -1164,6 +1204,15 @@ HRESULT Dx12ReplayConsumerBase::OverrideCreateCommandQueue(DxObjectInfo* replay_
                                                            Decoded_GUID                                            riid,
                                                            HandlePointerDecoder<void*>* command_queue)
 {
+    static bool logged_once = false;
+    if (!logged_once)
+    {
+        auto   current_time  = util::datetime::GetTimestamp();
+        double diff_time_sec = GetElapsedSeconds(init_state_start_time_, current_time);
+        GFXRECON_LOG_ERROR("Command queue load start time: %f", diff_time_sec);
+        logged_once = true;
+    }
+
     GFXRECON_UNREFERENCED_PARAMETER(original_result);
 
     GFXRECON_ASSERT((replay_object_info != nullptr) && (replay_object_info->object != nullptr) && (desc != nullptr) &&
@@ -1900,6 +1949,15 @@ HRESULT Dx12ReplayConsumerBase::OverrideCreatePipelineLibrary(DxObjectInfo*     
                                                               Decoded_GUID                 riid,
                                                               HandlePointerDecoder<void*>* library)
 {
+    static bool logged_once = false;
+    if (!logged_once)
+    {
+        auto   current_time  = util::datetime::GetTimestamp();
+        double diff_time_sec = GetElapsedSeconds(init_state_start_time_, current_time);
+        GFXRECON_LOG_ERROR("Pipeline library load start time: %f", diff_time_sec);
+        logged_once = true;
+    }
+
     // The capture layer can skip this call and return an error code to make the application think that the library is
     // invalid and must be recreated.  Replay will also skip the call if it was intentionally failed by the capture
     // layer.
@@ -3862,6 +3920,15 @@ HRESULT Dx12ReplayConsumerBase::OverrideCreateRootSignature(DxObjectInfo*       
                                                             Decoded_GUID             riid,
                                                             HandlePointerDecoder<void*>* root_signature_decoder)
 {
+    static bool logged_once = false;
+    if (!logged_once)
+    {
+        auto   current_time  = util::datetime::GetTimestamp();
+        double diff_time_sec = GetElapsedSeconds(init_state_start_time_, current_time);
+        GFXRECON_LOG_ERROR("Root signature load start time: %f", diff_time_sec);
+        logged_once = true;
+    }
+
     HRESULT replay_result = E_UNEXPECTED;
     bool    is_complete   = false;
     if (options_.enable_dump_resources)
@@ -3907,6 +3974,15 @@ Dx12ReplayConsumerBase::OverrideCreateStateObject(DxObjectInfo* device5_object_i
                                                   Decoded_GUID                                           riid_decoder,
                                                   HandlePointerDecoder<void*>* state_object_decoder)
 {
+    static bool logged_once = false;
+    if (!logged_once)
+    {
+        auto   current_time  = util::datetime::GetTimestamp();
+        double diff_time_sec = GetElapsedSeconds(init_state_start_time_, current_time);
+        GFXRECON_LOG_ERROR("State object load start time: %f", diff_time_sec);
+        logged_once = true;
+    }
+
     auto device5 = static_cast<ID3D12Device5*>(device5_object_info->object);
 
     auto replay_result = device5->CreateStateObject(
