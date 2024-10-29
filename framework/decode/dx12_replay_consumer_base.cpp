@@ -2398,7 +2398,7 @@ UINT64 Dx12ReplayConsumerBase::OverrideGetCompletedValue(DxObjectInfo* replay_ob
                 {
                     // The value has not been signaled, so process the wait operation when the value is signaled.
                     auto& waiting_objects = fence_info->waiting_objects[original_result];
-                    waiting_objects.wait_events.push_back(event_handle);
+                    waiting_objects.wait_events.push_back(std::make_pair(kInternalEventId, event_handle));
                 }
             }
         }
@@ -2442,7 +2442,7 @@ HRESULT Dx12ReplayConsumerBase::OverrideSetEventOnCompletion(DxObjectInfo* repla
             {
                 // The value has not been signaled, so process the wait operation when the value is signaled.
                 auto& waiting_objects = fence_info->waiting_objects[value];
-                waiting_objects.wait_events.push_back(event_object);
+                waiting_objects.wait_events.push_back(std::make_pair(event_id, event_object));
             }
         }
     }
@@ -3112,7 +3112,10 @@ void Dx12ReplayConsumerBase::ProcessFenceSignal(DxObjectInfo* info, uint64_t val
                 fence_info->waiting_objects.erase(range_begin);
                 for (auto event_object : waiting_objects.wait_events)
                 {
-                    WaitForFenceEvent(info->capture_id, event_object);
+                    auto event_id = event_object.first;
+                    auto fence_id = info->capture_id;
+
+                    WaitForFenceEvent(info->capture_id, event_object.second);
                 }
 
                 for (auto queue_info : waiting_objects.wait_queues)

@@ -139,8 +139,8 @@ struct QueueSyncEventInfo
 
 struct FenceValueSyncInfo
 {
-    std::vector<HANDLE>        wait_events;
-    std::vector<DxObjectInfo*> wait_queues;
+    std::vector<std::pair<uint64_t, HANDLE>> wait_events;
+    std::vector<DxObjectInfo*>               wait_queues;
 };
 
 struct ResourceCopyInfo
