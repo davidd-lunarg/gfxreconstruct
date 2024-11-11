@@ -37,6 +37,8 @@ class Dx12ResourceValueTrackingConsumer : public Dx12ReplayConsumer
   public:
     Dx12ResourceValueTrackingConsumer(std::shared_ptr<application::Application> application,
                                       const DxReplayOptions&                    options,
+                                      const encode::DxgiDispatchTable&          dxgi_dispatch_table,
+                                      const encode::D3D12DispatchTable&         d3d12_dispatch_table,
                                       bool                                      experimental_tracker);
 
     virtual ~Dx12ResourceValueTrackingConsumer() override {}

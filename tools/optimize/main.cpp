@@ -203,7 +203,16 @@ void RunDx12Optimizations(const std::string&                        input_filena
                           gfxrecon::decode::Dx12OptimizationOptions dx12_options)
 {
 #if defined(D3D12_SUPPORT)
-    bool result = gfxrecon::Dx12OptimizeFile(input_filename, output_filename, dx12_options);
+    HMODULE                             dxgi_dll = nullptr;
+    gfxrecon::encode::DxgiDispatchTable dxgi_native_table;
+    GetDxgiDispatchTable(dxgi_dll, dxgi_native_table);
+
+    HMODULE                              d3d12_dll = nullptr;
+    gfxrecon::encode::D3D12DispatchTable d3d12_native_table;
+    GetD3d12DispatchTable(d3d12_dll, d3d12_native_table);
+
+    bool result = gfxrecon::Dx12OptimizeFile(
+        input_filename, output_filename, dxgi_native_table, d3d12_native_table, dx12_options);
     if (!result)
     {
         gfxrecon::util::Log::Release();

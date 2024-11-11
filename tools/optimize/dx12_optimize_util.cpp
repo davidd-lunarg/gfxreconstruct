@@ -59,6 +59,8 @@ void CreateResourceValueTrackingConsumer(
     decode::FileProcessor*                                      file_processor,
     std::unique_ptr<decode::Dx12ResourceValueTrackingConsumer>& dx12_replay_consumer,
     std::shared_ptr<application::Application>&                  application,
+    const encode::DxgiDispatchTable&                            dxgi_native_table,
+    const encode::D3D12DispatchTable&                           d3d12_native_table,
     const decode::Dx12OptimizationOptions&                      options)
 {
     std::string app_string = "GFXReconstruct Optimizer - analyzing file";
@@ -76,8 +78,12 @@ void CreateResourceValueTrackingConsumer(
     dx_replay_options.override_gpu_index = options.override_gpu_index;
 
     // Create the replay consumer.
-    dx12_replay_consumer = std::make_unique<decode::Dx12ResourceValueTrackingConsumer>(
-        application, dx_replay_options, options.optimize_resource_values_experimental);
+    dx12_replay_consumer =
+        std::make_unique<decode::Dx12ResourceValueTrackingConsumer>(application,
+                                                                    dx_replay_options,
+                                                                    dxgi_native_table,
+                                                                    d3d12_native_table,
+                                                                    options.optimize_resource_values_experimental);
     dx12_replay_consumer->SetFatalErrorHandler([](const char* message) { throw std::runtime_error(message); });
 
     if (options.optimize_resource_values_experimental)
@@ -179,10 +185,12 @@ bool GetPsoOptimizationInfo(const std::string&               input_filename,
     return pso_scan_result;
 }
 
-bool GetDxrOptimizationInfo(const std::string&               input_filename,
-                            Dx12OptimizationInfo&            info,
-                            bool                             first_pass,
-                            decode::Dx12OptimizationOptions& options)
+bool GetDxrOptimizationInfo(const std::string&                input_filename,
+                            Dx12OptimizationInfo&             info,
+                            bool                              first_pass,
+                            const encode::DxgiDispatchTable&  dxgi_native_table,
+                            const encode::D3D12DispatchTable& d3d12_native_table,
+                            decode::Dx12OptimizationOptions&  options)
 {
     // If it was already detected that a noop RV block should be injected, exit early.
     if (info.inject_noop_resource_value_optimization)
@@ -199,8 +207,12 @@ bool GetDxrOptimizationInfo(const std::string&               input_filename,
         decode::Dx12Decoder                                        dxr_pass_decoder;
         std::unique_ptr<decode::Dx12ResourceValueTrackingConsumer> resource_value_tracking_consumer = nullptr;
 
-        CreateResourceValueTrackingConsumer(
-            &dxr_pass_file_processor, resource_value_tracking_consumer, application, options);
+        CreateResourceValueTrackingConsumer(&dxr_pass_file_processor,
+                                            resource_value_tracking_consumer,
+                                            application,
+                                            dxgi_native_table,
+                                            d3d12_native_table,
+                                            options);
 
         // If this is a second pass, set unassociated resource values on Dx12ResourceValueTracker.
         if (first_pass)
@@ -281,9 +293,11 @@ bool GetDxrOptimizationInfo(const std::string&               input_filename,
     return dxr_scan_result;
 }
 
-bool GetDx12OptimizationInfo(const std::string&               input_filename,
-                             decode::Dx12OptimizationOptions& options,
-                             Dx12OptimizationInfo&            info)
+bool GetDx12OptimizationInfo(const std::string&                input_filename,
+                             const encode::DxgiDispatchTable&  dxgi_native_table,
+                             const encode::D3D12DispatchTable& d3d12_native_table,
+                             decode::Dx12OptimizationOptions&  options,
+                             Dx12OptimizationInfo&             info)
 {
     bool pso_scan_result = true;
     bool dxr_scan_result = true;
@@ -301,7 +315,8 @@ bool GetDx12OptimizationInfo(const std::string&               input_filename,
 
     if (options.optimize_resource_values)
     {
-        dxr_scan_result = GetDxrOptimizationInfo(input_filename, info, true, options);
+        dxr_scan_result =
+            GetDxrOptimizationInfo(input_filename, info, true, dxgi_native_table, d3d12_native_table, options);
 
         // If unassocaited resource values were found the resource value tracker must be run again.
         if (options.optimize_resource_values_experimental && (info.unassociated_resource_values.size() > 0))
@@ -309,7 +324,9 @@ bool GetDx12OptimizationInfo(const std::string&               input_filename,
             GFXRECON_WRITE_CONSOLE(
                 "The first pass of experimental DXR/EI optimization was unable to find all required optimization data. "
                 "A second pass will attempt to find this data using a brute-force search.");
-            dxr_scan_result = dxr_scan_result && GetDxrOptimizationInfo(input_filename, info, false, options);
+            dxr_scan_result =
+                dxr_scan_result &&
+                GetDxrOptimizationInfo(input_filename, info, false, dxgi_native_table, d3d12_native_table, options);
         }
     }
 
@@ -442,7 +459,11 @@ bool ApplyDx12OptimizationInfo(const std::string&                     input_file
     return result;
 }
 
-bool Dx12OptimizeFile(std::string input_filename, std::string output_filename, decode::Dx12OptimizationOptions& options)
+bool Dx12OptimizeFile(std::string                       input_filename,
+                      std::string                       output_filename,
+                      const encode::DxgiDispatchTable&  dxgi_native_table,
+                      const encode::D3D12DispatchTable& d3d12_native_table,
+                      decode::Dx12OptimizationOptions&  options)
 {
     // Return early if no DX12 optimizations were enabled.
     if (!options.remove_redundant_psos && !options.optimize_resource_values)
@@ -452,7 +473,7 @@ bool Dx12OptimizeFile(std::string input_filename, std::string output_filename, d
 
     // Run a scanning pass to collect the necessary optimization info.
     Dx12OptimizationInfo info;
-    bool                 scan_result = GetDx12OptimizationInfo(input_filename, options, info);
+    bool scan_result = GetDx12OptimizationInfo(input_filename, dxgi_native_table, d3d12_native_table, options, info);
     if (scan_result == false)
     {
         GFXRECON_WRITE_CONSOLE("File processing has encountered a fatal error and cannot continue.");

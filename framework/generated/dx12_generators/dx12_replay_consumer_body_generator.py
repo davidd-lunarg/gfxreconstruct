@@ -600,8 +600,16 @@ class Dx12ReplayConsumerBodyGenerator(
         if return_type != 'void':
             code += 'auto replay_result = '
 
-        if is_object and not is_override:
-            code += 'reinterpret_cast<{}*>(replay_object->object)->'.format(class_name)
+        if not is_override:
+            if is_object:
+                code += 'reinterpret_cast<{}*>(replay_object->object)->'.format(class_name)
+            else:
+                if name.startswith("D3D12"):
+                    code += 'd3d12_dispatch_table_.'
+                elif name.startswith("DXGI") or name.startswith("CreateDXGI"):
+                    code += 'dxgi_dispatch_table_.'
+                else:
+                    print("ERROR: Unknown function name {}.".format(name))
 
         first = True
         if is_override:

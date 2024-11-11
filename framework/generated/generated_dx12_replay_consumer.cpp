@@ -52,8 +52,8 @@ void Dx12ReplayConsumer::Process_CreateDXGIFactory(
     if(!ppFactory->IsNull()) ppFactory->SetHandleLength(1);
     auto out_p_ppFactory    = ppFactory->GetPointer();
     auto out_hp_ppFactory   = ppFactory->GetHandlePointer();
-    auto replay_result = CreateDXGIFactory(*riid.decoded_value,
-                                           out_hp_ppFactory);
+    auto replay_result = dxgi_dispatch_table_.CreateDXGIFactory(*riid.decoded_value,
+                                                                out_hp_ppFactory);
     if (SUCCEEDED(replay_result))
     {
         AddObject(out_p_ppFactory, out_hp_ppFactory, format::ApiCall_CreateDXGIFactory);
@@ -82,8 +82,8 @@ void Dx12ReplayConsumer::Process_CreateDXGIFactory1(
     if(!ppFactory->IsNull()) ppFactory->SetHandleLength(1);
     auto out_p_ppFactory    = ppFactory->GetPointer();
     auto out_hp_ppFactory   = ppFactory->GetHandlePointer();
-    auto replay_result = CreateDXGIFactory1(*riid.decoded_value,
-                                            out_hp_ppFactory);
+    auto replay_result = dxgi_dispatch_table_.CreateDXGIFactory1(*riid.decoded_value,
+                                                                 out_hp_ppFactory);
     if (SUCCEEDED(replay_result))
     {
         AddObject(out_p_ppFactory, out_hp_ppFactory, format::ApiCall_CreateDXGIFactory1);
@@ -152,9 +152,9 @@ void Dx12ReplayConsumer::Process_DXGIGetDebugInterface1(
     if(!pDebug->IsNull()) pDebug->SetHandleLength(1);
     auto out_p_pDebug    = pDebug->GetPointer();
     auto out_hp_pDebug   = pDebug->GetHandlePointer();
-    auto replay_result = DXGIGetDebugInterface1(Flags,
-                                                *riid.decoded_value,
-                                                out_hp_pDebug);
+    auto replay_result = dxgi_dispatch_table_.DXGIGetDebugInterface1(Flags,
+                                                                     *riid.decoded_value,
+                                                                     out_hp_pDebug);
     if (SUCCEEDED(replay_result))
     {
         AddObject(out_p_pDebug, out_hp_pDebug, format::ApiCall_DXGIGetDebugInterface1);
@@ -177,7 +177,7 @@ void Dx12ReplayConsumer::Process_DXGIDeclareAdapterRemovalSupport(
     CustomReplayPreCall<format::ApiCallId::ApiCall_DXGIDeclareAdapterRemovalSupport>::Dispatch(
         this,
         call_info);
-    auto replay_result = DXGIDeclareAdapterRemovalSupport();
+    auto replay_result = dxgi_dispatch_table_.DXGIDeclareAdapterRemovalSupport();
     CheckReplayResult("DXGIDeclareAdapterRemovalSupport", return_value, replay_result);
     CustomReplayPostCall<format::ApiCallId::ApiCall_DXGIDeclareAdapterRemovalSupport>::Dispatch(
         this,
@@ -207,10 +207,10 @@ void Dx12ReplayConsumer::Process_D3D12SerializeRootSignature(
     if(!ppErrorBlob->IsNull()) ppErrorBlob->SetHandleLength(1);
     auto out_p_ppErrorBlob    = ppErrorBlob->GetPointer();
     auto out_hp_ppErrorBlob   = ppErrorBlob->GetHandlePointer();
-    auto replay_result = D3D12SerializeRootSignature(pRootSignature->GetPointer(),
-                                                     Version,
-                                                     out_hp_ppBlob,
-                                                     out_hp_ppErrorBlob);
+    auto replay_result = d3d12_dispatch_table_.D3D12SerializeRootSignature(pRootSignature->GetPointer(),
+                                                                           Version,
+                                                                           out_hp_ppBlob,
+                                                                           out_hp_ppErrorBlob);
     if (SUCCEEDED(replay_result))
     {
         AddObject(out_p_ppBlob, out_hp_ppBlob, format::ApiCall_D3D12SerializeRootSignature);
@@ -246,10 +246,10 @@ void Dx12ReplayConsumer::Process_D3D12CreateRootSignatureDeserializer(
     if(!ppRootSignatureDeserializer->IsNull()) ppRootSignatureDeserializer->SetHandleLength(1);
     auto out_p_ppRootSignatureDeserializer    = ppRootSignatureDeserializer->GetPointer();
     auto out_hp_ppRootSignatureDeserializer   = ppRootSignatureDeserializer->GetHandlePointer();
-    auto replay_result = D3D12CreateRootSignatureDeserializer(pSrcData->GetPointer(),
-                                                              SrcDataSizeInBytes,
-                                                              *pRootSignatureDeserializerInterface.decoded_value,
-                                                              out_hp_ppRootSignatureDeserializer);
+    auto replay_result = d3d12_dispatch_table_.D3D12CreateRootSignatureDeserializer(pSrcData->GetPointer(),
+                                                                                    SrcDataSizeInBytes,
+                                                                                    *pRootSignatureDeserializerInterface.decoded_value,
+                                                                                    out_hp_ppRootSignatureDeserializer);
     if (SUCCEEDED(replay_result))
     {
         AddObject(out_p_ppRootSignatureDeserializer, out_hp_ppRootSignatureDeserializer, format::ApiCall_D3D12CreateRootSignatureDeserializer);
@@ -285,9 +285,9 @@ void Dx12ReplayConsumer::Process_D3D12SerializeVersionedRootSignature(
     if(!ppErrorBlob->IsNull()) ppErrorBlob->SetHandleLength(1);
     auto out_p_ppErrorBlob    = ppErrorBlob->GetPointer();
     auto out_hp_ppErrorBlob   = ppErrorBlob->GetHandlePointer();
-    auto replay_result = D3D12SerializeVersionedRootSignature(pRootSignature->GetPointer(),
-                                                              out_hp_ppBlob,
-                                                              out_hp_ppErrorBlob);
+    auto replay_result = d3d12_dispatch_table_.D3D12SerializeVersionedRootSignature(pRootSignature->GetPointer(),
+                                                                                    out_hp_ppBlob,
+                                                                                    out_hp_ppErrorBlob);
     if (SUCCEEDED(replay_result))
     {
         AddObject(out_p_ppBlob, out_hp_ppBlob, format::ApiCall_D3D12SerializeVersionedRootSignature);
@@ -322,10 +322,10 @@ void Dx12ReplayConsumer::Process_D3D12CreateVersionedRootSignatureDeserializer(
     if(!ppRootSignatureDeserializer->IsNull()) ppRootSignatureDeserializer->SetHandleLength(1);
     auto out_p_ppRootSignatureDeserializer    = ppRootSignatureDeserializer->GetPointer();
     auto out_hp_ppRootSignatureDeserializer   = ppRootSignatureDeserializer->GetHandlePointer();
-    auto replay_result = D3D12CreateVersionedRootSignatureDeserializer(pSrcData->GetPointer(),
-                                                                       SrcDataSizeInBytes,
-                                                                       *pRootSignatureDeserializerInterface.decoded_value,
-                                                                       out_hp_ppRootSignatureDeserializer);
+    auto replay_result = d3d12_dispatch_table_.D3D12CreateVersionedRootSignatureDeserializer(pSrcData->GetPointer(),
+                                                                                             SrcDataSizeInBytes,
+                                                                                             *pRootSignatureDeserializerInterface.decoded_value,
+                                                                                             out_hp_ppRootSignatureDeserializer);
     if (SUCCEEDED(replay_result))
     {
         AddObject(out_p_ppRootSignatureDeserializer, out_hp_ppRootSignatureDeserializer, format::ApiCall_D3D12CreateVersionedRootSignatureDeserializer);
@@ -399,8 +399,8 @@ void Dx12ReplayConsumer::Process_D3D12GetDebugInterface(
     if(!ppvDebug->IsNull()) ppvDebug->SetHandleLength(1);
     auto out_p_ppvDebug    = ppvDebug->GetPointer();
     auto out_hp_ppvDebug   = ppvDebug->GetHandlePointer();
-    auto replay_result = D3D12GetDebugInterface(*riid.decoded_value,
-                                                out_hp_ppvDebug);
+    auto replay_result = d3d12_dispatch_table_.D3D12GetDebugInterface(*riid.decoded_value,
+                                                                      out_hp_ppvDebug);
     if (SUCCEEDED(replay_result))
     {
         AddObject(out_p_ppvDebug, out_hp_ppvDebug, format::ApiCall_D3D12GetDebugInterface);
@@ -430,10 +430,10 @@ void Dx12ReplayConsumer::Process_D3D12EnableExperimentalFeatures(
         pIIDs,
         pConfigurationStructs,
         pConfigurationStructSizes);
-    auto replay_result = D3D12EnableExperimentalFeatures(NumFeatures,
-                                                         pIIDs->GetPointer(),
-                                                         pConfigurationStructs->GetPointer(),
-                                                         pConfigurationStructSizes->GetPointer());
+    auto replay_result = d3d12_dispatch_table_.D3D12EnableExperimentalFeatures(NumFeatures,
+                                                                               pIIDs->GetPointer(),
+                                                                               pConfigurationStructs->GetPointer(),
+                                                                               pConfigurationStructSizes->GetPointer());
     CheckReplayResult("D3D12EnableExperimentalFeatures", return_value, replay_result);
     CustomReplayPostCall<format::ApiCallId::ApiCall_D3D12EnableExperimentalFeatures>::Dispatch(
         this,
@@ -462,9 +462,9 @@ void Dx12ReplayConsumer::Process_D3D12GetInterface(
     if(!ppvDebug->IsNull()) ppvDebug->SetHandleLength(1);
     auto out_p_ppvDebug    = ppvDebug->GetPointer();
     auto out_hp_ppvDebug   = ppvDebug->GetHandlePointer();
-    auto replay_result = D3D12GetInterface(*rclsid.decoded_value,
-                                           *riid.decoded_value,
-                                           out_hp_ppvDebug);
+    auto replay_result = d3d12_dispatch_table_.D3D12GetInterface(*rclsid.decoded_value,
+                                                                 *riid.decoded_value,
+                                                                 out_hp_ppvDebug);
     if (SUCCEEDED(replay_result))
     {
         AddObject(out_p_ppvDebug, out_hp_ppvDebug, format::ApiCall_D3D12GetInterface);

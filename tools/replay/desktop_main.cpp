@@ -205,12 +205,18 @@ int main(int argc, const char** argv)
             api_replay_consumer.vk_replay_consumer = &vulkan_replay_consumer;
 
 #if defined(D3D12_SUPPORT)
-            gfxrecon::decode::DxReplayOptions    dx_replay_options = GetDxReplayOptions(arg_parser, filename);
-            gfxrecon::decode::Dx12ReplayConsumer dx12_replay_consumer(application, dx_replay_options);
-            gfxrecon::decode::Dx12Decoder        dx12_decoder;
+            HMODULE                             dxgi_dll = nullptr;
+            gfxrecon::encode::DxgiDispatchTable dxgi_native_table;
+            GetDxgiDispatchTable(dxgi_dll, dxgi_native_table);
 
-            api_replay_options.dx12_replay_options   = &dx_replay_options;
-            api_replay_consumer.dx12_replay_consumer = &dx12_replay_consumer;
+            HMODULE                              d3d12_dll = nullptr;
+            gfxrecon::encode::D3D12DispatchTable d3d12_native_table;
+            GetD3d12DispatchTable(d3d12_dll, d3d12_native_table);
+
+            gfxrecon::decode::DxReplayOptions    dx_replay_options = GetDxReplayOptions(arg_parser, filename);
+            gfxrecon::decode::Dx12ReplayConsumer dx12_replay_consumer(
+                application, dx_replay_options, dxgi_native_table, d3d12_native_table);
+            gfxrecon::decode::Dx12Decoder dx12_decoder;
 #endif // D3D12_SUPPORT
 
 #ifdef GFXRECON_AGS_SUPPORT

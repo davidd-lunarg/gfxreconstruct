@@ -74,16 +74,19 @@ void InitialResourceExtraInfo(HandlePointerDecoder<void*>* resource_decoder,
 }
 
 Dx12ReplayConsumerBase::Dx12ReplayConsumerBase(std::shared_ptr<application::Application> application,
-                                               const DxReplayOptions&                    options) :
+                                               const DxReplayOptions&                    options,
+                                               const encode::DxgiDispatchTable&          dxgi_dispatch_table,
+                                               const encode::D3D12DispatchTable&         d3d12_dispatch_table) :
     application_(application), options_(options), current_message_length_(0), info_queue_(nullptr),
     resource_data_util_(nullptr), frame_buffer_renderer_(nullptr), debug_layer_enabled_(false),
     set_auto_breadcrumbs_enablement_(false), set_breadcrumb_context_enablement_(false),
-    set_page_fault_enablement_(false), loading_trim_state_(false), fps_info_(nullptr), frame_end_marker_count_(0)
+    set_page_fault_enablement_(false), loading_trim_state_(false), fps_info_(nullptr), frame_end_marker_count_(0),
+    dxgi_dispatch_table_(dxgi_dispatch_table), d3d12_dispatch_table_(d3d12_dispatch_table)
 {
     if (options_.enable_validation_layer)
     {
         gfxrecon::graphics::dx12::ID3D12DebugComPtr dx12_debug = nullptr;
-        if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&dx12_debug))))
+        if (SUCCEEDED(d3d12_dispatch_table_.D3D12GetDebugInterface(IID_PPV_ARGS(&dx12_debug))))
         {
             EnableDebugLayer(dx12_debug);
         }
@@ -98,7 +101,7 @@ Dx12ReplayConsumerBase::Dx12ReplayConsumerBase(std::shared_ptr<application::Appl
     {
         gfxrecon::graphics::dx12::ID3D12DeviceRemovedExtendedDataSettings1ComPtr dred_settings = nullptr;
 
-        if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&dred_settings))))
+        if (SUCCEEDED(d3d12_dispatch_table_.D3D12GetDebugInterface(IID_PPV_ARGS(&dred_settings))))
         {
             SetAutoBreadcrumbsEnablement(dred_settings, D3D12_DRED_ENABLEMENT_FORCED_ON);
             SetBreadcrumbContextEnablement(dred_settings, D3D12_DRED_ENABLEMENT_FORCED_ON);
@@ -171,7 +174,7 @@ void Dx12ReplayConsumerBase::EnableDebugLayer(ID3D12Debug* dx12_debug)
     {
         debug_layer_enabled_ = true;
         dx12_debug->EnableDebugLayer();
-        if (FAILED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&info_queue_))))
+        if (FAILED(dxgi_dispatch_table_.DXGIGetDebugInterface1(0, IID_PPV_ARGS(&info_queue_))))
         {
             GFXRECON_LOG_WARNING(
                 "Failed to retrieve IDXGIInfoQueue for replay option '--validate' or trimming EnableDebugLayer.");
@@ -1101,7 +1104,8 @@ HRESULT Dx12ReplayConsumerBase::OverrideCreateDXGIFactory2(HRESULT              
     {
         flags |= DXGI_CREATE_FACTORY_DEBUG;
     }
-    auto replay_result = CreateDXGIFactory2(flags, *riid.decoded_value, factory->GetHandlePointer());
+    auto replay_result =
+        dxgi_dispatch_table_.CreateDXGIFactory2(flags, *riid.decoded_value, factory->GetHandlePointer());
 
     return replay_result;
 }
@@ -1159,15 +1163,15 @@ HRESULT Dx12ReplayConsumerBase::OverrideD3D12CreateDevice(HRESULT               
 
             options_.ags_inject_markers = false;
 
-            replay_result =
-                D3D12CreateDevice(adapter, minimum_feature_level, *riid.decoded_value, device->GetHandlePointer());
+            replay_result = d3d12_dispatch_table_.D3D12CreateDevice(
+                adapter, minimum_feature_level, *riid.decoded_value, device->GetHandlePointer());
         }
     }
     else
 #endif
     {
-        replay_result =
-            D3D12CreateDevice(adapter, minimum_feature_level, *riid.decoded_value, device->GetHandlePointer());
+        replay_result = d3d12_dispatch_table_.D3D12CreateDevice(
+            adapter, minimum_feature_level, *riid.decoded_value, device->GetHandlePointer());
     }
 
     if (SUCCEEDED(replay_result) && !device->IsNull())
@@ -1320,7 +1324,7 @@ void Dx12ReplayConsumerBase::DetectAdapters()
 {
     IDXGIFactory1* factory1 = nullptr;
 
-    HRESULT result = CreateDXGIFactory1(IID_IDXGIFactory1, reinterpret_cast<void**>(&factory1));
+    HRESULT result = dxgi_dispatch_table_.CreateDXGIFactory1(IID_IDXGIFactory1, reinterpret_cast<void**>(&factory1));
 
     if (SUCCEEDED(result))
     {

@@ -46,6 +46,9 @@
 #include "graphics/dx12_ags_marker_injector.h"
 #endif
 
+#include "encode/d3d12_dispatch_table.h"
+#include "encode/dxgi_dispatch_table.h"
+
 #include <functional>
 #include <unordered_map>
 #include <unordered_set>
@@ -59,7 +62,10 @@ GFXRECON_BEGIN_NAMESPACE(decode)
 class Dx12ReplayConsumerBase : public Dx12Consumer
 {
   public:
-    Dx12ReplayConsumerBase(std::shared_ptr<application::Application> application, const DxReplayOptions& options);
+    Dx12ReplayConsumerBase(std::shared_ptr<application::Application> application,
+                           const DxReplayOptions&                    options,
+                           const encode::DxgiDispatchTable&          dxgi_dispatch_table,
+                           const encode::D3D12DispatchTable&         d3d12_dispatch_table);
 
     virtual ~Dx12ReplayConsumerBase() override;
 
@@ -1251,6 +1257,10 @@ class Dx12ReplayConsumerBase : public Dx12Consumer
 #ifdef GFXRECON_AGS_SUPPORT
     graphics::Dx12AgsMarkerInjector* ags_marker_injector_{ nullptr };
 #endif
+
+  protected:
+    encode::D3D12DispatchTable d3d12_dispatch_table_;
+    encode::DxgiDispatchTable  dxgi_dispatch_table_;
 };
 
 GFXRECON_END_NAMESPACE(decode)

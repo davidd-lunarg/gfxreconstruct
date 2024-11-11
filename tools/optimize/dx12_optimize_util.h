@@ -23,6 +23,8 @@
 #ifndef GFXRECON_DX12_OPTIMIZE_UTIL_H
 #define GFXRECON_DX12_OPTIMIZE_UTIL_H
 
+#include "encode/d3d12_dispatch_table.h"
+#include "encode/dxgi_dispatch_table.h"
 #include "decode/dx12_object_scanning_consumer.h"
 #include "decode/dx12_optimize_options.h"
 #include "generated/generated_dx12_decoder.h"
@@ -30,9 +32,11 @@
 
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
 
-bool Dx12OptimizeFile(std::string                      input_filename,
-                      std::string                      output_filename,
-                      decode::Dx12OptimizationOptions& options);
+bool Dx12OptimizeFile(std::string                       input_filename,
+                      std::string                       output_filename,
+                      const encode::DxgiDispatchTable&  dxgi_native_table,
+                      const encode::D3D12DispatchTable& d3d12_native_table,
+                      decode::Dx12OptimizationOptions&  options);
 
 GFXRECON_END_NAMESPACE(gfxrecon)
 

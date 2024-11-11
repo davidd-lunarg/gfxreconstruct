@@ -27,6 +27,8 @@
 #include "decode/dx_replay_options.h"
 #include <initguid.h>
 #include "generated/generated_dx12_decoder.h"
+#include "encode/d3d12_dispatch_table.h"
+#include "encode/dxgi_dispatch_table.h"
 #endif
 #include "decode/file_processor.h"
 #include "decode/vulkan_default_allocator.h"
@@ -1301,5 +1303,104 @@ static bool CheckOptionPrintUsage(const char* exe_name, const gfxrecon::util::Ar
 
     return false;
 }
+
+#if defined(D3D12_SUPPORT)
+static bool GetD3d12DispatchTable(HMODULE& d3d12_dll, gfxrecon::encode::D3D12DispatchTable& d3d12_table)
+{
+    std::string library_base_path = "";
+
+    bool success = gfxrecon::util::filepath::GetWindowsSystemLibrariesPath(library_base_path);
+
+    if (success == true)
+    {
+        std::string library_path = library_base_path + "\\d3d12.dll";
+
+        d3d12_dll = LoadLibraryA(library_path.c_str());
+
+        if (d3d12_dll != nullptr)
+        {
+            d3d12_table.D3D12CreateDevice =
+                reinterpret_cast<PFN_D3D12_CREATE_DEVICE>(GetProcAddress(d3d12_dll, "D3D12CreateDevice"));
+
+            d3d12_table.D3D12CreateRootSignatureDeserializer =
+                reinterpret_cast<PFN_D3D12_CREATE_ROOT_SIGNATURE_DESERIALIZER>(
+                    GetProcAddress(d3d12_dll, "D3D12CreateRootSignatureDeserializer"));
+
+            d3d12_table.D3D12CreateVersionedRootSignatureDeserializer =
+                reinterpret_cast<PFN_D3D12_CREATE_VERSIONED_ROOT_SIGNATURE_DESERIALIZER>(
+                    GetProcAddress(d3d12_dll, "D3D12CreateVersionedRootSignatureDeserializer"));
+
+            d3d12_table.D3D12GetDebugInterface =
+                reinterpret_cast<PFN_D3D12_GET_DEBUG_INTERFACE>(GetProcAddress(d3d12_dll, "D3D12GetDebugInterface"));
+
+            d3d12_table.D3D12SerializeRootSignature = reinterpret_cast<PFN_D3D12_SERIALIZE_ROOT_SIGNATURE>(
+                GetProcAddress(d3d12_dll, "D3D12SerializeRootSignature"));
+
+            d3d12_table.D3D12SerializeVersionedRootSignature =
+                reinterpret_cast<PFN_D3D12_SERIALIZE_VERSIONED_ROOT_SIGNATURE>(
+                    GetProcAddress(d3d12_dll, "D3D12SerializeVersionedRootSignature"));
+
+            d3d12_table.D3D12GetInterface =
+                reinterpret_cast<PFN_D3D12_GET_INTERFACE>(GetProcAddress(d3d12_dll, "D3D12GetInterface"));
+
+            d3d12_table.D3D12EnableExperimentalFeatures = reinterpret_cast<decltype(D3D12EnableExperimentalFeatures)*>(
+                GetProcAddress(d3d12_dll, "D3D12EnableExperimentalFeatures"));
+
+            success = true;
+        }
+    }
+
+    return success;
+}
+
+typedef HRESULT(WINAPI* PFN_CREATEDXGIFACTORY)(const IID& riid, void** ppFactory);
+
+typedef HRESULT(WINAPI* PFN_CREATEDXGIFACTORY1)(const IID& riid, void** ppFactory);
+
+typedef HRESULT(WINAPI* PFN_CREATEDXGIFACTORY2)(UINT Flags, const IID& riid, void** ppFactory);
+
+typedef HRESULT(WINAPI* PFN_DXGIDECLAREADAPTERREMOVALSUPPORT)();
+
+typedef HRESULT(WINAPI* PFN_DXGIGETDEBUGINTERFACE1)(UINT Flags, const IID& riid, void** pDebug);
+
+typedef HRESULT(WINAPI* PFN_DXGID3D10CREATEDEVICE)(
+    HMODULE d3d10core, IDXGIFactory* factory, IDXGIAdapter* adapter, UINT flags, DWORD arg5, void** device);
+
+static bool GetDxgiDispatchTable(HMODULE& dxgi_dll, gfxrecon::encode::DxgiDispatchTable& dxgi_table)
+{
+    std::string library_base_path = "";
+
+    bool success = gfxrecon::util::filepath::GetWindowsSystemLibrariesPath(library_base_path);
+
+    if (success == true)
+    {
+        std::string library_path = library_base_path + "\\dxgi.dll";
+
+        dxgi_dll = LoadLibraryA(library_path.c_str());
+
+        if (dxgi_dll != nullptr)
+        {
+            dxgi_table.CreateDXGIFactory =
+                reinterpret_cast<PFN_CREATEDXGIFACTORY>(GetProcAddress(dxgi_dll, "CreateDXGIFactory"));
+
+            dxgi_table.CreateDXGIFactory1 =
+                reinterpret_cast<PFN_CREATEDXGIFACTORY1>(GetProcAddress(dxgi_dll, "CreateDXGIFactory1"));
+
+            dxgi_table.CreateDXGIFactory2 =
+                reinterpret_cast<PFN_CREATEDXGIFACTORY2>(GetProcAddress(dxgi_dll, "CreateDXGIFactory2"));
+
+            dxgi_table.DXGIDeclareAdapterRemovalSupport = reinterpret_cast<PFN_DXGIDECLAREADAPTERREMOVALSUPPORT>(
+                GetProcAddress(dxgi_dll, "DXGIDeclareAdapterRemovalSupport"));
+
+            dxgi_table.DXGIGetDebugInterface1 =
+                reinterpret_cast<PFN_DXGIGETDEBUGINTERFACE1>(GetProcAddress(dxgi_dll, "DXGIGetDebugInterface1"));
+
+            success = true;
+        }
+    }
+
+    return success;
+}
+#endif // defined(D3D12_SUPPORT)
 
 #endif // GFXRECON_PLATFORM_SETTINGS_H
