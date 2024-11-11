@@ -114,6 +114,10 @@ class Dx12ReplayConsumerBodyGenerator(
             '#include "generated/generated_dx12_struct_object_mappers.h"',
             file=self.outFile
         )
+        write(
+            '#include "encode/api_capture_manager.h"',
+            file=self.outFile
+        )
         self.newline()
         write(
             '#ifdef GFXRECON_AGS_SUPPORT',
@@ -203,6 +207,7 @@ class Dx12ReplayConsumerBodyGenerator(
         """Method override."""
         code = ''
         arg_list = []
+        push_object_ids = []
         add_object_list = []
         set_resource_dimension_layout_list = []
         struct_add_object_list = []
@@ -268,6 +273,8 @@ class Dx12ReplayConsumerBodyGenerator(
                         'AddStructObjects({0}, {0}->GetPointer(), GetObjectInfoTable());\n'
                         .format(value.name)
                     )
+                    push_object_ids.append('PushStructHandleIds({0}, {0}->GetPointer(), GetObjectInfoTable());\n'
+                        .format(value.name))
                 elif is_variable_length_array:
                     # This is an optional output array with an array size parameter that is
                     # also a pointer. This array parameter may adhere to a pattern that, when
@@ -356,12 +363,14 @@ class Dx12ReplayConsumerBodyGenerator(
                     if is_override:
                         arg_list.append(value.name)
                         if value.array_length:
+                            push_object_ids.append('// TODOTRIM: PushHandleIds();\n')
                             add_object_list.append(
                                  'AddObjects({0}->GetPointer(), {0}->GetLength(), {0}->GetHandlePointer(), {1}'\
                                  'std::move(object_info_{0}), format::ApiCall_{2});\n'\
                                  .format(value.name, handles, name)
                             )
                         else:
+                            push_object_ids.append('PushHandleId({0}->GetPointer());\n'.format(value.name))
                             add_object_list.append(
                                 'AddObject({0}->GetPointer(), {0}->GetHandlePointer(), '\
                                 'std::move(object_info_{0}), format::ApiCall_{1});\n'\
@@ -370,11 +379,13 @@ class Dx12ReplayConsumerBodyGenerator(
                     else:
                         arg_list.append('out_hp_{}'.format(value.name))
                         if value.array_length:
+                            push_object_ids.append('// TODOTRIM: PushHandleIds();\n')
                             add_object_list.append(
                                 'AddObjects(out_p_{0}, {0}->GetLength(), out_hp_{0}, {1}, format::ApiCall_{2});\n'
                                 .format(value.name, handles, name)
                             )
                         else:
+                            push_object_ids.append('PushHandleId(out_p_{0});\n'.format(value.name))
                             add_object_list.append(
                                 'AddObject(out_p_{0}, out_hp_{0}, format::ApiCall_{1});\n'.format(
                                     value.name, name
@@ -595,6 +606,11 @@ class Dx12ReplayConsumerBodyGenerator(
         for e in pre_call_expr_list:
             code += e
 
+        if len(push_object_ids):
+            scope_indent = '    '
+            for e in reversed(push_object_ids):
+                code += scope_indent + e
+
         indent_length = len(code)
         code += '    '
         if return_type != 'void':
@@ -723,6 +739,9 @@ class Dx12ReplayConsumerBodyGenerator(
 
         code = code[:-1]
         code +=");\n"
+
+        if len(push_object_ids):
+            code += ('\n' + "    " + 'ClearHandleIds();\n')
 
         for e in post_extenal_object_list:
             code += '    {}'.format(e)

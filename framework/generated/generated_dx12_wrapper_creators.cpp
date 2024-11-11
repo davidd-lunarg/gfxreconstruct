@@ -28,6 +28,7 @@
 #include "generated/generated_dx12_wrapper_creators.h"
 
 #include "encode/dx12_object_wrapper_util.h"
+#include "encode/api_capture_manager.h"
 #include "generated/generated_dx12_wrappers.h"
 #include "util/defines.h"
 #include "util/logging.h"
@@ -724,8 +725,20 @@ void WrapID3D12Resource(REFIID riid, void** object, DxWrapperResources* resource
     auto wrap_object = reinterpret_cast<IUnknown**>(object);
 
     auto existing = ID3D12Resource_Wrapper::GetExistingWrapper(*wrap_object);
+
     if (existing != nullptr)
     {
+        // D3D12CaptureManager already wrapped swapchain image resources but
+        // the call was internal so no valid HandleId was assigned. Now replay
+        // is calling GetBuffer and has provided the expected HandleId for the object.
+        // TODOTRIM: Clean this up, make it more generic.
+        if(!gfxrecon::encode::ApiCaptureManager::handle_id_stack_.empty())
+        {
+            auto new_id = gfxrecon::encode::ApiCaptureManager::handle_id_stack_.back();
+            gfxrecon::encode::ApiCaptureManager::handle_id_stack_.pop_back();
+            existing->SetCaptureId(new_id);
+        }
+
         // Transfer reference count from the object to the wrapper so that the wrapper holds a single reference to the object.
         existing->AddRef();
         (*wrap_object)->Release();

@@ -56,6 +56,8 @@ class D3D12CaptureManager : public ApiCaptureManager
     // already zero.
     static void DestroyInstance();
 
+    void ChangeCaptureId(IUnknown* wrapped_object, gfxrecon::format::HandleId id);
+
     //----------------------------------------------------------------------------
     /// \brief Initializes the DXGI dispatch table.
     ///
@@ -931,8 +933,10 @@ class D3D12CaptureManager : public ApiCaptureManager
     EnableDREDInfo track_enable_dred_info_; ///< Track EnableDREDInfo since ID3D12DeviceRemovedExtendedDataSettings1
                                             ///< could be released very soon.
 
+  public:
     std::unique_ptr<Dx12StateTracker> state_tracker_;
 
+  private:
     std::unique_ptr<graphics::DX12ImageRenderer> frame_buffer_renderer_;
 
     graphics::dx12::ActiveAdapterMap adapters_;

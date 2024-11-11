@@ -76,12 +76,15 @@ void InitialResourceExtraInfo(HandlePointerDecoder<void*>* resource_decoder,
 Dx12ReplayConsumerBase::Dx12ReplayConsumerBase(std::shared_ptr<application::Application> application,
                                                const DxReplayOptions&                    options,
                                                const encode::DxgiDispatchTable&          dxgi_dispatch_table,
-                                               const encode::D3D12DispatchTable&         d3d12_dispatch_table) :
+                                               const encode::D3D12DispatchTable&         d3d12_dispatch_table,
+                                               gfxrecon::encode::D3D12CaptureManager*    capture_manager) :
     application_(application), options_(options), current_message_length_(0), info_queue_(nullptr),
     resource_data_util_(nullptr), frame_buffer_renderer_(nullptr), debug_layer_enabled_(false),
     set_auto_breadcrumbs_enablement_(false), set_breadcrumb_context_enablement_(false),
     set_page_fault_enablement_(false), loading_trim_state_(false), fps_info_(nullptr), frame_end_marker_count_(0),
-    dxgi_dispatch_table_(dxgi_dispatch_table), d3d12_dispatch_table_(d3d12_dispatch_table)
+    dxgi_dispatch_table_(dxgi_dispatch_table), d3d12_dispatch_table_(d3d12_dispatch_table),
+    g_state_tracker(capture_manager ? capture_manager->state_tracker_.get() : nullptr),
+    g_capture_manager(capture_manager)
 {
     if (options_.enable_validation_layer)
     {
@@ -1453,6 +1456,7 @@ Dx12ReplayConsumerBase::OverrideCreateDescriptorHeap(DxObjectInfo* replay_object
     ID3D12DescriptorHeap* dummy_heap   = nullptr;
     if (options_.create_dummy_allocations)
     {
+        PushHandleId(&format::kNullHandleId);
         dummy_result = replay_object->CreateDescriptorHeap(desc_pointer, IID_PPV_ARGS(&dummy_heap));
 
         if (!SUCCEEDED(dummy_result))
@@ -1519,6 +1523,7 @@ HRESULT Dx12ReplayConsumerBase::OverrideCreateCommittedResource(
     ID3D12Resource* dummy_resource = nullptr;
     if (options_.create_dummy_allocations)
     {
+        PushHandleId(&format::kNullHandleId);
         dummy_result = replay_object->CreateCommittedResource(heap_properties_pointer,
                                                               HeapFlags,
                                                               desc_pointer,
@@ -1604,6 +1609,7 @@ HRESULT Dx12ReplayConsumerBase::OverrideCreateHeap(DxObjectInfo*                
     ID3D12Heap* dummy_heap   = nullptr;
     if (options_.create_dummy_allocations)
     {
+        PushHandleId(&format::kNullHandleId);
         dummy_result = replay_object->CreateHeap(heap_desc, IID_PPV_ARGS(&dummy_heap));
 
         if (!SUCCEEDED(dummy_result))
@@ -1647,6 +1653,7 @@ HRESULT Dx12ReplayConsumerBase::OverrideCreateHeap1(DxObjectInfo*               
     ID3D12Heap1* dummy_heap   = nullptr;
     if (options_.create_dummy_allocations)
     {
+        PushHandleId(&format::kNullHandleId);
         dummy_result = replay_object->CreateHeap1(heap_desc, in_pProtectedSession, IID_PPV_ARGS(&dummy_heap));
 
         if (!SUCCEEDED(dummy_result))
@@ -1703,6 +1710,7 @@ HRESULT Dx12ReplayConsumerBase::OverrideCreateCommittedResource1(
     ID3D12Resource* dummy_resource = nullptr;
     if (options_.create_dummy_allocations)
     {
+        PushHandleId(&format::kNullHandleId);
         dummy_result = replay_object->CreateCommittedResource1(heap_properties_pointer,
                                                                HeapFlags,
                                                                desc_pointer,
@@ -1808,6 +1816,7 @@ HRESULT Dx12ReplayConsumerBase::OverrideCreateCommittedResource2(
     ID3D12Resource* dummy_resource = nullptr;
     if (options_.create_dummy_allocations)
     {
+        PushHandleId(&format::kNullHandleId);
         dummy_result = replay_object->CreateCommittedResource2(heap_properties_pointer,
                                                                HeapFlags,
                                                                desc_pointer,
@@ -1919,6 +1928,7 @@ HRESULT Dx12ReplayConsumerBase::OverrideCreateCommittedResource3(
     ID3D12Resource* dummy_resource = nullptr;
     if (options_.create_dummy_allocations)
     {
+        PushHandleId(&format::kNullHandleId);
         dummy_result = replay_object->CreateCommittedResource3(heap_properties_pointer,
                                                                HeapFlags,
                                                                desc_pointer,

@@ -1,5 +1,5 @@
 ###############################################################################
-# Copyright (c) 2018-2024 LunarG, Inc.
+# Copyright (c) 2018-2025 LunarG, Inc.
 # Copyright (c) 2020-2022 Advanced Micro Devices, Inc.
 # All rights reserved
 #
@@ -48,6 +48,9 @@ target_link_libraries(gfxrecon-trim
                           gfxrecon_application
                           gfxrecon_decode
                           gfxrecon_encode
+                          gfxrecon_graphics
+                          gfxrecon_format
+                          gfxrecon_util
                           platform_specific
                           $<$<BOOL:${D3D12_SUPPORT}>:d3d12.lib>
                           $<$<BOOL:${D3D12_SUPPORT}>:dxgi.lib>

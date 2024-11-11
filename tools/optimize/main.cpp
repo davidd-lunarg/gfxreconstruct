@@ -58,6 +58,11 @@ extern "C"
 {
     __declspec(dllexport) extern const char* D3D12SDKPath = u8".\\D3D12\\";
 }
+
+EXTERN_C void PushHandleId(const gfxrecon::format::HandleId* id) {}
+EXTERN_C void ClearHandleIds() {}
+EXTERN_C void SetHandleIdOffset(gfxrecon::format::HandleId offset) {}
+EXTERN_C void ChangeCaptureId(IUnknown* wrapped_object, gfxrecon::format::HandleId id) {}
 #endif
 
 const char kOptions[]   = "-h|--help,--version,--no-debug-popup,--d3d12-pso-removal,--dxr,--dxr-experimental";

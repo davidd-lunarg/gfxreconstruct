@@ -33,6 +33,8 @@
 #include <map>
 #include <unordered_map>
 
+EXTERN_C void ChangeCaptureId(IUnknown* wrapped_object, gfxrecon::format::HandleId id);
+
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
 GFXRECON_BEGIN_NAMESPACE(decode)
 
@@ -128,6 +130,8 @@ static void AddObject(const format::HandleId* p_id,
             initial_info.capture_id = id;
             initial_info.object     = reinterpret_cast<IUnknown*>(*pp_object);
             object_info_table->emplace(id, std::move(initial_info));
+
+            ChangeCaptureId(initial_info.object, id);
         }
         else
         {

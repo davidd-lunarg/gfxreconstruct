@@ -62,6 +62,9 @@ class Dx12StateTableBase
     template <typename T>
     bool InsertEntry(format::HandleId id, T* wrapper, std::map<format::HandleId, T*>& map)
     {
+        if (id >= (uint64_t(0xff) << 56))
+            return true;
+
         const auto& inserted = map.insert(std::make_pair(id, wrapper));
         return inserted.second;
     }

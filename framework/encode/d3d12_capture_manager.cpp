@@ -84,6 +84,18 @@ void D3D12CaptureManager::DestroyInstance()
     singleton_->common_manager_->DestroyInstance(singleton_);
 }
 
+void D3D12CaptureManager::ChangeCaptureId(IUnknown* wrapped_object, gfxrecon::format::HandleId new_id)
+{
+    // Make sure handle ids are preserved
+    auto wrapper = reinterpret_cast<encode::IUnknown_Wrapper*>(wrapped_object);
+    if (new_id != wrapper->GetCaptureId())
+    {
+        // This is used to validate that replay handle IDs have been successfully applied to recaptured handle IDs
+        // during trim.
+        GFXRECON_LOG_ERROR("Mismatch ID, current: 0x%llx, desired: 0x%llx", wrapper->GetCaptureId(), new_id);
+    }
+}
+
 void D3D12CaptureManager::EndCreateApiCallCapture(HRESULT result, REFIID riid, void** handle)
 {
     if (IsCaptureModeTrack() && SUCCEEDED(result))

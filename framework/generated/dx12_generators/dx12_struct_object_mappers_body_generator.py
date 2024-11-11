@@ -77,6 +77,10 @@ class Dx12StructObjectMappersBodyGenerator(Dx12BaseGenerator):
             '#include "generated/generated_dx12_struct_decoders.h"',
             file=self.outFile
         )
+        write(
+            '#include "encode/api_capture_manager.h"',
+            file=self.outFile
+        )
         self.newline()
         write('#include <algorithm>', file=self.outFile)
         write('#include <cassert>', file=self.outFile)
@@ -236,6 +240,29 @@ class Dx12StructObjectMappersBodyGenerator(Dx12BaseGenerator):
 
             expr += '}\n'
             write(expr, file=self.outFile)
+
+            expr = 'void PushStructHandleIds(const StructPointerDecoder<Decoded_{0}>* capture_value, const {0}* new_value, Dx12ObjectInfoTable& object_info_table)\n'.format(
+                k
+            )
+            expr += '{\n'
+            expr += '    auto decoded_struct = capture_value->GetMetaStructPointer();\n'
+
+            for value in v:
+                if self.is_struct(value.base_type):
+                    expr += '    if(decoded_struct->{0} && new_value->{0})\n'\
+                            '    {{\n'\
+                            '        PushStructHandleIds(decoded_struct->{0}, new_value->{0}, object_info_table);\n'\
+                            '    }}\n'.format(value.name)
+
+                elif self.is_class(value):
+                    expr += '    if(decoded_struct->{0} && new_value->{0})\n'\
+                            '    {{\n'\
+                            '        PushHandleId(&decoded_struct->{0});\n'\
+                            '    }}\n'.format(value.name, value.base_type)
+
+            expr += '}\n'
+            write(expr, file=self.outFile)
+
 
     def make_struct_handle_mappings(
         self, name, handle_members, generic_handle_members

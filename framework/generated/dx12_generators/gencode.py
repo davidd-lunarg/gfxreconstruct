@@ -258,7 +258,11 @@ def make_gen_opts(args):
             filename='generated_dx12_replay_consumer.h',
             directory=directory,
             constructor_args=
-            'std::shared_ptr<application::Application> application, const DxReplayOptions& options, const encode::DxgiDispatchTable& dxgi_dispatch_table, const encode::D3D12DispatchTable& d3d12_dispatch_table',
+            '''std::shared_ptr<application::Application> application,
+            const DxReplayOptions& options,
+            const encode::DxgiDispatchTable& dxgi_dispatch_table,
+            const encode::D3D12DispatchTable& d3d12_dispatch_table,
+            encode::D3D12CaptureManager*    capture_manager = nullptr''',
             blacklists=blacklists,
             platform_types=platform_types,
             prefix_text=prefix_strings + py_prefix_strings,

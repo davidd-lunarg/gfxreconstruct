@@ -37,7 +37,16 @@ class ApiCaptureManager
     void SetCommonManager(CommonCaptureManager* common_manager) { common_manager_ = common_manager; }
 
     // Forwarded Statics
-    static format::HandleId GetUniqueId() { return CommonCaptureManager::GetUniqueId(); }
+    static void PushHandleId(const format::HandleId* id);
+    static void ClearHandleIds();
+    static void SetHandleIdOffset(format::HandleId offset);
+
+    static uint64_t                      handle_id_offset_;
+    static std::vector<format::HandleId> handle_id_stack_;
+
+    virtual void ChangeCaptureId(IUnknown* wrapped_object, gfxrecon::format::HandleId id) {}
+
+    static format::HandleId GetUniqueId();
     static auto AcquireSharedApiCallLock() { return std::move(CommonCaptureManager::AcquireSharedApiCallLock()); }
 
     static auto AcquireExclusiveApiCallLock() { return std::move(CommonCaptureManager::AcquireExclusiveApiCallLock()); }

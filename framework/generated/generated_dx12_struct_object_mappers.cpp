@@ -32,6 +32,7 @@
 #include "decode/handle_pointer_decoder.h"
 #include "decode/dx12_object_mapping_util.h"
 #include "generated/generated_dx12_struct_decoders.h"
+#include "encode/api_capture_manager.h"
 
 #include <algorithm>
 #include <cassert>
@@ -458,6 +459,15 @@ void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_GRAPHICS_PIPELINE
     }
 }
 
+void PushStructHandleIds(const StructPointerDecoder<Decoded_D3D12_GRAPHICS_PIPELINE_STATE_DESC>* capture_value, const D3D12_GRAPHICS_PIPELINE_STATE_DESC* new_value, Dx12ObjectInfoTable& object_info_table)
+{
+    auto decoded_struct = capture_value->GetMetaStructPointer();
+    if(decoded_struct->pRootSignature && new_value->pRootSignature)
+    {
+        PushHandleId(&decoded_struct->pRootSignature);
+    }
+}
+
 void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_COMPUTE_PIPELINE_STATE_DESC>* capture_value, const D3D12_COMPUTE_PIPELINE_STATE_DESC* new_value, Dx12ObjectInfoTable& object_info_table)
 {
     auto decoded_struct = capture_value->GetMetaStructPointer();
@@ -467,12 +477,30 @@ void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_COMPUTE_PIPELINE_
     }
 }
 
+void PushStructHandleIds(const StructPointerDecoder<Decoded_D3D12_COMPUTE_PIPELINE_STATE_DESC>* capture_value, const D3D12_COMPUTE_PIPELINE_STATE_DESC* new_value, Dx12ObjectInfoTable& object_info_table)
+{
+    auto decoded_struct = capture_value->GetMetaStructPointer();
+    if(decoded_struct->pRootSignature && new_value->pRootSignature)
+    {
+        PushHandleId(&decoded_struct->pRootSignature);
+    }
+}
+
 void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_RESOURCE_TRANSITION_BARRIER>* capture_value, const D3D12_RESOURCE_TRANSITION_BARRIER* new_value, Dx12ObjectInfoTable& object_info_table)
 {
     auto decoded_struct = capture_value->GetMetaStructPointer();
     if(decoded_struct->pResource && new_value->pResource)
     {
         object_mapping::AddObject(&decoded_struct->pResource, const_cast<ID3D12Resource**>(&new_value->pResource), &object_info_table);
+    }
+}
+
+void PushStructHandleIds(const StructPointerDecoder<Decoded_D3D12_RESOURCE_TRANSITION_BARRIER>* capture_value, const D3D12_RESOURCE_TRANSITION_BARRIER* new_value, Dx12ObjectInfoTable& object_info_table)
+{
+    auto decoded_struct = capture_value->GetMetaStructPointer();
+    if(decoded_struct->pResource && new_value->pResource)
+    {
+        PushHandleId(&decoded_struct->pResource);
     }
 }
 
@@ -489,12 +517,34 @@ void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_RESOURCE_ALIASING
     }
 }
 
+void PushStructHandleIds(const StructPointerDecoder<Decoded_D3D12_RESOURCE_ALIASING_BARRIER>* capture_value, const D3D12_RESOURCE_ALIASING_BARRIER* new_value, Dx12ObjectInfoTable& object_info_table)
+{
+    auto decoded_struct = capture_value->GetMetaStructPointer();
+    if(decoded_struct->pResourceBefore && new_value->pResourceBefore)
+    {
+        PushHandleId(&decoded_struct->pResourceBefore);
+    }
+    if(decoded_struct->pResourceAfter && new_value->pResourceAfter)
+    {
+        PushHandleId(&decoded_struct->pResourceAfter);
+    }
+}
+
 void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_RESOURCE_UAV_BARRIER>* capture_value, const D3D12_RESOURCE_UAV_BARRIER* new_value, Dx12ObjectInfoTable& object_info_table)
 {
     auto decoded_struct = capture_value->GetMetaStructPointer();
     if(decoded_struct->pResource && new_value->pResource)
     {
         object_mapping::AddObject(&decoded_struct->pResource, const_cast<ID3D12Resource**>(&new_value->pResource), &object_info_table);
+    }
+}
+
+void PushStructHandleIds(const StructPointerDecoder<Decoded_D3D12_RESOURCE_UAV_BARRIER>* capture_value, const D3D12_RESOURCE_UAV_BARRIER* new_value, Dx12ObjectInfoTable& object_info_table)
+{
+    auto decoded_struct = capture_value->GetMetaStructPointer();
+    if(decoded_struct->pResource && new_value->pResource)
+    {
+        PushHandleId(&decoded_struct->pResource);
     }
 }
 
@@ -507,6 +557,15 @@ void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_GLOBAL_ROOT_SIGNA
     }
 }
 
+void PushStructHandleIds(const StructPointerDecoder<Decoded_D3D12_GLOBAL_ROOT_SIGNATURE>* capture_value, const D3D12_GLOBAL_ROOT_SIGNATURE* new_value, Dx12ObjectInfoTable& object_info_table)
+{
+    auto decoded_struct = capture_value->GetMetaStructPointer();
+    if(decoded_struct->pGlobalRootSignature && new_value->pGlobalRootSignature)
+    {
+        PushHandleId(&decoded_struct->pGlobalRootSignature);
+    }
+}
+
 void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_LOCAL_ROOT_SIGNATURE>* capture_value, const D3D12_LOCAL_ROOT_SIGNATURE* new_value, Dx12ObjectInfoTable& object_info_table)
 {
     auto decoded_struct = capture_value->GetMetaStructPointer();
@@ -516,12 +575,30 @@ void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_LOCAL_ROOT_SIGNAT
     }
 }
 
+void PushStructHandleIds(const StructPointerDecoder<Decoded_D3D12_LOCAL_ROOT_SIGNATURE>* capture_value, const D3D12_LOCAL_ROOT_SIGNATURE* new_value, Dx12ObjectInfoTable& object_info_table)
+{
+    auto decoded_struct = capture_value->GetMetaStructPointer();
+    if(decoded_struct->pLocalRootSignature && new_value->pLocalRootSignature)
+    {
+        PushHandleId(&decoded_struct->pLocalRootSignature);
+    }
+}
+
 void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_EXISTING_COLLECTION_DESC>* capture_value, const D3D12_EXISTING_COLLECTION_DESC* new_value, Dx12ObjectInfoTable& object_info_table)
 {
     auto decoded_struct = capture_value->GetMetaStructPointer();
     if(decoded_struct->pExistingCollection && new_value->pExistingCollection)
     {
         object_mapping::AddObject(&decoded_struct->pExistingCollection, const_cast<ID3D12StateObject**>(&new_value->pExistingCollection), &object_info_table);
+    }
+}
+
+void PushStructHandleIds(const StructPointerDecoder<Decoded_D3D12_EXISTING_COLLECTION_DESC>* capture_value, const D3D12_EXISTING_COLLECTION_DESC* new_value, Dx12ObjectInfoTable& object_info_table)
+{
+    auto decoded_struct = capture_value->GetMetaStructPointer();
+    if(decoded_struct->pExistingCollection && new_value->pExistingCollection)
+    {
+        PushHandleId(&decoded_struct->pExistingCollection);
     }
 }
 
@@ -538,6 +615,19 @@ void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_AUTO_BREADCRUMB_N
     }
 }
 
+void PushStructHandleIds(const StructPointerDecoder<Decoded_D3D12_AUTO_BREADCRUMB_NODE>* capture_value, const D3D12_AUTO_BREADCRUMB_NODE* new_value, Dx12ObjectInfoTable& object_info_table)
+{
+    auto decoded_struct = capture_value->GetMetaStructPointer();
+    if(decoded_struct->pCommandList && new_value->pCommandList)
+    {
+        PushHandleId(&decoded_struct->pCommandList);
+    }
+    if(decoded_struct->pCommandQueue && new_value->pCommandQueue)
+    {
+        PushHandleId(&decoded_struct->pCommandQueue);
+    }
+}
+
 void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_AUTO_BREADCRUMB_NODE1>* capture_value, const D3D12_AUTO_BREADCRUMB_NODE1* new_value, Dx12ObjectInfoTable& object_info_table)
 {
     auto decoded_struct = capture_value->GetMetaStructPointer();
@@ -551,12 +641,34 @@ void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_AUTO_BREADCRUMB_N
     }
 }
 
+void PushStructHandleIds(const StructPointerDecoder<Decoded_D3D12_AUTO_BREADCRUMB_NODE1>* capture_value, const D3D12_AUTO_BREADCRUMB_NODE1* new_value, Dx12ObjectInfoTable& object_info_table)
+{
+    auto decoded_struct = capture_value->GetMetaStructPointer();
+    if(decoded_struct->pCommandList && new_value->pCommandList)
+    {
+        PushHandleId(&decoded_struct->pCommandList);
+    }
+    if(decoded_struct->pCommandQueue && new_value->pCommandQueue)
+    {
+        PushHandleId(&decoded_struct->pCommandQueue);
+    }
+}
+
 void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_DEVICE_REMOVED_EXTENDED_DATA>* capture_value, const D3D12_DEVICE_REMOVED_EXTENDED_DATA* new_value, Dx12ObjectInfoTable& object_info_table)
 {
     auto decoded_struct = capture_value->GetMetaStructPointer();
     if(decoded_struct->pHeadAutoBreadcrumbNode && new_value->pHeadAutoBreadcrumbNode)
     {
         AddStructObjects(decoded_struct->pHeadAutoBreadcrumbNode, new_value->pHeadAutoBreadcrumbNode, object_info_table);
+    }
+}
+
+void PushStructHandleIds(const StructPointerDecoder<Decoded_D3D12_DEVICE_REMOVED_EXTENDED_DATA>* capture_value, const D3D12_DEVICE_REMOVED_EXTENDED_DATA* new_value, Dx12ObjectInfoTable& object_info_table)
+{
+    auto decoded_struct = capture_value->GetMetaStructPointer();
+    if(decoded_struct->pHeadAutoBreadcrumbNode && new_value->pHeadAutoBreadcrumbNode)
+    {
+        PushStructHandleIds(decoded_struct->pHeadAutoBreadcrumbNode, new_value->pHeadAutoBreadcrumbNode, object_info_table);
     }
 }
 
@@ -569,6 +681,15 @@ void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_DRED_ALLOCATION_N
     }
 }
 
+void PushStructHandleIds(const StructPointerDecoder<Decoded_D3D12_DRED_ALLOCATION_NODE1>* capture_value, const D3D12_DRED_ALLOCATION_NODE1* new_value, Dx12ObjectInfoTable& object_info_table)
+{
+    auto decoded_struct = capture_value->GetMetaStructPointer();
+    if(decoded_struct->pObject && new_value->pObject)
+    {
+        PushHandleId(&decoded_struct->pObject);
+    }
+}
+
 void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT>* capture_value, const D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT* new_value, Dx12ObjectInfoTable& object_info_table)
 {
     auto decoded_struct = capture_value->GetMetaStructPointer();
@@ -578,12 +699,30 @@ void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_DRED_AUTO_BREADCR
     }
 }
 
+void PushStructHandleIds(const StructPointerDecoder<Decoded_D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT>* capture_value, const D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT* new_value, Dx12ObjectInfoTable& object_info_table)
+{
+    auto decoded_struct = capture_value->GetMetaStructPointer();
+    if(decoded_struct->pHeadAutoBreadcrumbNode && new_value->pHeadAutoBreadcrumbNode)
+    {
+        PushStructHandleIds(decoded_struct->pHeadAutoBreadcrumbNode, new_value->pHeadAutoBreadcrumbNode, object_info_table);
+    }
+}
+
 void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT1>* capture_value, const D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT1* new_value, Dx12ObjectInfoTable& object_info_table)
 {
     auto decoded_struct = capture_value->GetMetaStructPointer();
     if(decoded_struct->pHeadAutoBreadcrumbNode && new_value->pHeadAutoBreadcrumbNode)
     {
         AddStructObjects(decoded_struct->pHeadAutoBreadcrumbNode, new_value->pHeadAutoBreadcrumbNode, object_info_table);
+    }
+}
+
+void PushStructHandleIds(const StructPointerDecoder<Decoded_D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT1>* capture_value, const D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT1* new_value, Dx12ObjectInfoTable& object_info_table)
+{
+    auto decoded_struct = capture_value->GetMetaStructPointer();
+    if(decoded_struct->pHeadAutoBreadcrumbNode && new_value->pHeadAutoBreadcrumbNode)
+    {
+        PushStructHandleIds(decoded_struct->pHeadAutoBreadcrumbNode, new_value->pHeadAutoBreadcrumbNode, object_info_table);
     }
 }
 
@@ -600,6 +739,19 @@ void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_DRED_PAGE_FAULT_O
     }
 }
 
+void PushStructHandleIds(const StructPointerDecoder<Decoded_D3D12_DRED_PAGE_FAULT_OUTPUT1>* capture_value, const D3D12_DRED_PAGE_FAULT_OUTPUT1* new_value, Dx12ObjectInfoTable& object_info_table)
+{
+    auto decoded_struct = capture_value->GetMetaStructPointer();
+    if(decoded_struct->pHeadExistingAllocationNode && new_value->pHeadExistingAllocationNode)
+    {
+        PushStructHandleIds(decoded_struct->pHeadExistingAllocationNode, new_value->pHeadExistingAllocationNode, object_info_table);
+    }
+    if(decoded_struct->pHeadRecentFreedAllocationNode && new_value->pHeadRecentFreedAllocationNode)
+    {
+        PushStructHandleIds(decoded_struct->pHeadRecentFreedAllocationNode, new_value->pHeadRecentFreedAllocationNode, object_info_table);
+    }
+}
+
 void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_DRED_PAGE_FAULT_OUTPUT2>* capture_value, const D3D12_DRED_PAGE_FAULT_OUTPUT2* new_value, Dx12ObjectInfoTable& object_info_table)
 {
     auto decoded_struct = capture_value->GetMetaStructPointer();
@@ -610,6 +762,19 @@ void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_DRED_PAGE_FAULT_O
     if(decoded_struct->pHeadRecentFreedAllocationNode && new_value->pHeadRecentFreedAllocationNode)
     {
         AddStructObjects(decoded_struct->pHeadRecentFreedAllocationNode, new_value->pHeadRecentFreedAllocationNode, object_info_table);
+    }
+}
+
+void PushStructHandleIds(const StructPointerDecoder<Decoded_D3D12_DRED_PAGE_FAULT_OUTPUT2>* capture_value, const D3D12_DRED_PAGE_FAULT_OUTPUT2* new_value, Dx12ObjectInfoTable& object_info_table)
+{
+    auto decoded_struct = capture_value->GetMetaStructPointer();
+    if(decoded_struct->pHeadExistingAllocationNode && new_value->pHeadExistingAllocationNode)
+    {
+        PushStructHandleIds(decoded_struct->pHeadExistingAllocationNode, new_value->pHeadExistingAllocationNode, object_info_table);
+    }
+    if(decoded_struct->pHeadRecentFreedAllocationNode && new_value->pHeadRecentFreedAllocationNode)
+    {
+        PushStructHandleIds(decoded_struct->pHeadRecentFreedAllocationNode, new_value->pHeadRecentFreedAllocationNode, object_info_table);
     }
 }
 
@@ -626,6 +791,19 @@ void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_RENDER_PASS_ENDIN
     }
 }
 
+void PushStructHandleIds(const StructPointerDecoder<Decoded_D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_PARAMETERS>* capture_value, const D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_PARAMETERS* new_value, Dx12ObjectInfoTable& object_info_table)
+{
+    auto decoded_struct = capture_value->GetMetaStructPointer();
+    if(decoded_struct->pSrcResource && new_value->pSrcResource)
+    {
+        PushHandleId(&decoded_struct->pSrcResource);
+    }
+    if(decoded_struct->pDstResource && new_value->pDstResource)
+    {
+        PushHandleId(&decoded_struct->pDstResource);
+    }
+}
+
 void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_TEXTURE_BARRIER>* capture_value, const D3D12_TEXTURE_BARRIER* new_value, Dx12ObjectInfoTable& object_info_table)
 {
     auto decoded_struct = capture_value->GetMetaStructPointer();
@@ -635,12 +813,30 @@ void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_TEXTURE_BARRIER>*
     }
 }
 
+void PushStructHandleIds(const StructPointerDecoder<Decoded_D3D12_TEXTURE_BARRIER>* capture_value, const D3D12_TEXTURE_BARRIER* new_value, Dx12ObjectInfoTable& object_info_table)
+{
+    auto decoded_struct = capture_value->GetMetaStructPointer();
+    if(decoded_struct->pResource && new_value->pResource)
+    {
+        PushHandleId(&decoded_struct->pResource);
+    }
+}
+
 void AddStructObjects(const StructPointerDecoder<Decoded_D3D12_BUFFER_BARRIER>* capture_value, const D3D12_BUFFER_BARRIER* new_value, Dx12ObjectInfoTable& object_info_table)
 {
     auto decoded_struct = capture_value->GetMetaStructPointer();
     if(decoded_struct->pResource && new_value->pResource)
     {
         object_mapping::AddObject(&decoded_struct->pResource, const_cast<ID3D12Resource**>(&new_value->pResource), &object_info_table);
+    }
+}
+
+void PushStructHandleIds(const StructPointerDecoder<Decoded_D3D12_BUFFER_BARRIER>* capture_value, const D3D12_BUFFER_BARRIER* new_value, Dx12ObjectInfoTable& object_info_table)
+{
+    auto decoded_struct = capture_value->GetMetaStructPointer();
+    if(decoded_struct->pResource && new_value->pResource)
+    {
+        PushHandleId(&decoded_struct->pResource);
     }
 }
 

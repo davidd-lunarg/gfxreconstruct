@@ -150,6 +150,8 @@ IUnknown_Wrapper : public IUnknown
     //----------------------------------------------------------------------------
     uint64_t GetCaptureId() const { return capture_id_; }
 
+    void SetCaptureId(format::HandleId id) { capture_id_ = id; }
+
     //----------------------------------------------------------------------------
     /// Get the wrapped object.
     ///

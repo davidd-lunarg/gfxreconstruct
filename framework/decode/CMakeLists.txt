@@ -355,6 +355,7 @@ else (CMAKE_SIZEOF_VOID_P EQUAL 4)
 endif()
 
 target_link_libraries(gfxrecon_decode
+                        gfxrecon_encode
                         gfxrecon_graphics
                         gfxrecon_format
                         gfxrecon_util

@@ -224,3 +224,8 @@ class Dx12StructObjectMappersHeaderGenerator(Dx12BaseGenerator):
                 k
             )
             write(expr, file=self.outFile)
+
+            expr = 'void PushStructHandleIds(const StructPointerDecoder<Decoded_{0}>* capture_value, const {0}* new_value, Dx12ObjectInfoTable& object_info_table);\n'.format(
+                k
+            )
+            write(expr, file=self.outFile)

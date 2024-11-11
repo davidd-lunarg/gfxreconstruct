@@ -29,6 +29,50 @@
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
 GFXRECON_BEGIN_NAMESPACE(encode)
 
+uint64_t                      ApiCaptureManager::handle_id_offset_ = 0;
+std::vector<format::HandleId> ApiCaptureManager::handle_id_stack_;
+
+void ApiCaptureManager::PushHandleId(const format::HandleId* id)
+{
+    if (id != nullptr)
+    {
+        handle_id_stack_.push_back(*id);
+    }
+}
+
+void ApiCaptureManager::ClearHandleIds()
+{
+    handle_id_stack_.clear();
+}
+
+void ApiCaptureManager::SetHandleIdOffset(format::HandleId offset)
+{
+    handle_id_offset_ = offset;
+}
+
+format::HandleId ApiCaptureManager::GetUniqueId()
+{
+    uint64_t result = 0;
+    if (handle_id_stack_.empty())
+    {
+        result = CommonCaptureManager::GetUniqueId() + handle_id_offset_;
+    }
+    else
+    {
+        if (handle_id_stack_.back() == format::kNullHandleId)
+        {
+            // Allow replay to push kNullHandleId to force a replay-unique ID.
+            result = CommonCaptureManager::GetUniqueId() + handle_id_offset_;
+        }
+        else
+        {
+            result = handle_id_stack_.back();
+        }
+        handle_id_stack_.pop_back();
+    }
+    return result;
+}
+
 CaptureSettings::TraceSettings ApiCaptureManager::GetDefaultTraceSettings()
 {
     // Return default trace settings.

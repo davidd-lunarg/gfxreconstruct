@@ -32,6 +32,9 @@
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
 GFXRECON_BEGIN_NAMESPACE(encode)
 
+// This IID is not defined in d3dcommon.h or dxguid.lib
+DEFINE_GUID(IID_ID3DDestructionNotifier, 0xa06eb39a, 0x50da, 0x425b, 0x8c, 0x31, 0x4e, 0xec, 0xd6, 0xc2, 0x70, 0xf3);
+
 struct D3D12DispatchTable
 {
     // Functions processed for capture.  These are the D3D12 functions exported by d3d12.dll and documented on MSDN.
