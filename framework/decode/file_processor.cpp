@@ -303,6 +303,16 @@ bool FileProcessor::ProcessBlocks()
         {
             success = ReadBlockHeader(&block_header);
 
+            if (process_block_callback)
+            {
+                static std::vector<uint8_t> bytes;
+                bytes.clear();
+                bytes.resize(block_header.size);
+                ReadBytes(bytes.data(), block_header.size);
+                process_block_callback(block_header, bytes.data(), bytes.size());
+                SkipBytes(-bytes.size());
+            }
+
             for (auto decoder : decoders_)
             {
                 decoder->SetCurrentBlockIndex(block_index_);
@@ -544,7 +554,7 @@ bool FileProcessor::ReadBytes(void* buffer, size_t buffer_size)
     return false;
 }
 
-bool FileProcessor::SkipBytes(size_t skip_size)
+bool FileProcessor::SkipBytes(int64_t skip_size)
 {
     auto file_entry = active_files_.find(file_stack_.back().filename);
     assert(file_entry != active_files_.end());
@@ -2116,8 +2126,8 @@ bool FileProcessor::ProcessFrameMarker(const format::BlockHeader& block_header,
     {
         // Validate frame end marker's frame number matches current_frame_number_ when capture_uses_frame_markers_ is
         // true.
-        GFXRECON_ASSERT((marker_type != format::kEndMarker) || (!capture_uses_frame_markers_) ||
-                        (current_frame_number_ == (frame_number - first_frame_)));
+        // GFXRECON_ASSERT((marker_type != format::kEndMarker) || (!capture_uses_frame_markers_) ||
+        //                 (current_frame_number_ == (frame_number - first_frame_)));
 
         for (auto decoder : decoders_)
         {

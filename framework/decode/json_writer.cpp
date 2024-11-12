@@ -122,7 +122,7 @@ nlohmann::ordered_json& JsonWriter::WriteApiCallStart(const ApiCallInfo& call_in
 {
     auto& json_data = WriteBlockStart();
 
-    json_data[format::kNameIndex] = call_info.index;
+    // json_data[format::kNameIndex] = call_info.index;
 
     nlohmann::ordered_json& function = json_data[format::kNameFunction];
     function[format::kNameName]      = command_name;
@@ -138,7 +138,7 @@ nlohmann::ordered_json& JsonWriter::WriteApiCallStart(const ApiCallInfo&     cal
 {
     auto& json_data = WriteBlockStart();
 
-    json_data[format::kNameIndex] = call_info.index;
+    // json_data[format::kNameIndex] = call_info.index;
 
     nlohmann::ordered_json& method = json_data[format::kNameMethod];
     method[format::kNameName]      = command_name;
@@ -175,7 +175,7 @@ nlohmann::ordered_json& JsonWriter::WriteMetaCommandStart(const std::string_view
 {
     auto& json_data = WriteBlockStart();
 
-    json_data[format::kNameIndex] = block_index_;
+    // json_data[format::kNameIndex] = block_index_;
     nlohmann::ordered_json& meta = json_data[format::kNameMeta];
     meta[format::kNameName]      = command_name;
     return meta[format::kNameArgs];
@@ -187,7 +187,7 @@ void JsonWriter::ProcessAnnotation(uint64_t               block_index,
                                    const std::string&     data)
 {
     auto& json_data     = WriteBlockStart();
-    json_data["index"]  = block_index;
+    // json_data["index"]  = block_index;
     auto& annotation    = json_data["annotation"];
     annotation["type"]  = util::AnnotationTypeToString(type);
     annotation["label"] = label;

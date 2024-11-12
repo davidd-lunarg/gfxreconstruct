@@ -704,7 +704,8 @@ void CommonCaptureManager::CheckContinueCaptureForWriteMode(format::ApiFamilyId 
                 // Clean up all of the capture manager's state trackers
                 for (auto& manager_it : api_capture_managers_)
                 {
-                    manager_it.first->DestroyStateTracker();
+                    // TODOTRIM: Don't always destroy state tracker
+                    // manager_it.first->DestroyStateTracker();
                 }
                 compressor_ = nullptr;
             }
@@ -893,7 +894,7 @@ void CommonCaptureManager::EndFrame(format::ApiFamilyId api_family, std::shared_
 
     if (trim_enabled_ && (trim_boundary_ == CaptureSettings::TrimBoundary::kFrames))
     {
-        if ((capture_mode_ & kModeWrite) == kModeWrite)
+        if ((capture_mode_ & kModeWrite) == kModeWrite || (capture_mode_ & kModeTrim) == kModeTrim)
         {
             // Currently capturing a frame range.
             // Check for end of range or hotkey trigger to stop capture.
@@ -1222,6 +1223,11 @@ void CommonCaptureManager::ActivateTrimming(std::shared_lock<ApiCallMutexT>& cur
     {
         current_lock.lock();
     }
+
+    if (activate_trimming_callback_)
+    {
+        activate_trimming_callback_();
+    }
 }
 
 void CommonCaptureManager::DeactivateTrimming(std::shared_lock<ApiCallMutexT>& current_lock)
@@ -1250,6 +1256,11 @@ void CommonCaptureManager::DeactivateTrimming(std::shared_lock<ApiCallMutexT>& c
     if (has_shared_lock)
     {
         current_lock.lock();
+    }
+
+    if (deactivate_trimming_callback_)
+    {
+        deactivate_trimming_callback_();
     }
 }
 

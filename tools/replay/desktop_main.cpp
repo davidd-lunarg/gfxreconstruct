@@ -301,6 +301,25 @@ int main(int argc, const char** argv)
 
             auto capture_manager = gfxrecon::encode::D3D12CaptureManager::Get();
 
+            std::function<void(gfxrecon::format::BlockHeader&, uint8_t*, size_t)> block_callback =
+                [&](gfxrecon::format::BlockHeader& header, uint8_t* data, size_t data_size) {
+                    capture_manager->WriteToFile(&header, sizeof(header));
+                    capture_manager->WriteToFile(data, data_size);
+                };
+
+            std::function<void()> activate_callback = [&]() {
+                capture_manager->SetCaptureMode(gfxrecon::encode::CommonCaptureManager::kModeTrack |
+                                                gfxrecon::encode::CommonCaptureManager::kModeTrim);
+                file_processor->process_block_callback = block_callback;
+            };
+            capture_manager->SetActivateTrimmingCallback(activate_callback);
+
+            std::function<void()> deactivate_callback = [&]() {
+                file_processor->process_block_callback = nullptr;
+                capture_manager->SetCaptureMode(gfxrecon::encode::CommonCaptureManager::kModeTrack);
+            };
+            capture_manager->SetDeactivateTrimmingCallback(deactivate_callback);
+
             gfxrecon::encode::ApiCaptureManager::SetHandleIdOffset(uint64_t(0xff) << 56);
 
             gfxrecon::decode::Dx12ReplayConsumer dx12_replay_consumer(

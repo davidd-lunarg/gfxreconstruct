@@ -65,6 +65,11 @@ class CommonCaptureManager
 
     static auto AcquireExclusiveApiCallLock() { return std::move(std::unique_lock<ApiCallMutexT>(api_call_mutex_)); }
 
+    std::function<void()> activate_trimming_callback_;
+    void SetActivateTrimmingCallback(std::function<void()> callback) { activate_trimming_callback_ = callback; }
+    std::function<void()> deactivate_trimming_callback_;
+    void SetDeactivateTrimmingCallback(std::function<void()> callback) { deactivate_trimming_callback_ = callback; }
+
     HandleUnwrapMemory* GetHandleUnwrapMemory()
     {
         auto thread_data = GetThreadData();
@@ -188,6 +193,7 @@ class CommonCaptureManager
         kModeDisabled      = 0x0,
         kModeWrite         = 0x01,
         kModeTrack         = 0x02,
+        kModeTrim          = 0x04,
         kModeWriteAndTrack = (kModeWrite | kModeTrack)
     };
 

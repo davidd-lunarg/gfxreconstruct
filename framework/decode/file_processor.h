@@ -40,6 +40,8 @@
 #include <utility>
 #include <vector>
 
+#include <functional>
+
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
 GFXRECON_BEGIN_NAMESPACE(decode)
 
@@ -72,6 +74,8 @@ class FileProcessor
     FileProcessor();
 
     FileProcessor(uint64_t block_limit);
+
+    std::function<void(format::BlockHeader& header, uint8_t* data, size_t data_size)> process_block_callback;
 
     virtual ~FileProcessor();
 
@@ -141,7 +145,7 @@ class FileProcessor
 
     virtual bool ReadBytes(void* buffer, size_t buffer_size);
 
-    bool SkipBytes(size_t skip_size);
+    bool SkipBytes(int64_t skip_size);
 
     bool ProcessFunctionCall(const format::BlockHeader& block_header, format::ApiCallId call_id, bool& should_break);
 

@@ -36,6 +36,15 @@ class ApiCaptureManager
     ApiCaptureManager(format::ApiFamilyId api_family) : api_family_(api_family) {}
     void SetCommonManager(CommonCaptureManager* common_manager) { common_manager_ = common_manager; }
 
+    void SetActivateTrimmingCallback(std::function<void()> callback)
+    {
+        common_manager_->SetActivateTrimmingCallback(callback);
+    }
+    void SetDeactivateTrimmingCallback(std::function<void()> callback)
+    {
+        common_manager_->SetDeactivateTrimmingCallback(callback);
+    }
+
     // Forwarded Statics
     static void PushHandleId(const format::HandleId* id);
     static void ClearHandleIds();
