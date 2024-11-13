@@ -46,6 +46,8 @@
 #include "graphics/dx12_ags_marker_injector.h"
 #endif
 
+#include "encode/dx12_state_tracker.h"
+#include "encode/d3d12_capture_manager.h"
 #include "encode/d3d12_dispatch_table.h"
 #include "encode/dxgi_dispatch_table.h"
 
@@ -56,12 +58,10 @@
 
 #include <wrl/client.h>
 
-#include "encode/dx12_state_tracker.h"
-#include "encode/d3d12_capture_manager.h"
-
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
 GFXRECON_BEGIN_NAMESPACE(decode)
 
+// TODOTRIM: Add these methods to the capture manager.
 EXTERN_C void PushHandleId(const format::HandleId* id);
 EXTERN_C void ClearHandleIds();
 EXTERN_C void SetHandleIdOffset(format::HandleId offset);
@@ -73,7 +73,7 @@ class Dx12ReplayConsumerBase : public Dx12Consumer
                            const DxReplayOptions&                    options,
                            const encode::DxgiDispatchTable&          dxgi_dispatch_table,
                            const encode::D3D12DispatchTable&         d3d12_dispatch_table,
-                           gfxrecon::encode::D3D12CaptureManager*    capture_manager = nullptr);
+                           encode::D3D12CaptureManager*              capture_manager = nullptr);
 
     virtual ~Dx12ReplayConsumerBase() override;
 
@@ -286,9 +286,6 @@ class Dx12ReplayConsumerBase : public Dx12Consumer
     {
         return object_mapping::MapObject<T>(id, object_info_table_);
     }
-
-    gfxrecon::encode::Dx12StateTracker* g_state_tracker = nullptr;
-    gfxrecon::encode::D3D12CaptureManager* g_capture_manager = nullptr;
 
     template <typename T>
     void AddObject(const format::HandleId* p_id, T** pp_object, DxObjectInfo&& initial_info, format::ApiCallId call_id)
@@ -1269,9 +1266,12 @@ class Dx12ReplayConsumerBase : public Dx12Consumer
     graphics::Dx12AgsMarkerInjector* ags_marker_injector_{ nullptr };
 #endif
 
-  protected:
-    encode::D3D12DispatchTable d3d12_dispatch_table_;
-    encode::DxgiDispatchTable  dxgi_dispatch_table_;
+  public:
+    // TODOTRIM: accessors, names
+    encode::Dx12StateTracker*    g_state_tracker   = nullptr;
+    encode::D3D12CaptureManager* g_capture_manager = nullptr;
+    encode::D3D12DispatchTable   d3d12_dispatch_table_;
+    encode::DxgiDispatchTable    dxgi_dispatch_table_;
 };
 
 GFXRECON_END_NAMESPACE(decode)

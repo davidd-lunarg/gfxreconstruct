@@ -50,6 +50,11 @@ class Dx12StateTracker
 
     void WriteState(Dx12StateWriter* writer, uint64_t frame_number);
 
+    void SetOriginalMappedResourcePtr(uint64_t replay_ptr, uint64_t original_ptr)
+    {
+        state_table_.original_mapped_resource_ptr[replay_ptr] = original_ptr;
+    }
+
     template <typename ParentWrapper>
     void AddEntry(REFIID                          riid,
                   typename void**                 new_handle,

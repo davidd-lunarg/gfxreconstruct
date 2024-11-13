@@ -942,6 +942,11 @@ class D3D12CaptureManager : public ApiCaptureManager
     graphics::dx12::ActiveAdapterMap adapters_;
 
     std::unique_ptr<Dx12ResourceValueAnnotator> resource_value_annotator_{ nullptr };
+
+  public:
+    // TODOTRIM: accessors
+    graphics::Dx12GpuVaMap gpu_va_map_;
+    graphics::Dx12GpuVaMap gpu_descriptor_map_;
 };
 
 GFXRECON_END_NAMESPACE(encode)

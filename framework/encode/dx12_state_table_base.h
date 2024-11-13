@@ -58,10 +58,14 @@ class Dx12StateTableBase
         return result;
     }
 
+    // TODOTRIM: accessor
+    std::map<uint64_t, uint64_t> original_mapped_resource_ptr;
+
   protected:
     template <typename T>
     bool InsertEntry(format::HandleId id, T* wrapper, std::map<format::HandleId, T*>& map)
     {
+        // TODOTRIM: make this more formal
         if (id >= (uint64_t(0xff) << 56))
             return true;
 

@@ -425,6 +425,16 @@ void Dx12StateWriter::WriteDescriptorState(const Dx12StateTable& state_table)
         // Write heap creation call.
         StandardCreateWrite(heap_wrapper);
 
+        // Write call to query the device for heap increment size.
+        // TODOTRIM: Why didn't this cause an error in normal trimmed replay when it was after
+        // GetCPUDescriptorHandleForHeapStart and GetGPUDescriptorHandleForHeapStart?
+        encoder_.EncodeEnumValue(heap_desc.Type);
+        encoder_.EncodeUInt32Value(heap_info->descriptor_increment);
+        WriteMethodCall(format::ApiCallId::ApiCall_ID3D12Device_GetDescriptorHandleIncrementSize,
+                        heap_info->create_object_id,
+                        &parameter_stream_);
+        parameter_stream_.Clear();
+
         // Write GetCPUDescriptorHandleForHeapStart call.
         if (heap_info->cpu_start != 0)
         {
@@ -448,14 +458,6 @@ void Dx12StateWriter::WriteDescriptorState(const Dx12StateTable& state_table)
                             &parameter_stream_);
             parameter_stream_.Clear();
         }
-
-        // Write call to query the device for heap increment size.
-        encoder_.EncodeEnumValue(heap_desc.Type);
-        encoder_.EncodeUInt32Value(heap_info->descriptor_increment);
-        WriteMethodCall(format::ApiCallId::ApiCall_ID3D12Device_GetDescriptorHandleIncrementSize,
-                        heap_info->create_object_id,
-                        &parameter_stream_);
-        parameter_stream_.Clear();
 
         // Write descriptor creation calls, not use StandardCreateWrite.
         for (uint32_t i = 0; i < heap_desc.NumDescriptors; ++i)
@@ -590,10 +592,12 @@ void Dx12StateWriter::WriteResourceCreationState(
         StandardCreateWrite(resource_wrapper);
 
         // Write call to get GPU address for buffers.
-        if (resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+        // TODOTRIM: is ` && resource_info->gpu_va != 0` necessary? desired?
+        if (resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER && resource_info->gpu_va != 0)
         {
             D3D12_GPU_VIRTUAL_ADDRESS gpu_address = resource->GetGPUVirtualAddress();
-            encoder_.EncodeUInt64Value(gpu_address);
+            GFXRECON_ASSERT(resource_info->gpu_va == gpu_address);
+            encoder_.EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(gpu_address));
             WriteMethodCall(format::ApiCallId::ApiCall_ID3D12Resource_GetGPUVirtualAddress,
                             resource_wrapper->GetCaptureId(),
                             &parameter_stream_);
@@ -669,7 +673,18 @@ void Dx12StateWriter::WriteResourceCreationState(
             EncodeStructPtr<D3D12_RANGE>(&encoder_, nullptr);
             if (!unknown_layout_mapping)
             {
-                encoder_.EncodeVoidPtrPtr<void>(reinterpret_cast<void**>(&result_ptr));
+                uint64_t replay_pointer;
+                util::platform::MemoryCopy(&replay_pointer, sizeof(replay_pointer), &result_ptr, sizeof(uint8_t*));
+                auto iter = state_table.original_mapped_resource_ptr.find(replay_pointer);
+                if (iter != state_table.original_mapped_resource_ptr.end())
+                {
+                    uint64_t original_pointer = iter->second;
+                    encoder_.EncodeVoidPtrPtr<void>(reinterpret_cast<void**>(&original_pointer));
+                }
+                else
+                {
+                    encoder_.EncodeVoidPtrPtr<void>(reinterpret_cast<void**>(&result_ptr));
+                }
             }
             else
             {

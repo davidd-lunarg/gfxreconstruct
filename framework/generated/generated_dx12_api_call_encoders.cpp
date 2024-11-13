@@ -4541,12 +4541,12 @@ void EncodeStruct(ParameterEncoder* encoder, const D3D12_TEX2DMS_ARRAY_SRV& valu
 
 void EncodeStruct(ParameterEncoder* encoder, const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_SRV& value)
 {
-    encoder->EncodeUInt64Value(value.Location);
+    encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(value.Location));
 }
 
 void EncodeStruct(ParameterEncoder* encoder, const D3D12_CONSTANT_BUFFER_VIEW_DESC& value)
 {
-    encoder->EncodeUInt64Value(value.BufferLocation);
+    encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(value.BufferLocation));
     encoder->EncodeUInt32Value(value.SizeInBytes);
 }
 
@@ -4870,7 +4870,8 @@ void Encode_ID3D12VersionedRootSignatureDeserializer_GetUnconvertedRootSignature
 
 void EncodeStruct(ParameterEncoder* encoder, const D3D12_GPU_DESCRIPTOR_HANDLE& value)
 {
-    encoder->EncodeUInt64Value(value.ptr);
+    // TODOTRIM: add this to generator code.
+    encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_descriptor_map_.Map(value.ptr));
 }
 
 void EncodeStruct(ParameterEncoder* encoder, const D3D12_DISCARD_REGION& value)
@@ -4929,9 +4930,9 @@ void EncodeStruct(ParameterEncoder* encoder, const D3D12_QUERY_DATA_SO_STATISTIC
 
 void EncodeStruct(ParameterEncoder* encoder, const D3D12_STREAM_OUTPUT_BUFFER_VIEW& value)
 {
-    encoder->EncodeUInt64Value(value.BufferLocation);
+    encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(value.BufferLocation));
     encoder->EncodeUInt64Value(value.SizeInBytes);
-    encoder->EncodeUInt64Value(value.BufferFilledSizeLocation);
+    encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(value.BufferFilledSizeLocation));
 }
 
 void EncodeStruct(ParameterEncoder* encoder, const D3D12_DRAW_ARGUMENTS& value)
@@ -4960,14 +4961,14 @@ void EncodeStruct(ParameterEncoder* encoder, const D3D12_DISPATCH_ARGUMENTS& val
 
 void EncodeStruct(ParameterEncoder* encoder, const D3D12_VERTEX_BUFFER_VIEW& value)
 {
-    encoder->EncodeUInt64Value(value.BufferLocation);
+    encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(value.BufferLocation));
     encoder->EncodeUInt32Value(value.SizeInBytes);
     encoder->EncodeUInt32Value(value.StrideInBytes);
 }
 
 void EncodeStruct(ParameterEncoder* encoder, const D3D12_INDEX_BUFFER_VIEW& value)
 {
-    encoder->EncodeUInt64Value(value.BufferLocation);
+    encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(value.BufferLocation));
     encoder->EncodeUInt32Value(value.SizeInBytes);
     encoder->EncodeEnumValue(value.Format);
 }
@@ -5048,7 +5049,7 @@ void Encode_ID3D12Resource_GetGPUVirtualAddress(
     auto encoder = D3D12CaptureManager::Get()->BeginMethodCallCapture(format::ApiCallId::ApiCall_ID3D12Resource_GetGPUVirtualAddress, wrapper->GetCaptureId());
     if(encoder)
     {
-        encoder->EncodeUInt64Value(return_value);
+        encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(return_value));
         D3D12CaptureManager::Get()->EndMethodCallCapture();
     }
 }
@@ -5696,7 +5697,7 @@ void Encode_ID3D12GraphicsCommandList_SetComputeRootConstantBufferView(
     if(encoder)
     {
         encoder->EncodeUInt32Value(RootParameterIndex);
-        encoder->EncodeUInt64Value(BufferLocation);
+        encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(BufferLocation));
         D3D12CaptureManager::Get()->EndCommandListMethodCallCapture(wrapper, Track_ID3D12GraphicsCommandList_SetComputeRootConstantBufferView, RootParameterIndex, BufferLocation);
     }
 }
@@ -5710,7 +5711,7 @@ void Encode_ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView(
     if(encoder)
     {
         encoder->EncodeUInt32Value(RootParameterIndex);
-        encoder->EncodeUInt64Value(BufferLocation);
+        encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(BufferLocation));
         D3D12CaptureManager::Get()->EndCommandListMethodCallCapture(wrapper, Track_ID3D12GraphicsCommandList_SetGraphicsRootConstantBufferView, RootParameterIndex, BufferLocation);
     }
 }
@@ -5724,7 +5725,7 @@ void Encode_ID3D12GraphicsCommandList_SetComputeRootShaderResourceView(
     if(encoder)
     {
         encoder->EncodeUInt32Value(RootParameterIndex);
-        encoder->EncodeUInt64Value(BufferLocation);
+        encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(BufferLocation));
         D3D12CaptureManager::Get()->EndCommandListMethodCallCapture(wrapper, Track_ID3D12GraphicsCommandList_SetComputeRootShaderResourceView, RootParameterIndex, BufferLocation);
     }
 }
@@ -5738,7 +5739,7 @@ void Encode_ID3D12GraphicsCommandList_SetGraphicsRootShaderResourceView(
     if(encoder)
     {
         encoder->EncodeUInt32Value(RootParameterIndex);
-        encoder->EncodeUInt64Value(BufferLocation);
+        encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(BufferLocation));
         D3D12CaptureManager::Get()->EndCommandListMethodCallCapture(wrapper, Track_ID3D12GraphicsCommandList_SetGraphicsRootShaderResourceView, RootParameterIndex, BufferLocation);
     }
 }
@@ -5752,7 +5753,7 @@ void Encode_ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView(
     if(encoder)
     {
         encoder->EncodeUInt32Value(RootParameterIndex);
-        encoder->EncodeUInt64Value(BufferLocation);
+        encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(BufferLocation));
         D3D12CaptureManager::Get()->EndCommandListMethodCallCapture(wrapper, Track_ID3D12GraphicsCommandList_SetComputeRootUnorderedAccessView, RootParameterIndex, BufferLocation);
     }
 }
@@ -5766,7 +5767,7 @@ void Encode_ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView(
     if(encoder)
     {
         encoder->EncodeUInt32Value(RootParameterIndex);
-        encoder->EncodeUInt64Value(BufferLocation);
+        encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(BufferLocation));
         D3D12CaptureManager::Get()->EndCommandListMethodCallCapture(wrapper, Track_ID3D12GraphicsCommandList_SetGraphicsRootUnorderedAccessView, RootParameterIndex, BufferLocation);
     }
 }
@@ -6185,7 +6186,7 @@ void Encode_ID3D12GraphicsCommandList1_SetViewInstanceMask(
 
 void EncodeStruct(ParameterEncoder* encoder, const D3D12_WRITEBUFFERIMMEDIATE_PARAMETER& value)
 {
-    encoder->EncodeUInt64Value(value.Dest);
+    encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(value.Dest));
     encoder->EncodeUInt32Value(value.Value);
 }
 
@@ -7937,31 +7938,31 @@ void EncodeStruct(ParameterEncoder* encoder, const D3D12_RAYTRACING_PIPELINE_CON
 
 void EncodeStruct(ParameterEncoder* encoder, const D3D12_GPU_VIRTUAL_ADDRESS_AND_STRIDE& value)
 {
-    encoder->EncodeUInt64Value(value.StartAddress);
+    encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(value.StartAddress));
     encoder->EncodeUInt64Value(value.StrideInBytes);
 }
 
 void EncodeStruct(ParameterEncoder* encoder, const D3D12_GPU_VIRTUAL_ADDRESS_RANGE& value)
 {
-    encoder->EncodeUInt64Value(value.StartAddress);
+    encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(value.StartAddress));
     encoder->EncodeUInt64Value(value.SizeInBytes);
 }
 
 void EncodeStruct(ParameterEncoder* encoder, const D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE& value)
 {
-    encoder->EncodeUInt64Value(value.StartAddress);
+    encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(value.StartAddress));
     encoder->EncodeUInt64Value(value.SizeInBytes);
     encoder->EncodeUInt64Value(value.StrideInBytes);
 }
 
 void EncodeStruct(ParameterEncoder* encoder, const D3D12_RAYTRACING_GEOMETRY_TRIANGLES_DESC& value)
 {
-    encoder->EncodeUInt64Value(value.Transform3x4);
+    encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(value.Transform3x4));
     encoder->EncodeEnumValue(value.IndexFormat);
     encoder->EncodeEnumValue(value.VertexFormat);
     encoder->EncodeUInt32Value(value.IndexCount);
     encoder->EncodeUInt32Value(value.VertexCount);
-    encoder->EncodeUInt64Value(value.IndexBuffer);
+    encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(value.IndexBuffer));
     EncodeStruct(encoder, value.VertexBuffer);
 }
 
@@ -7983,7 +7984,7 @@ void EncodeStruct(ParameterEncoder* encoder, const D3D12_RAYTRACING_GEOMETRY_AAB
 
 void EncodeStruct(ParameterEncoder* encoder, const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC& value)
 {
-    encoder->EncodeUInt64Value(value.DestBuffer);
+    encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(value.DestBuffer));
     encoder->EncodeEnumValue(value.InfoType);
 }
 
@@ -8035,15 +8036,15 @@ void EncodeStruct(ParameterEncoder* encoder, const D3D12_RAYTRACING_INSTANCE_DES
     encoder->EncodeUInt32Value(value.InstanceMask);
     encoder->EncodeUInt32Value(value.InstanceContributionToHitGroupIndex);
     encoder->EncodeUInt32Value(value.Flags);
-    encoder->EncodeUInt64Value(value.AccelerationStructure);
+    encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(value.AccelerationStructure));
 }
 
 void EncodeStruct(ParameterEncoder* encoder, const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC& value)
 {
-    encoder->EncodeUInt64Value(value.DestAccelerationStructureData);
+    encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(value.DestAccelerationStructureData));
     EncodeStruct(encoder, value.Inputs);
-    encoder->EncodeUInt64Value(value.SourceAccelerationStructureData);
-    encoder->EncodeUInt64Value(value.ScratchAccelerationStructureData);
+    encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(value.SourceAccelerationStructureData));
+    encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(value.ScratchAccelerationStructureData));
 }
 
 void EncodeStruct(ParameterEncoder* encoder, const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO& value)
@@ -8287,21 +8288,21 @@ void EncodeStruct(ParameterEncoder* encoder, const D3D12_DRED_AUTO_BREADCRUMBS_O
 
 void EncodeStruct(ParameterEncoder* encoder, const D3D12_DRED_PAGE_FAULT_OUTPUT& value)
 {
-    encoder->EncodeUInt64Value(value.PageFaultVA);
+    encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(value.PageFaultVA));
     EncodeStructPtr(encoder, value.pHeadExistingAllocationNode);
     EncodeStructPtr(encoder, value.pHeadRecentFreedAllocationNode);
 }
 
 void EncodeStruct(ParameterEncoder* encoder, const D3D12_DRED_PAGE_FAULT_OUTPUT1& value)
 {
-    encoder->EncodeUInt64Value(value.PageFaultVA);
+    encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(value.PageFaultVA));
     EncodeStructPtr(encoder, value.pHeadExistingAllocationNode);
     EncodeStructPtr(encoder, value.pHeadRecentFreedAllocationNode);
 }
 
 void EncodeStruct(ParameterEncoder* encoder, const D3D12_DRED_PAGE_FAULT_OUTPUT2& value)
 {
-    encoder->EncodeUInt64Value(value.PageFaultVA);
+    encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(value.PageFaultVA));
     EncodeStructPtr(encoder, value.pHeadExistingAllocationNode);
     EncodeStructPtr(encoder, value.pHeadRecentFreedAllocationNode);
     encoder->EncodeEnumValue(value.PageFaultFlags);
@@ -8960,7 +8961,8 @@ void Encode_ID3D12GraphicsCommandList4_EmitRaytracingAccelerationStructurePostbu
     {
         EncodeStructPtr(encoder, pDesc);
         encoder->EncodeUInt32Value(NumSourceAccelerationStructures);
-        encoder->EncodeUInt64Array(pSourceAccelerationStructureData, NumSourceAccelerationStructures);
+        // TODOTRIM: This is wrong, properly handle array.
+        encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(*pSourceAccelerationStructureData));
         D3D12CaptureManager::Get()->EndCommandListMethodCallCapture(wrapper, Track_ID3D12GraphicsCommandList4_EmitRaytracingAccelerationStructurePostbuildInfo, pDesc, NumSourceAccelerationStructures, pSourceAccelerationStructureData);
     }
 }
@@ -8974,8 +8976,8 @@ void Encode_ID3D12GraphicsCommandList4_CopyRaytracingAccelerationStructure(
     auto encoder = D3D12CaptureManager::Get()->BeginTrackedMethodCallCapture(format::ApiCallId::ApiCall_ID3D12GraphicsCommandList4_CopyRaytracingAccelerationStructure, wrapper->GetCaptureId());
     if(encoder)
     {
-        encoder->EncodeUInt64Value(DestAccelerationStructureData);
-        encoder->EncodeUInt64Value(SourceAccelerationStructureData);
+        encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(DestAccelerationStructureData));
+        encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map(SourceAccelerationStructureData));
         encoder->EncodeEnumValue(Mode);
         D3D12CaptureManager::Get()->EndCommandListMethodCallCapture(wrapper, Track_ID3D12GraphicsCommandList4_CopyRaytracingAccelerationStructure, DestAccelerationStructureData, SourceAccelerationStructureData, Mode);
     }

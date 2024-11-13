@@ -704,7 +704,7 @@ void CommonCaptureManager::CheckContinueCaptureForWriteMode(format::ApiFamilyId 
                 // Clean up all of the capture manager's state trackers
                 for (auto& manager_it : api_capture_managers_)
                 {
-                    // TODOTRIM: Don't always destroy state tracker
+                    // TODOTRIM: Don't destroy state tracker if trimming may still be active.
                     // manager_it.first->DestroyStateTracker();
                 }
                 compressor_ = nullptr;

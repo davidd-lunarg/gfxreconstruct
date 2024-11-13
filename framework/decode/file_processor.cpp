@@ -2126,6 +2126,7 @@ bool FileProcessor::ProcessFrameMarker(const format::BlockHeader& block_header,
     {
         // Validate frame end marker's frame number matches current_frame_number_ when capture_uses_frame_markers_ is
         // true.
+        // TODOTRIM: Do correct frame number checking.
         // GFXRECON_ASSERT((marker_type != format::kEndMarker) || (!capture_uses_frame_markers_) ||
         //                 (current_frame_number_ == (frame_number - first_frame_)));
 

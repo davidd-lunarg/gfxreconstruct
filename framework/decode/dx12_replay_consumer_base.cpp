@@ -2048,8 +2048,6 @@ D3D12_GPU_DESCRIPTOR_HANDLE
 Dx12ReplayConsumerBase::OverrideGetGPUDescriptorHandleForHeapStart(
     DxObjectInfo* replay_object_info, const Decoded_D3D12_GPU_DESCRIPTOR_HANDLE& original_result)
 {
-    GFXRECON_UNREFERENCED_PARAMETER(original_result);
-
     assert((replay_object_info != nullptr) && (replay_object_info->object != nullptr));
 
     auto replay_object = static_cast<ID3D12DescriptorHeap*>(replay_object_info->object);
@@ -2079,6 +2077,14 @@ Dx12ReplayConsumerBase::OverrideGetGPUDescriptorHandleForHeapStart(
                                                              heap_info->descriptor_count,
                                                              heap_info->capture_increments,
                                                              heap_info->replay_increments);
+            }
+
+            if (g_capture_manager)
+            {
+                auto heap_bytes =
+                    heap_info->descriptor_count * (*heap_info->capture_increments)[heap_info->descriptor_type];
+                g_capture_manager->gpu_descriptor_map_.Add(
+                    replay_object_info->capture_id, replay_result.ptr, heap_bytes, heap_info->capture_gpu_addr_begin);
             }
 
             heap_info->replay_gpu_addr_begin = replay_result.ptr;
@@ -2117,6 +2123,12 @@ Dx12ReplayConsumerBase::OverrideGetGpuVirtualAddress(DxObjectInfo*             r
             auto desc = replay_object->GetDesc();
 
             gpu_va_map_.Add(replay_object_info->capture_id, original_result, desc.Width, replay_result);
+
+            if (g_capture_manager)
+            {
+                g_capture_manager->gpu_va_map_.Add(
+                    replay_object_info->capture_id, replay_result, desc.Width, original_result);
+            }
 
             if (resource_value_mapper_ != nullptr)
             {
@@ -2253,6 +2265,13 @@ HRESULT Dx12ReplayConsumerBase::OverrideResourceMap(DxObjectInfo*               
         // Handle first case, when data_pointer != null (like we've always done):
         if (SUCCEEDED(result) && (id_pointer != nullptr) && (*data_pointer != nullptr))
         {
+            if (g_state_tracker)
+            {
+                uint64_t replay_pointer;
+                util::platform::MemoryCopy(&replay_pointer, sizeof(replay_pointer), data_pointer, sizeof(void*));
+                g_state_tracker->SetOriginalMappedResourcePtr(replay_pointer, *id_pointer);
+            }
+
             if (replay_object_info->extra_info == nullptr)
             {
                 // Create resource info record on first use.
@@ -3079,6 +3098,11 @@ void Dx12ReplayConsumerBase::DestroyObjectExtraInfo(DxObjectInfo* info, bool rel
                     resource_value_mapper_->RemoveResourceGpuVa(
                         info->capture_id, resource_info->replay_address_, resource_info->capture_address_);
                 }
+
+                if (g_capture_manager)
+                {
+                    g_capture_manager->gpu_va_map_.Remove(info->capture_id, resource_info->replay_address_);
+                }
             }
 
             for (const auto& entry : resource_info->mapped_memory_info)
@@ -3103,6 +3127,11 @@ void Dx12ReplayConsumerBase::DestroyObjectExtraInfo(DxObjectInfo* info, bool rel
             if (resource_value_mapper_ != nullptr)
             {
                 resource_value_mapper_->RemoveGpuDescriptorHeap(heap_info->capture_gpu_addr_begin);
+            }
+
+            if (g_capture_manager)
+            {
+                g_capture_manager->gpu_descriptor_map_.Remove(info->capture_id, heap_info->replay_gpu_addr_begin);
             }
         }
         else if (extra_info->extra_info_type == DxObjectInfoType::kID3D12HeapInfo)

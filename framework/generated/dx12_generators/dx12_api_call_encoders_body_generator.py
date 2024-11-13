@@ -300,9 +300,16 @@ class Dx12ApiCallEncodersBodyGenerator(Dx12ApiCallEncodersHeaderGenerator):
                     encode_type = ''
 
             if encode_type:
-                rtn = self.get_encode_value(
-                    value, caller_values, encode_type, function_value, is_generating_struct,
-                    is_result
+                rtn = ''
+                if "D3D12_GPU_VIRTUAL_ADDRESS" in value.base_type:
+                    write_parameter_value = ''
+                    if is_generating_struct:
+                        write_parameter_value = 'value.'
+                    rtn = 'encoder->EncodeUInt64Value(D3D12CaptureManager::Get()->gpu_va_map_.Map({}{}));'.format(write_parameter_value, value.name)
+                else:
+                    rtn = self.get_encode_value(
+                        value, caller_values, encode_type, function_value, is_generating_struct,
+                        is_result
                 )
 
         if not rtn:

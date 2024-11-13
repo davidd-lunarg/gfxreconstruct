@@ -84,6 +84,7 @@ void D3D12CaptureManager::DestroyInstance()
     singleton_->common_manager_->DestroyInstance(singleton_);
 }
 
+// TODOTRIM: rename this method
 void D3D12CaptureManager::ChangeCaptureId(IUnknown* wrapped_object, gfxrecon::format::HandleId new_id)
 {
     // Make sure handle ids are preserved
