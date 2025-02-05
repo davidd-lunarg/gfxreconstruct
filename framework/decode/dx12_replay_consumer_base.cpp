@@ -2434,13 +2434,17 @@ UINT64 Dx12ReplayConsumerBase::OverrideGetCompletedValue(DxObjectInfo* replay_ob
                 if (original_result <= fence_info->last_signaled_value)
                 {
                     // The value has already been signaled, so wait operations can be processed immediately.
-                    WaitForFenceEvent(replay_object_info->capture_id, event_handle);
+                    if (WaitForFenceEvent(replay_object_info->capture_id, event_handle))
+                    {
+                        RemoveWaitEventFromFences(kInternalEventId);
+                    }
                 }
                 else
                 {
                     // The value has not been signaled, so process the wait operation when the value is signaled.
                     auto& waiting_objects = fence_info->waiting_objects[original_result];
-                    waiting_objects.wait_events.push_back(event_handle);
+                    waiting_objects.wait_event_ids.insert(kInternalEventId);
+                    event_map_[kInternalEventId].set_event_fence_ids.insert(replay_object_info->capture_id);
                 }
             }
         }
@@ -2478,13 +2482,17 @@ HRESULT Dx12ReplayConsumerBase::OverrideSetEventOnCompletion(DxObjectInfo* repla
             if (value <= fence_info->last_signaled_value)
             {
                 // The value has already been signaled, so wait operations can be processed immediately.
-                WaitForFenceEvent(replay_object_info->capture_id, event_object);
+                if (WaitForFenceEvent(replay_object_info->capture_id, event_object))
+                {
+                    RemoveWaitEventFromFences(event_id);
+                }
             }
             else
             {
                 // The value has not been signaled, so process the wait operation when the value is signaled.
                 auto& waiting_objects = fence_info->waiting_objects[value];
-                waiting_objects.wait_events.push_back(event_object);
+                waiting_objects.wait_event_ids.insert(event_id);
+                event_map_[event_id].set_event_fence_ids.insert(replay_object_info->capture_id);
             }
         }
     }
@@ -3079,12 +3087,12 @@ void Dx12ReplayConsumerBase::DestroyActiveWindows()
 
 void Dx12ReplayConsumerBase::DestroyActiveEvents()
 {
-    for (const auto& entry : event_objects_)
+    for (const auto& entry : event_map_)
     {
-        CloseHandle(entry.second);
+        CloseHandle(entry.second.event_object);
     }
 
-    event_objects_.clear();
+    event_map_.clear();
 }
 
 void Dx12ReplayConsumerBase::DestroyHeapAllocations()
@@ -3143,6 +3151,8 @@ void Dx12ReplayConsumerBase::ProcessFenceSignal(DxObjectInfo* info, uint64_t val
     auto fence_info = GetExtraInfo<D3D12FenceInfo>(info);
     if (fence_info != nullptr)
     {
+        temp_waited_on_event_ids_.clear();
+
         // Process objects waiting for the fence's value up through the new value.
         fence_info->last_signaled_value = value;
         auto range_begin                = fence_info->waiting_objects.begin();
@@ -3153,9 +3163,13 @@ void Dx12ReplayConsumerBase::ProcessFenceSignal(DxObjectInfo* info, uint64_t val
             {
                 auto waiting_objects = std::move(range_begin->second);
                 fence_info->waiting_objects.erase(range_begin);
-                for (auto event_object : waiting_objects.wait_events)
+                for (auto event_id : waiting_objects.wait_event_ids)
                 {
-                    WaitForFenceEvent(info->capture_id, event_object);
+                    auto event_object = GetEventObject(event_id, false);
+                    if (WaitForFenceEvent(info->capture_id, event_object))
+                    {
+                        temp_waited_on_event_ids_.push_back(event_id);
+                    }
                 }
 
                 for (auto queue_info : waiting_objects.wait_queues)
@@ -3165,6 +3179,12 @@ void Dx12ReplayConsumerBase::ProcessFenceSignal(DxObjectInfo* info, uint64_t val
                 range_begin = fence_info->waiting_objects.begin();
                 range_end   = fence_info->waiting_objects.upper_bound(value);
             }
+        }
+
+        // If an event was waited on, it has been signaled and other fences shouldn't wait on it again.
+        for (auto event_id : temp_waited_on_event_ids_)
+        {
+            RemoveWaitEventFromFences(event_id);
         }
     }
 }
@@ -3213,17 +3233,26 @@ void Dx12ReplayConsumerBase::SignalWaitingQueue(DxObjectInfo* queue_info, DxObje
     }
 }
 
-HANDLE Dx12ReplayConsumerBase::GetEventObject(uint64_t event_id, bool reset)
+HANDLE Dx12ReplayConsumerBase::GetEventObject(uint64_t event_id, bool reset_if_unused)
 {
     HANDLE event_object = nullptr;
 
-    auto event_entry = event_objects_.find(event_id);
-    if (event_entry != event_objects_.end())
+    auto event_entry = event_map_.find(event_id);
+    if (event_entry != event_map_.end() && event_entry->second.event_object != nullptr)
     {
-        event_object = event_entry->second;
-        if (reset)
+        event_object = event_entry->second.event_object;
+        if (reset_if_unused)
         {
-            ResetEvent(event_object);
+            if (!event_entry->second.set_event_fence_ids.empty())
+            {
+                GFXRECON_LOG_DEBUG_ONCE(
+                    "GetEventObject() was called with `reset_if_unused == true`. However the event to be reset is "
+                    "currently associated with other fences via SetEventOnCompletion() so the reset will be skipped.");
+            }
+            else
+            {
+                ResetEvent(event_object);
+            }
         }
     }
     else
@@ -3231,7 +3260,7 @@ HANDLE Dx12ReplayConsumerBase::GetEventObject(uint64_t event_id, bool reset)
         event_object = CreateEventA(nullptr, TRUE, FALSE, nullptr);
         if (event_object != nullptr)
         {
-            event_objects_[event_id] = event_object;
+            event_map_[event_id] = { event_object };
         }
         else
         {
@@ -3242,7 +3271,7 @@ HANDLE Dx12ReplayConsumerBase::GetEventObject(uint64_t event_id, bool reset)
     return event_object;
 }
 
-void Dx12ReplayConsumerBase::WaitForFenceEvent(format::HandleId fence_id, HANDLE event_object)
+bool Dx12ReplayConsumerBase::WaitForFenceEvent(format::HandleId fence_id, HANDLE event_object)
 {
     auto wait_result = WaitForSingleObject(event_object, kDefaultWaitTimeout);
 
@@ -3256,6 +3285,36 @@ void Dx12ReplayConsumerBase::WaitForFenceEvent(format::HandleId fence_id, HANDLE
                              wait_result,
                              fence_id);
     }
+
+    // Return true if the event object is signaled.
+    return (wait_result == WAIT_OBJECT_0);
+}
+
+void Dx12ReplayConsumerBase::RemoveWaitEventFromFences(uint64_t event_id)
+{
+    // After an event is waited on, clear out pending waits for all fences that have called SetEventOnCompletion() on
+    // that event.
+    auto& set_event_fence_ids = event_map_[event_id].set_event_fence_ids;
+    if (set_event_fence_ids.size() > 1)
+    {
+        GFXRECON_LOG_DEBUG_ONCE(
+            "Replay encountered the situation where multiple fences called SetEventOnCompletion() using the same "
+            "event. Now, one of the fences was signaled to set the event, and the event was waited on. The event will "
+            "be removed from the other fences' `waiting_objects` to avoid waiting on the event again.");
+    }
+    for (const auto& set_event_fence_id : set_event_fence_ids)
+    {
+        auto fence_object_info = GetObjectInfo(set_event_fence_id);
+        if (fence_object_info)
+        {
+            auto fence_info = GetExtraInfo<D3D12FenceInfo>(fence_object_info);
+            for (auto& waiting_objects_list : fence_info->waiting_objects)
+            {
+                waiting_objects_list.second.wait_event_ids.erase(event_id);
+            }
+        }
+    }
+    set_event_fence_ids.clear();
 }
 
 void Dx12ReplayConsumerBase::SetDebugMsgFilter(std::vector<DXGI_INFO_QUEUE_MESSAGE_ID> denied_msgs,

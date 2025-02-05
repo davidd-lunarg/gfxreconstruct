@@ -42,6 +42,7 @@
 #include <Unknwn.h>
 #include <map>
 #include <set>
+#include <unordered_set>
 #include <unordered_map>
 
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
@@ -137,8 +138,8 @@ struct QueueSyncEventInfo
 
 struct FenceValueSyncInfo
 {
-    std::vector<HANDLE>        wait_events;
-    std::vector<DxObjectInfo*> wait_queues;
+    std::unordered_set<uint64_t> wait_event_ids;
+    std::vector<DxObjectInfo*>   wait_queues;
 };
 
 struct ResourceCopyInfo

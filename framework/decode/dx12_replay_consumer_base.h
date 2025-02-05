@@ -1044,6 +1044,12 @@ class Dx12ReplayConsumerBase : public Dx12Consumer
         }
     };
 
+    struct EventInfo
+    {
+        HANDLE                               event_object{ nullptr };
+        std::unordered_set<format::HandleId> set_event_fence_ids;
+    };
+
     IUnknown* GetCreateDeviceAdapter(DxObjectInfo* adapter_info);
 
     void InitializeD3D12Device(HandlePointerDecoder<void*>* device);
@@ -1098,13 +1104,15 @@ class Dx12ReplayConsumerBase : public Dx12Consumer
 
     void SignalWaitingQueue(DxObjectInfo* queue_info, DxObjectInfo* fence_info, uint64_t value);
 
-    HANDLE GetEventObject(uint64_t event_id, bool reset);
+    HANDLE GetEventObject(uint64_t event_id, bool reset_if_unused);
 
     void ReadDebugMessages();
 
     void InitializeScreenshotHandler();
 
-    void WaitForFenceEvent(format::HandleId fence_id, HANDLE event);
+    bool WaitForFenceEvent(format::HandleId fence_id, HANDLE event_object);
+
+    void RemoveWaitEventFromFences(uint64_t event_id);
 
     void SetDebugMsgFilter(std::vector<DXGI_INFO_QUEUE_MESSAGE_ID> denied_msgs,
                            std::vector<DXGI_INFO_QUEUE_MESSAGE_ID> allowed_msgs);
@@ -1144,7 +1152,7 @@ class Dx12ReplayConsumerBase : public Dx12Consumer
     std::unordered_map<uint64_t, HWND>                    window_handles_;
     std::unordered_map<uint64_t, MappedMemoryEntry>       mapped_memory_;
     std::unordered_map<uint64_t, void*>                   heap_allocations_;
-    std::unordered_map<uint64_t, HANDLE>                  event_objects_;
+    std::unordered_map<uint64_t, EventInfo>               event_map_;
     std::unordered_map<uint64_t, LUID>                    adapter_luid_map_;
     std::function<void(const char*)>                      fatal_error_handler_;
     Dx12DescriptorMap                                     descriptor_map_;
@@ -1170,6 +1178,9 @@ class Dx12ReplayConsumerBase : public Dx12Consumer
     std::unique_ptr<ScreenshotHandlerBase>                screenshot_handler_;
     std::unordered_map<ID3D12Resource*, ResourceInitInfo> resource_init_infos_;
     uint64_t                                              frame_end_marker_count_;
+
+    // Reused temp vector to avoid allocations.
+    std::vector<uint64_t> temp_waited_on_event_ids_;
 };
 
 GFXRECON_END_NAMESPACE(decode)
