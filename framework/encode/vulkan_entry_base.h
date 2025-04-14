@@ -59,7 +59,7 @@ class VulkanEntryBase
     virtual VkResult           EnumerateDeviceExtensionProperties(VkPhysicalDevice       physicalDevice,
                                                                   const char*            pLayerName,
                                                                   uint32_t*              pPropertyCount,
-                                                                  VkExtensionProperties* pProperties);
+                                                                  VkExtensionProperties* pProperties) = 0;
     virtual VkResult           EnumerateInstanceExtensionProperties(const char*            pLayerName,
                                                                     uint32_t*              pPropertyCount,
                                                                     VkExtensionProperties* pProperties);
@@ -130,6 +130,14 @@ class VulkanEntryBase
     PFN_GetPhysicalDeviceProcAddr GetNextGPDPA(const VkInstance instance);
 
     const VulkanFunctionTable vulkan_function_table_;
+
+    // Enumerate device extentions, removing any extensions not supported by GFXR, and optionally adding the extensions
+    // provided by the GFXR layer in kVulkanDeviceExtensionProps.
+    VkResult EnumerateDeviceExtensionProperties(VkPhysicalDevice       physicalDevice,
+                                                const char*            pLayerName,
+                                                uint32_t*              pPropertyCount,
+                                                VkExtensionProperties* pProperties,
+                                                bool                   add_extensions);
 };
 
 GFXRECON_END_NAMESPACE(vulkan_entry_layer)

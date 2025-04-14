@@ -121,6 +121,15 @@ VulkanEntryLayer::VulkanEntryLayer(const encode::VulkanFunctionTable& vulkan_fun
 
 VulkanEntryLayer::~VulkanEntryLayer() {}
 
+VkResult VulkanEntryLayer::EnumerateDeviceExtensionProperties(VkPhysicalDevice       physicalDevice,
+                                                              const char*            pLayerName,
+                                                              uint32_t*              pPropertyCount,
+                                                              VkExtensionProperties* pProperties)
+{
+    return VulkanEntryBase::EnumerateDeviceExtensionProperties(
+        physicalDevice, pLayerName, pPropertyCount, pProperties, true);
+}
+
 VkResult VulkanEntryLayer::dispatch_CreateInstance(const VkInstanceCreateInfo*  pCreateInfo,
                                                    const VkAllocationCallbacks* pAllocator,
                                                    VkInstance*                  pInstance)

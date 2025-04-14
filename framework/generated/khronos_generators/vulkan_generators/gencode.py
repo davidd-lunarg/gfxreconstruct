@@ -79,6 +79,7 @@ from vulkan_command_buffer_util_body_generator import VulkanCommandBufferUtilBod
 from vulkan_command_buffer_util_header_generator import VulkanCommandBufferUtilHeaderGenerator, VulkanCommandBufferUtilHeaderGeneratorOptions
 from vulkan_dispatch_table_generator import VulkanDispatchTableGenerator, VulkanDispatchTableGeneratorOptions
 from vulkan_layer_func_table_generator import VulkanLayerFuncTableGenerator, VulkanLayerFuncTableGeneratorOptions
+from vulkan_trim_func_table_generator import VulkanTrimFuncTableGenerator, VulkanTrimFuncTableGeneratorOptions
 
 # Struct Encoders
 from vulkan_struct_encoders_body_generator import VulkanStructEncodersBodyGenerator, VulkanStructEncodersBodyGeneratorOptions
@@ -376,7 +377,7 @@ def make_gen_opts(args):
             base_class_header='vulkan_replay_consumer_base.h',
             is_override=True,
             constructor_args=
-            'std::shared_ptr<application::Application> application, const VulkanReplayOptions& options',
+            'std::shared_ptr<application::Application> application, const VulkanReplayOptions& options, PFN_vkGetInstanceProcAddr get_instance_proc_addr',
             filename='generated_vulkan_replay_consumer.h',
             directory=directory,
             blacklists=blacklists,
@@ -644,6 +645,18 @@ def make_gen_opts(args):
         VulkanLayerFuncTableGenerator,
         VulkanLayerFuncTableGeneratorOptions(
             filename='generated_vulkan_layer_func_table.h',
+            directory=directory,
+            prefix_text=prefix_strings + vk_prefix_strings,
+            protect_file=True,
+            protect_feature=False,
+            extra_headers=extra_headers
+        )
+    ]
+
+    gen_opts['generated_vulkan_trim_func_table.h'] = [
+        VulkanTrimFuncTableGenerator,
+        VulkanTrimFuncTableGeneratorOptions(
+            filename='generated_vulkan_trim_func_table.h',
             directory=directory,
             prefix_text=prefix_strings + vk_prefix_strings,
             protect_file=True,

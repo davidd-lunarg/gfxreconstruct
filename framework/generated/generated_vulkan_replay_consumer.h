@@ -47,7 +47,7 @@ GFXRECON_BEGIN_NAMESPACE(decode)
 class VulkanReplayConsumer : public VulkanReplayConsumerBase
 {
   public:
-    VulkanReplayConsumer(std::shared_ptr<application::Application> application, const VulkanReplayOptions& options) : VulkanReplayConsumerBase(application, options) { }
+    VulkanReplayConsumer(std::shared_ptr<application::Application> application, const VulkanReplayOptions& options, PFN_vkGetInstanceProcAddr get_instance_proc_addr) : VulkanReplayConsumerBase(application, options, get_instance_proc_addr) { }
 
     virtual ~VulkanReplayConsumer() override { }
 

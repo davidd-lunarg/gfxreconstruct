@@ -224,7 +224,8 @@ PFN_vkVoidFunction VulkanEntryBase::GetPhysicalDeviceProcAddr(VkInstance ourInst
 VkResult VulkanEntryBase::EnumerateDeviceExtensionProperties(VkPhysicalDevice       physicalDevice,
                                                              const char*            pLayerName,
                                                              uint32_t*              pPropertyCount,
-                                                             VkExtensionProperties* pProperties)
+                                                             VkExtensionProperties* pProperties,
+                                                             bool                   add_extensions)
 {
     VkResult result = VK_SUCCESS;
 
@@ -232,28 +233,35 @@ VkResult VulkanEntryBase::EnumerateDeviceExtensionProperties(VkPhysicalDevice   
     {
         if (pPropertyCount != nullptr)
         {
-            uint32_t extension_count = static_cast<uint32_t>(kVulkanDeviceExtensionProps.size());
+            if (add_extensions)
+            {
+                uint32_t extension_count = static_cast<uint32_t>(kVulkanDeviceExtensionProps.size());
 
-            if (pProperties == nullptr)
-            {
-                *pPropertyCount = extension_count;
-            }
-            else
-            {
-                if ((*pPropertyCount) < extension_count)
-                {
-                    result          = VK_INCOMPLETE;
-                    extension_count = *pPropertyCount;
-                }
-                else if ((*pPropertyCount) > extension_count)
+                if (pProperties == nullptr)
                 {
                     *pPropertyCount = extension_count;
                 }
-
-                for (uint32_t i = 0; i < extension_count; ++i)
+                else
                 {
-                    pProperties[i] = kVulkanDeviceExtensionProps[i].props;
+                    if ((*pPropertyCount) < extension_count)
+                    {
+                        result          = VK_INCOMPLETE;
+                        extension_count = *pPropertyCount;
+                    }
+                    else if ((*pPropertyCount) > extension_count)
+                    {
+                        *pPropertyCount = extension_count;
+                    }
+
+                    for (uint32_t i = 0; i < extension_count; ++i)
+                    {
+                        pProperties[i] = kVulkanDeviceExtensionProps[i].props;
+                    }
                 }
+            }
+            else
+            {
+                *pPropertyCount = 0;
             }
         }
     }
@@ -285,22 +293,25 @@ VkResult VulkanEntryBase::EnumerateDeviceExtensionProperties(VkPhysicalDevice   
                          kVulkanUnsupportedDeviceExtensions.data(),
                          std::end(kVulkanUnsupportedDeviceExtensions) - std::begin(kVulkanUnsupportedDeviceExtensions));
 
-        // Append the extensions we provide in the list to the caller if they aren't already provided downstream.
-        if (pLayerName == nullptr)
+        if (add_extensions)
         {
-            for (auto& provided_prop : kVulkanDeviceExtensionProps)
+            // Append the extensions we provide in the list to the caller if they aren't already provided downstream.
+            if (pLayerName == nullptr)
             {
-                bool append_provided_prop =
-                    std::find_if(device_extension_properties.begin(),
-                                 device_extension_properties.end(),
-                                 [&provided_prop](const VkExtensionProperties& downstream_prop) {
-                                     return util::platform::StringCompare(provided_prop.props.extensionName,
-                                                                          downstream_prop.extensionName,
-                                                                          VK_MAX_EXTENSION_NAME_SIZE) == 0;
-                                 }) == device_extension_properties.end();
-                if (append_provided_prop)
+                for (auto& provided_prop : kVulkanDeviceExtensionProps)
                 {
-                    device_extension_properties.push_back(provided_prop.props);
+                    bool append_provided_prop =
+                        std::find_if(device_extension_properties.begin(),
+                                     device_extension_properties.end(),
+                                     [&provided_prop](const VkExtensionProperties& downstream_prop) {
+                                         return util::platform::StringCompare(provided_prop.props.extensionName,
+                                                                              downstream_prop.extensionName,
+                                                                              VK_MAX_EXTENSION_NAME_SIZE) == 0;
+                                     }) == device_extension_properties.end();
+                    if (append_provided_prop)
+                    {
+                        device_extension_properties.push_back(provided_prop.props);
+                    }
                 }
             }
         }

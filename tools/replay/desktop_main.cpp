@@ -58,6 +58,11 @@
 #include "parse_dump_resources_cli.h"
 #include "replay_pre_processing.h"
 
+#ifdef GFXRECON_TRIM_TOOL
+#include "encode/vulkan_capture_manager.h"
+#include "../trim/vulkan_entry_trim.h"
+#endif // GFXRECON_TRIM_TOOL
+
 #include <exception>
 #include <memory>
 #include <stdexcept>
@@ -199,8 +204,20 @@ int main(int argc, const char** argv)
                                                  quit_after_frame,
                                                  quit_frame);
 
-            gfxrecon::decode::VulkanReplayConsumer vulkan_replay_consumer(application, vulkan_replay_options);
-            gfxrecon::decode::VulkanDecoder        vulkan_decoder;
+            PFN_vkGetInstanceProcAddr instance_proc_addr = nullptr;
+
+#ifdef GFXRECON_TRIM_TOOL
+            gfxrecon::vulkan_entry_trim::VulkanEntryTrim::InitSingleton();
+
+            instance_proc_addr = gfxrecon::vulkan_entry_trim::GetInstanceProcAddr;
+
+            gfxrecon::encode::VulkanCaptureManager::SetLayerFuncs(gfxrecon::vulkan_entry_trim::dispatch_CreateInstance,
+                                                                  gfxrecon::vulkan_entry_trim::dispatch_CreateDevice);
+#endif // GFXRECON_TRIM_TOOL
+
+            gfxrecon::decode::VulkanReplayConsumer vulkan_replay_consumer(
+                application, vulkan_replay_options, instance_proc_addr);
+            gfxrecon::decode::VulkanDecoder vulkan_decoder;
 
             ApiReplayOptions  api_replay_options;
             ApiReplayConsumer api_replay_consumer;
@@ -343,6 +360,10 @@ int main(int argc, const char** argv)
             {
                 GFXRECON_WRITE_CONSOLE("File did not contain any frames");
             }
+
+#ifdef GFXRECON_TRIM_TOOL
+            gfxrecon::vulkan_entry_trim::VulkanEntryTrim::DestroySingleton();
+#endif
         }
     }
     catch (const std::runtime_error& error)

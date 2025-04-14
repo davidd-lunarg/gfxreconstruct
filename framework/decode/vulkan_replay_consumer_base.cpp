@@ -179,9 +179,10 @@ static uint32_t GetHardwareBufferFormatBpp(uint32_t format)
 #endif
 
 VulkanReplayConsumerBase::VulkanReplayConsumerBase(std::shared_ptr<application::Application> application,
-                                                   const VulkanReplayOptions&                options) :
+                                                   const VulkanReplayOptions&                options,
+                                                   PFN_vkGetInstanceProcAddr                 get_instance_proc_addr) :
     options_(options),
-    loader_handle_(nullptr), get_instance_proc_addr_(nullptr), create_instance_proc_(nullptr),
+    loader_handle_(nullptr), get_instance_proc_addr_(get_instance_proc_addr), create_instance_proc_(nullptr),
     application_(application), loading_trim_state_(false), replaying_trimmed_capture_(false), fps_info_(nullptr),
     have_imported_semaphores_(false), omitted_pipeline_cache_data_(false)
 {
@@ -1263,7 +1264,7 @@ void VulkanReplayConsumerBase::RaiseFatalError(const char* message) const
 void VulkanReplayConsumerBase::InitializeLoader()
 {
     loader_handle_ = graphics::InitializeLoader();
-    if (loader_handle_ != nullptr)
+    if ((loader_handle_ != nullptr) && (get_instance_proc_addr_ == nullptr))
     {
         get_instance_proc_addr_ = reinterpret_cast<PFN_vkGetInstanceProcAddr>(
             util::platform::GetProcAddress(loader_handle_, "vkGetInstanceProcAddr"));
