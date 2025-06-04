@@ -83,6 +83,9 @@ class VulkanEntryLayer : public encode::VulkanEntryBase
                                                         const char*            pLayerName,
                                                         uint32_t*              pPropertyCount,
                                                         VkExtensionProperties* pProperties) override;
+    virtual VkResult EnumerateInstanceExtensionProperties(const char*            pLayerName,
+                                                          uint32_t*              pPropertyCount,
+                                                          VkExtensionProperties* pProperties) override;
 
     virtual VkResult dispatch_CreateInstance(const VkInstanceCreateInfo*  pCreateInfo,
                                              const VkAllocationCallbacks* pAllocator,

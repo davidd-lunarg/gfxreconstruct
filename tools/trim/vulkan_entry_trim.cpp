@@ -127,6 +127,43 @@ VkResult VulkanEntryTrim::EnumerateDeviceExtensionProperties(VkPhysicalDevice   
         physicalDevice, pLayerName, pPropertyCount, pProperties, false);
 }
 
+VkResult VulkanEntryTrim::EnumerateInstanceExtensionProperties(const char*            pLayerName,
+                                                               uint32_t*              pPropertyCount,
+                                                               VkExtensionProperties* pProperties)
+{
+    VkResult result = VK_SUCCESS;
+
+    if ((pLayerName != nullptr) && (util::platform::StringCompare(pLayerName, kLayerProps.layerName) == 0))
+    {
+        if (pPropertyCount != nullptr)
+        {
+            *pPropertyCount = 0;
+        }
+    }
+    else if (pLayerName == nullptr)
+    {
+        // During trim, the GFXR capture code is not a layer registered with the loader, so forward the call to the
+        // loader here.
+        if (loader_handle_ != nullptr)
+        {
+            auto loader_enumerate_instance_extension_properties =
+                reinterpret_cast<PFN_vkEnumerateInstanceExtensionProperties>(
+                    util::platform::GetProcAddress(loader_handle_, "vkEnumerateInstanceExtensionProperties"));
+            result = loader_enumerate_instance_extension_properties(pLayerName, pPropertyCount, pProperties);
+        }
+        else
+        {
+            result = VK_ERROR_INITIALIZATION_FAILED;
+        }
+    }
+    else
+    {
+        result = VK_ERROR_LAYER_NOT_PRESENT;
+    }
+
+    return result;
+}
+
 // For the trim tool, this function is called by the capture manager handling for vkCreateInstance in
 // VulkanCaptureManager::OverrideCreateInstance. It needs to create the actual (not wrapped) VkInstance object.
 VKAPI_ATTR VkResult VKAPI_CALL VulkanEntryTrim::dispatch_CreateInstance(const VkInstanceCreateInfo*  pCreateInfo,

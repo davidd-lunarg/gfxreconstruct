@@ -130,6 +130,27 @@ VkResult VulkanEntryLayer::EnumerateDeviceExtensionProperties(VkPhysicalDevice  
         physicalDevice, pLayerName, pPropertyCount, pProperties, true);
 }
 
+VkResult VulkanEntryLayer::EnumerateInstanceExtensionProperties(const char*            pLayerName,
+                                                                uint32_t*              pPropertyCount,
+                                                                VkExtensionProperties* pProperties)
+{
+    VkResult result = VK_SUCCESS;
+
+    if (pLayerName && (util::platform::StringCompare(pLayerName, kLayerProps.layerName) == 0))
+    {
+        if (pPropertyCount != nullptr)
+        {
+            *pPropertyCount = 0;
+        }
+    }
+    else
+    {
+        result = VK_ERROR_LAYER_NOT_PRESENT;
+    }
+
+    return result;
+}
+
 VkResult VulkanEntryLayer::dispatch_CreateInstance(const VkInstanceCreateInfo*  pCreateInfo,
                                                    const VkAllocationCallbacks* pAllocator,
                                                    VkInstance*                  pInstance)
