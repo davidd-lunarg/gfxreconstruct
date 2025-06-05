@@ -1,7 +1,6 @@
 add_subdirectory(replay)
 add_subdirectory(compress)
 add_subdirectory(info)
-add_subdirectory(trim)
 
 if(GFXRECON_TOCPP_SUPPORT)
 add_subdirectory(tocpp)

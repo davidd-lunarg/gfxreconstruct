@@ -23,11 +23,11 @@
 
 #include PROJECT_VERSION_HEADER_FILE
 
-#include "tools/trim/vulkan_entry_trim.h"
+#include "tools/replay/vulkan_entry_recapture.h"
 #include "encode/vulkan_capture_manager.h"
 #include "encode/vulkan_handle_wrapper_util.h"
 #include "generated/generated_vulkan_api_call_encoders.h"
-#include "generated/generated_vulkan_trim_func_table.h"
+#include "generated/generated_vulkan_recapture_func_table.h"
 #include "util/platform.h"
 
 #include "vulkan/vk_layer.h"
@@ -41,21 +41,21 @@
 #include <vector>
 
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
-GFXRECON_BEGIN_NAMESPACE(vulkan_entry_trim)
+GFXRECON_BEGIN_NAMESPACE(vulkan_entry_recapture)
 
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetInstanceProcAddr(VkInstance instance, const char* pName)
 {
-    return VulkanEntryTrim::Get()->GetInstanceProcAddr(instance, pName);
+    return VulkanEntryRecapture::Get()->GetInstanceProcAddr(instance, pName);
 }
 
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetDeviceProcAddr(VkDevice device, const char* pName)
 {
-    return VulkanEntryTrim::Get()->GetDeviceProcAddr(device, pName);
+    return VulkanEntryRecapture::Get()->GetDeviceProcAddr(device, pName);
 }
 
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetPhysicalDeviceProcAddr(VkInstance ourInstanceWrapper, const char* pName)
 {
-    return VulkanEntryTrim::Get()->GetPhysicalDeviceProcAddr(ourInstanceWrapper, pName);
+    return VulkanEntryRecapture::Get()->GetPhysicalDeviceProcAddr(ourInstanceWrapper, pName);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL EnumerateDeviceExtensionProperties(VkPhysicalDevice       physicalDevice,
@@ -63,7 +63,7 @@ VKAPI_ATTR VkResult VKAPI_CALL EnumerateDeviceExtensionProperties(VkPhysicalDevi
                                                                   uint32_t*              pPropertyCount,
                                                                   VkExtensionProperties* pProperties)
 {
-    return VulkanEntryTrim::Get()->EnumerateDeviceExtensionProperties(
+    return VulkanEntryRecapture::Get()->EnumerateDeviceExtensionProperties(
         physicalDevice, pLayerName, pPropertyCount, pProperties);
 }
 
@@ -71,27 +71,27 @@ VKAPI_ATTR VkResult VKAPI_CALL EnumerateInstanceExtensionProperties(const char* 
                                                                     uint32_t*              pPropertyCount,
                                                                     VkExtensionProperties* pProperties)
 {
-    return VulkanEntryTrim::Get()->EnumerateInstanceExtensionProperties(pLayerName, pPropertyCount, pProperties);
+    return VulkanEntryRecapture::Get()->EnumerateInstanceExtensionProperties(pLayerName, pPropertyCount, pProperties);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL EnumerateInstanceLayerProperties(uint32_t*          pPropertyCount,
                                                                 VkLayerProperties* pProperties)
 {
-    return VulkanEntryTrim::Get()->EnumerateInstanceLayerProperties(pPropertyCount, pProperties);
+    return VulkanEntryRecapture::Get()->EnumerateInstanceLayerProperties(pPropertyCount, pProperties);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL EnumerateDeviceLayerProperties(VkPhysicalDevice   physicalDevice,
                                                               uint32_t*          pPropertyCount,
                                                               VkLayerProperties* pProperties)
 {
-    return VulkanEntryTrim::Get()->EnumerateDeviceLayerProperties(physicalDevice, pPropertyCount, pProperties);
+    return VulkanEntryRecapture::Get()->EnumerateDeviceLayerProperties(physicalDevice, pPropertyCount, pProperties);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL dispatch_CreateInstance(const VkInstanceCreateInfo*  pCreateInfo,
                                                        const VkAllocationCallbacks* pAllocator,
                                                        VkInstance*                  pInstance)
 {
-    return VulkanEntryTrim::Get()->dispatch_CreateInstance(pCreateInfo, pAllocator, pInstance);
+    return VulkanEntryRecapture::Get()->dispatch_CreateInstance(pCreateInfo, pAllocator, pInstance);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL dispatch_CreateDevice(VkPhysicalDevice             physicalDevice,
@@ -99,37 +99,37 @@ VKAPI_ATTR VkResult VKAPI_CALL dispatch_CreateDevice(VkPhysicalDevice           
                                                      const VkAllocationCallbacks* pAllocator,
                                                      VkDevice*                    pDevice)
 {
-    return VulkanEntryTrim::Get()->dispatch_CreateDevice(physicalDevice, pCreateInfo, pAllocator, pDevice);
+    return VulkanEntryRecapture::Get()->dispatch_CreateDevice(physicalDevice, pCreateInfo, pAllocator, pDevice);
 }
 
-encode::VulkanEntryBase* VulkanEntryTrim::InitSingleton()
+encode::VulkanEntryBase* VulkanEntryRecapture::InitSingleton()
 {
-    return VulkanEntryBase::InitSingleton<VulkanEntryTrim>(GetVulkanFuncTableTrim());
+    return VulkanEntryBase::InitSingleton<VulkanEntryRecapture>(GetVulkanFuncTableRecapture());
 }
 
-VulkanEntryTrim::VulkanEntryTrim(const encode::VulkanFunctionTable& vulkan_function_table) :
+VulkanEntryRecapture::VulkanEntryRecapture(const encode::VulkanFunctionTable& vulkan_function_table) :
     VulkanEntryBase(vulkan_function_table)
 {
     InitializeLoader();
 }
 
-VulkanEntryTrim::~VulkanEntryTrim()
+VulkanEntryRecapture::~VulkanEntryRecapture()
 {
     ReleaseLoader();
 }
 
-VkResult VulkanEntryTrim::EnumerateDeviceExtensionProperties(VkPhysicalDevice       physicalDevice,
-                                                             const char*            pLayerName,
-                                                             uint32_t*              pPropertyCount,
-                                                             VkExtensionProperties* pProperties)
+VkResult VulkanEntryRecapture::EnumerateDeviceExtensionProperties(VkPhysicalDevice       physicalDevice,
+                                                                  const char*            pLayerName,
+                                                                  uint32_t*              pPropertyCount,
+                                                                  VkExtensionProperties* pProperties)
 {
     return VulkanEntryBase::EnumerateDeviceExtensionProperties(
         physicalDevice, pLayerName, pPropertyCount, pProperties, false);
 }
 
-VkResult VulkanEntryTrim::EnumerateInstanceExtensionProperties(const char*            pLayerName,
-                                                               uint32_t*              pPropertyCount,
-                                                               VkExtensionProperties* pProperties)
+VkResult VulkanEntryRecapture::EnumerateInstanceExtensionProperties(const char*            pLayerName,
+                                                                    uint32_t*              pPropertyCount,
+                                                                    VkExtensionProperties* pProperties)
 {
     VkResult result = VK_SUCCESS;
 
@@ -166,9 +166,9 @@ VkResult VulkanEntryTrim::EnumerateInstanceExtensionProperties(const char*      
 
 // For the trim tool, this function is called by the capture manager handling for vkCreateInstance in
 // VulkanCaptureManager::OverrideCreateInstance. It needs to create the actual (not wrapped) VkInstance object.
-VKAPI_ATTR VkResult VKAPI_CALL VulkanEntryTrim::dispatch_CreateInstance(const VkInstanceCreateInfo*  pCreateInfo,
-                                                                        const VkAllocationCallbacks* pAllocator,
-                                                                        VkInstance*                  pInstance)
+VKAPI_ATTR VkResult VKAPI_CALL VulkanEntryRecapture::dispatch_CreateInstance(const VkInstanceCreateInfo*  pCreateInfo,
+                                                                             const VkAllocationCallbacks* pAllocator,
+                                                                             VkInstance*                  pInstance)
 {
     VkResult result = VK_ERROR_INITIALIZATION_FAILED;
 
@@ -214,10 +214,10 @@ VKAPI_ATTR VkResult VKAPI_CALL VulkanEntryTrim::dispatch_CreateInstance(const Vk
 
 // For the trim tool, this function is called by the capture manager handling for vkCreateDevice in
 // VulkanCaptureManager::OverrideCreateDevice. It needs to create the actual (not wrapped) VkDevice object.
-VKAPI_ATTR VkResult VKAPI_CALL VulkanEntryTrim::dispatch_CreateDevice(VkPhysicalDevice             physicalDevice,
-                                                                      const VkDeviceCreateInfo*    pCreateInfo,
-                                                                      const VkAllocationCallbacks* pAllocator,
-                                                                      VkDevice*                    pDevice)
+VKAPI_ATTR VkResult VKAPI_CALL VulkanEntryRecapture::dispatch_CreateDevice(VkPhysicalDevice             physicalDevice,
+                                                                           const VkDeviceCreateInfo*    pCreateInfo,
+                                                                           const VkAllocationCallbacks* pAllocator,
+                                                                           VkDevice*                    pDevice)
 {
     VkResult result = VK_ERROR_INITIALIZATION_FAILED;
 
@@ -250,13 +250,13 @@ VKAPI_ATTR VkResult VKAPI_CALL VulkanEntryTrim::dispatch_CreateDevice(VkPhysical
     return result;
 }
 
-void VulkanEntryTrim::InitializeLoader()
+void VulkanEntryRecapture::InitializeLoader()
 {
     loader_handle_ = graphics::InitializeLoader();
     GFXRECON_ASSERT(loader_handle_ != nullptr);
 }
 
-void VulkanEntryTrim::ReleaseLoader()
+void VulkanEntryRecapture::ReleaseLoader()
 {
     if (loader_handle_)
     {
@@ -264,5 +264,5 @@ void VulkanEntryTrim::ReleaseLoader()
     }
 }
 
-GFXRECON_END_NAMESPACE(vulkan_entry_trim)
+GFXRECON_END_NAMESPACE(vulkan_entry_recapture)
 GFXRECON_END_NAMESPACE(gfxrecon)

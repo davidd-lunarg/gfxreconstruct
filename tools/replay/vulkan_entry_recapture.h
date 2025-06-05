@@ -21,8 +21,8 @@
 ** DEALINGS IN THE SOFTWARE.
 */
 
-#ifndef GFXRECON_VULKAN_ENTRY_TRIM_H
-#define GFXRECON_VULKAN_ENTRY_TRIM_H
+#ifndef GFXRECON_vulkan_entry_recapture_H
+#define GFXRECON_vulkan_entry_recapture_H
 
 #include "encode/vulkan_entry_base.h"
 
@@ -36,7 +36,7 @@
 #include <vector>
 
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
-GFXRECON_BEGIN_NAMESPACE(vulkan_entry_trim)
+GFXRECON_BEGIN_NAMESPACE(vulkan_entry_recapture)
 
 // The following prototype declarations are required so the dispatch table can find these
 // functions which are defined in the .cpp
@@ -64,13 +64,13 @@ VKAPI_ATTR VkResult VKAPI_CALL dispatch_CreateDevice(VkPhysicalDevice           
                                                      const VkAllocationCallbacks* pAllocator,
                                                      VkDevice*                    pDevice);
 
-class VulkanEntryTrim : public encode::VulkanEntryBase
+class VulkanEntryRecapture : public encode::VulkanEntryBase
 {
   public:
     static VulkanEntryBase* InitSingleton();
 
-    VulkanEntryTrim(const encode::VulkanFunctionTable& vulkan_function_table);
-    virtual ~VulkanEntryTrim();
+    VulkanEntryRecapture(const encode::VulkanFunctionTable& vulkan_function_table);
+    virtual ~VulkanEntryRecapture();
 
     virtual VkResult EnumerateDeviceExtensionProperties(VkPhysicalDevice       physicalDevice,
                                                         const char*            pLayerName,
@@ -95,16 +95,16 @@ class VulkanEntryTrim : public encode::VulkanEntryBase
     util::platform::LibraryHandle loader_handle_ = nullptr;
 };
 
-GFXRECON_END_NAMESPACE(vulkan_entry_trim)
+GFXRECON_END_NAMESPACE(vulkan_entry_recapture)
 
 #if ENABLE_OPENXR_SUPPORT
 GFXRECON_BEGIN_NAMESPACE(openxr_entry)
 
-// TODOTRIM: Add openxr support to gfxrecon-trim
+// TODOTRIM: Add openxr support to recapture
 
 GFXRECON_END_NAMESPACE(openxr_entry)
 #endif // ENABLE_OPENXR_SUPPORT
 
 GFXRECON_END_NAMESPACE(gfxrecon)
 
-#endif // GFXRECON_VULKAN_ENTRY_TRIM_H
+#endif // GFXRECON_vulkan_entry_recapture_H
