@@ -112,7 +112,38 @@ VKAPI_ATTR VkResult VKAPI_CALL dispatch_CreateDevice(VkPhysicalDevice           
 
 encode::VulkanEntryBase* VulkanEntryLayer::InitSingleton()
 {
-    return VulkanEntryBase::InitSingleton<VulkanEntryLayer>(GetVulkanFuncTableLayer());
+    encode::VulkanFunctionTable func_table = GetVulkanFuncTable();
+
+    // Check that all custom functions have entries in the table and are nullptr.
+    GFXRECON_ASSERT(func_table.at("vkGetInstanceProcAddr") == nullptr);
+    GFXRECON_ASSERT(func_table.at("vkGetDeviceProcAddr") == nullptr);
+    GFXRECON_ASSERT(func_table.at("vkEnumerateInstanceExtensionProperties") == nullptr);
+    GFXRECON_ASSERT(func_table.at("vkEnumerateDeviceExtensionProperties") == nullptr);
+    GFXRECON_ASSERT(func_table.at("vkEnumerateInstanceLayerProperties") == nullptr);
+    GFXRECON_ASSERT(func_table.at("vkEnumerateDeviceLayerProperties") == nullptr);
+    GFXRECON_ASSERT(func_table.at("vk_layerGetPhysicalDeviceProcAddr") == nullptr);
+
+    // Customize function table.
+    func_table["vkGetInstanceProcAddr"] = reinterpret_cast<PFN_vkVoidFunction>(vulkan_entry_layer::GetInstanceProcAddr);
+    func_table["vkGetDeviceProcAddr"]   = reinterpret_cast<PFN_vkVoidFunction>(vulkan_entry_layer::GetDeviceProcAddr);
+    func_table["vkEnumerateInstanceExtensionProperties"] =
+        reinterpret_cast<PFN_vkVoidFunction>(vulkan_entry_layer::EnumerateInstanceExtensionProperties);
+    func_table["vkEnumerateDeviceExtensionProperties"] =
+        reinterpret_cast<PFN_vkVoidFunction>(vulkan_entry_layer::EnumerateDeviceExtensionProperties);
+    func_table["vkEnumerateInstanceLayerProperties"] =
+        reinterpret_cast<PFN_vkVoidFunction>(vulkan_entry_layer::EnumerateInstanceLayerProperties);
+    func_table["vkEnumerateDeviceLayerProperties"] =
+        reinterpret_cast<PFN_vkVoidFunction>(vulkan_entry_layer::EnumerateDeviceLayerProperties);
+    func_table["vk_layerGetPhysicalDeviceProcAddr"] =
+        reinterpret_cast<PFN_vkVoidFunction>(vulkan_entry_layer::GetPhysicalDeviceProcAddr);
+
+    // Check that all function table entries have been set.
+    for (const auto& pair : func_table)
+    {
+        GFXRECON_ASSERT((pair.second != nullptr) && "Missing function in VulkanFunctionTable.");
+    }
+
+    return VulkanEntryBase::InitSingleton<VulkanEntryLayer>(func_table);
 }
 
 VulkanEntryLayer::VulkanEntryLayer(const encode::VulkanFunctionTable& vulkan_function_table) :

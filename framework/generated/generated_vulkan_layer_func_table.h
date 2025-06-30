@@ -48,8 +48,9 @@
 
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
 GFXRECON_BEGIN_NAMESPACE(vulkan_entry_layer)
-static const std::unordered_map<std::string, PFN_vkVoidFunction> GetVulkanFuncTableLayer() {
+static const std::unordered_map<std::string, PFN_vkVoidFunction> GetVulkanFuncTable() {
     return {
+        { "vk_layerGetPhysicalDeviceProcAddr",                                                                   nullptr },
         { "vkCreateInstance",                                                                                    reinterpret_cast<PFN_vkVoidFunction>(encode::vkCreateInstance) },
         { "vkDestroyInstance",                                                                                   reinterpret_cast<PFN_vkVoidFunction>(encode::vkDestroyInstance) },
         { "vkEnumeratePhysicalDevices",                                                                          reinterpret_cast<PFN_vkVoidFunction>(encode::vkEnumeratePhysicalDevices) },
@@ -59,14 +60,14 @@ static const std::unordered_map<std::string, PFN_vkVoidFunction> GetVulkanFuncTa
         { "vkGetPhysicalDeviceProperties",                                                                       reinterpret_cast<PFN_vkVoidFunction>(encode::vkGetPhysicalDeviceProperties) },
         { "vkGetPhysicalDeviceQueueFamilyProperties",                                                            reinterpret_cast<PFN_vkVoidFunction>(encode::vkGetPhysicalDeviceQueueFamilyProperties) },
         { "vkGetPhysicalDeviceMemoryProperties",                                                                 reinterpret_cast<PFN_vkVoidFunction>(encode::vkGetPhysicalDeviceMemoryProperties) },
-        { "vkGetInstanceProcAddr",                                                                               reinterpret_cast<PFN_vkVoidFunction>(vulkan_entry_layer::GetInstanceProcAddr) },
-        { "vkGetDeviceProcAddr",                                                                                 reinterpret_cast<PFN_vkVoidFunction>(vulkan_entry_layer::GetDeviceProcAddr) },
+        { "vkGetInstanceProcAddr",                                                                               nullptr },
+        { "vkGetDeviceProcAddr",                                                                                 nullptr },
         { "vkCreateDevice",                                                                                      reinterpret_cast<PFN_vkVoidFunction>(encode::vkCreateDevice) },
         { "vkDestroyDevice",                                                                                     reinterpret_cast<PFN_vkVoidFunction>(encode::vkDestroyDevice) },
-        { "vkEnumerateInstanceExtensionProperties",                                                              reinterpret_cast<PFN_vkVoidFunction>(vulkan_entry_layer::EnumerateInstanceExtensionProperties) },
-        { "vkEnumerateDeviceExtensionProperties",                                                                reinterpret_cast<PFN_vkVoidFunction>(vulkan_entry_layer::EnumerateDeviceExtensionProperties) },
-        { "vkEnumerateInstanceLayerProperties",                                                                  reinterpret_cast<PFN_vkVoidFunction>(vulkan_entry_layer::EnumerateInstanceLayerProperties) },
-        { "vkEnumerateDeviceLayerProperties",                                                                    reinterpret_cast<PFN_vkVoidFunction>(vulkan_entry_layer::EnumerateDeviceLayerProperties) },
+        { "vkEnumerateInstanceExtensionProperties",                                                              nullptr },
+        { "vkEnumerateDeviceExtensionProperties",                                                                nullptr },
+        { "vkEnumerateInstanceLayerProperties",                                                                  nullptr },
+        { "vkEnumerateDeviceLayerProperties",                                                                    nullptr },
         { "vkGetDeviceQueue",                                                                                    reinterpret_cast<PFN_vkVoidFunction>(encode::vkGetDeviceQueue) },
         { "vkQueueSubmit",                                                                                       reinterpret_cast<PFN_vkVoidFunction>(encode::vkQueueSubmit) },
         { "vkQueueWaitIdle",                                                                                     reinterpret_cast<PFN_vkVoidFunction>(encode::vkQueueWaitIdle) },
@@ -736,7 +737,6 @@ static const std::unordered_map<std::string, PFN_vkVoidFunction> GetVulkanFuncTa
         { "vkCmdDrawMeshTasksEXT",                                                                               reinterpret_cast<PFN_vkVoidFunction>(encode::vkCmdDrawMeshTasksEXT) },
         { "vkCmdDrawMeshTasksIndirectEXT",                                                                       reinterpret_cast<PFN_vkVoidFunction>(encode::vkCmdDrawMeshTasksIndirectEXT) },
         { "vkCmdDrawMeshTasksIndirectCountEXT",                                                                  reinterpret_cast<PFN_vkVoidFunction>(encode::vkCmdDrawMeshTasksIndirectCountEXT) },
-        { "vk_layerGetPhysicalDeviceProcAddr",                                                                   reinterpret_cast<PFN_vkVoidFunction>(vulkan_entry_layer::GetPhysicalDeviceProcAddr) },
     };
 }
 
