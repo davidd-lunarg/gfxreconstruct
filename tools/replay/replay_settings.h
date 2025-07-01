@@ -38,7 +38,7 @@ const char kOptions[] =
     "--dump-resources-dump-all-image-subresources,--dump-resources-dump-raw-images,--dump-resources-dump-"
     "separate-alpha,--dump-resources-modifiable-state-only,--pbi-all,--preload-measurement-range,"
     "--add-new-pipeline-caches,--screenshot-ignore-FrameBoundaryANDROID,--dump-resources-dump-unused-vertex-bindings,--"
-    "deduplicate-device";
+    "deduplicate-device,--recapture";
 const char kArguments[] =
     "--log-level,--log-file,--cpu-mask,--gpu,--gpu-group,--pause-frame,--wsi,--surface-index,-m|--memory-translation,"
     "--replace-shaders,--screenshots,--screenshot-interval,--denied-messages,--allowed-messages,--screenshot-format,--"
@@ -69,6 +69,7 @@ static void PrintUsage(const char* exe_name)
     GFXRECON_WRITE_CONSOLE("\t\t\t[--screenshot-dir <dir>] [--screenshot-prefix <file-prefix>]");
     GFXRECON_WRITE_CONSOLE("\t\t\t[--screenshot-size <width>x<height>]");
     GFXRECON_WRITE_CONSOLE("\t\t\t[--screenshot-scale <scale>] [--screenshot-interval <N>]");
+    GFXRECON_WRITE_CONSOLE("\t\t\t[--recapture]");
     GFXRECON_WRITE_CONSOLE("\t\t\t[--sfa | --skip-failed-allocations] [--replace-shaders <dir>]");
     GFXRECON_WRITE_CONSOLE("\t\t\t[--opcd | --omit-pipeline-cache-data] [--wsi <platform>]");
     GFXRECON_WRITE_CONSOLE("\t\t\t[--use-cached-psos] [--surface-index <N>]");
@@ -213,6 +214,10 @@ static void PrintUsage(const char* exe_name)
 #endif
     GFXRECON_WRITE_CONSOLE("")
     GFXRECON_WRITE_CONSOLE("Vulkan only:")
+    GFXRECON_WRITE_CONSOLE("  --recapture\t\tEnable the capture layer for replay. Capture options are set using");
+    GFXRECON_WRITE_CONSOLE("       \t\t\tenvironment variables. The capture functionality is linked directly");
+    GFXRECON_WRITE_CONSOLE("       \t\t\tinto `gfxrecon-replay`--no GFXR capture layer is added to the Vulkan");
+    GFXRECON_WRITE_CONSOLE("       \t\t\tlayer chain.");
     GFXRECON_WRITE_CONSOLE("  --sfa\t\t\tSkip vkAllocateMemory, vkAllocateCommandBuffers, and");
     GFXRECON_WRITE_CONSOLE("       \t\t\tvkAllocateDescriptorSets calls that failed during");
     GFXRECON_WRITE_CONSOLE("       \t\t\tcapture (same as --skip-failed-allocations).");
