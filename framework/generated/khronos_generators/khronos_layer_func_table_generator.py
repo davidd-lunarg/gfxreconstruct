@@ -30,17 +30,17 @@ class KhronosLayerFuncTableGenerator():
     Generates C++ function table for Khronos Vulkan API calls exported by the layer.
     """
 
-    def write_layer_func_table_contents(self, skip_func_list, align_col, table_name_suffix='', skip_var_definition=False):
+    def write_layer_func_table_contents(self, skip_func_list, align_col, name_identifier='', skip_var_definition=False):
         api_data = self.get_api_data()
 
         table_name = '{}_func_table'.format(api_data.api_name.lower())
-        get_table_name = 'Get{}FuncTable'.format(api_data.api_name)
-
-        skip_func_namespace = '{}_entry'.format(api_data.api_name.lower())
-        if(table_name_suffix):
-            table_name += '_{}'.format(table_name_suffix.lower())
-            skip_func_namespace += '_{}'.format(table_name_suffix.lower())
-            get_table_name += '{}'.format(table_name_suffix)
+        get_table_name = 'Get{}'.format(api_data.api_name)
+        skip_func_namespace = '{}'.format(api_data.api_name.lower())
+        if(name_identifier):
+            table_name += '_{}'.format(name_identifier.lower())
+            skip_func_namespace += '_{}'.format(name_identifier.lower())
+            get_table_name += '{}'.format(name_identifier)
+        get_table_name += 'FuncTable'
 
         # Write the static function to get the table.
         write(
