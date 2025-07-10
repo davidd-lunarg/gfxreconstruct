@@ -107,6 +107,7 @@ def CreateReplayParser():
     parser.add_argument('--screenshot-prefix', metavar='PREFIX', help='Prefix to apply to the screenshot file name.  Default is "screenshot" (forwarded to replay tool)')
     parser.add_argument('--screenshot-size', metavar='SIZE', help='Screenshot dimensions. Ignored if --screenshot-scale is specified.  Expected format is <width>x<height>.')
     parser.add_argument('--screenshot-scale', metavar='SCALE', help='Scale screenshot dimensions. Overrides --screenshot-size, if specified. Expects a number which can be decimal')
+    parser.add_argument('--recapture', action='store_true', default=True, help='Enable the capture layer for replay. Capture options are set using system properties or a layer settings file. The capture functionality is linked directly into `gfxrecon-replay`--no GFXR capture layer is added to the Vulkan layer chain')
     parser.add_argument('--sfa', '--skip-failed-allocations', action='store_true', default=False, help='Skip vkAllocateMemory, vkAllocateCommandBuffers, and vkAllocateDescriptorSets calls that failed during capture (forwarded to replay tool)')
     parser.add_argument('--opcd', '--omit-pipeline-cache-data', action='store_true', default=False, help='Omit pipeline cache data from calls to vkCreatePipelineCache and skip calls to vkGetPipelineCacheData (forwarded to replay tool)')
     parser.add_argument('--surface-index', metavar='N', help='Restrict rendering to the Nth surface object created.  Used with captures that include multiple surfaces.  Default is -1 (render to all surfaces; forwarded to replay tool)')
@@ -212,6 +213,9 @@ def MakeExtrasString(args):
     if args.screenshot_scale:
         arg_list.append('--screenshot-scale')
         arg_list.append('{}'.format(args.screenshot_scale))
+
+    if args.recapture:
+        arg_list.append('--recapture')
 
     if args.sfa:
         arg_list.append('--sfa')

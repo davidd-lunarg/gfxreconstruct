@@ -84,6 +84,13 @@ CommonCaptureManager::~CommonCaptureManager()
         util::PageGuardManager::Destroy();
     }
 
+    if (file_stream_ != nullptr)
+    {
+        GFXRECON_LOG_ERROR("~CommonCaptureManager");
+        file_stream_->Flush();
+        file_stream_ = nullptr;
+    }
+
     util::Log::Release();
 }
 
@@ -505,6 +512,8 @@ ParameterEncoder* CommonCaptureManager::InitApiCallCapture(format::ApiCallId cal
     auto thread_data      = GetThreadData();
     thread_data->call_id_ = call_id;
 
+    GFXRECON_LOG_ERROR("init call_id %u", call_id);
+
     // Reset the parameter buffer and reserve space for an uncompressed FunctionCallHeader.
     thread_data->parameter_buffer_->ClearWithHeader(sizeof(format::FunctionCallHeader));
 
@@ -547,6 +556,8 @@ void CommonCaptureManager::EndApiCallCapture()
 
         bool   not_compressed    = true;
         size_t uncompressed_size = parameter_buffer->GetDataSize();
+
+        GFXRECON_LOG_ERROR("end call_id %u", thread_data->call_id_);
 
         if (compressor_ != nullptr)
         {
@@ -1084,6 +1095,8 @@ bool CommonCaptureManager::CreateCaptureFile(format::ApiFamilyId api_family, con
         capture_filename_ = util::filepath::GenerateTimestampedFilename(capture_filename_);
     }
 
+    GFXRECON_LOG_ERROR("CreateCaptureFile %s", capture_filename_.c_str());
+
     file_stream_ = std::make_unique<CaptureFileOutputStream>(this, capture_filename_, kFileStreamBufferSize);
 
     if (file_stream_->IsValid())
@@ -1531,6 +1544,10 @@ void CommonCaptureManager::WriteToFile(const void* data, size_t size, util::File
 {
     file_stream ? file_stream->Write(data, size) : file_stream_->Write(data, size);
 
+    static uint64_t total_bytes = 0;
+    total_bytes += size;
+    GFXRECON_LOG_ERROR("write bytes %llu, total bytes %llu, block index %llu", size, total_bytes, block_index_.load());
+
     // Increment block index
     ++block_index_;
 }
@@ -1681,7 +1698,8 @@ bool CaptureFileOutputStream::Write(const void* data, size_t len)
 
     bool ret = FileOutputStream::Write(data, len);
 
-    if (capture_manager_->GetForceFileFlush())
+    // if (capture_manager_->GetForceFileFlush())
+    if (true)
     {
         Flush();
     }
