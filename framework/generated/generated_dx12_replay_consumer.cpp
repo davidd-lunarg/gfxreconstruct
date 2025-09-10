@@ -25,6 +25,8 @@
 **
 */
 
+#define GFXRECON_DEBUG_CREATE_COMMITTED_INSTEAD_OF_PLACED_RESOURCES 1
+
 #include "generated/generated_dx12_replay_consumer.h"
 
 #include "decode/custom_dx12_struct_object_mappers.h"
@@ -1985,8 +1987,23 @@ void Dx12ReplayConsumer::Process_ID3D12GraphicsCommandList_ResourceBarrier(
             NumBarriers,
             pBarriers);
         MapStructArrayObjects(pBarriers->GetMetaStructPointer(), pBarriers->GetLength(), GetObjectInfoTable(), GetGpuVaTable());
+#if GFXRECON_DEBUG_CREATE_COMMITTED_INSTEAD_OF_PLACED_RESOURCES
+        pBarriers->GetPointer();
+        std::vector<D3D12_RESOURCE_BARRIER> barriers;
+        for(UINT i = 0; i < NumBarriers; ++i)
+        {
+            if(pBarriers->GetPointer()[i].Type != D3D12_RESOURCE_BARRIER_TYPE_ALIASING)
+            {
+                barriers.push_back(pBarriers->GetPointer()[i]);
+            }
+        }
+        reinterpret_cast<ID3D12GraphicsCommandList*>(replay_object->object)->ResourceBarrier(barriers.size(),
+                                                                                             barriers.data());
+#else
         reinterpret_cast<ID3D12GraphicsCommandList*>(replay_object->object)->ResourceBarrier(NumBarriers,
                                                                                              pBarriers->GetPointer());
+#endif
+
         if(options_.enable_dump_resources)
         {
             GFXRECON_ASSERT(dump_resources_);
@@ -5105,6 +5122,35 @@ void Dx12ReplayConsumer::Process_ID3D12Device_CreatePlacedResource(
             ppvResource->SetHandleLength(1);
             ppvResource->SetConsumerData(0, &object_info_ppvResource);
         }
+
+#if GFXRECON_DEBUG_CREATE_COMMITTED_INSTEAD_OF_PLACED_RESOURCES
+        GFXRECON_LOG_INFO_ONCE("Replacing CreatePlacedResource call(s) with CreateCommittedResource.");
+        auto heap_desc = static_cast<ID3D12Heap*>(in_pHeap->object)->GetDesc();
+        D3D12_RESOURCE_DESC resc_desc = *pDesc->GetPointer();
+
+        // Remove incompatible creation flags due to creating a committed resource instead of a placed resource.
+        auto heap_flags = heap_desc.Flags & ~(D3D12_HEAP_FLAG_DENY_NON_RT_DS_TEXTURES | D3D12_HEAP_FLAG_DENY_RT_DS_TEXTURES | D3D12_HEAP_FLAG_DENY_BUFFERS);
+        if(((heap_desc.Properties.CPUPageProperty & D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE) != 0) ||
+           ((heap_desc.Properties.CPUPageProperty & D3D12_CPU_PAGE_PROPERTY_WRITE_BACK) != 0))
+        {
+            heap_flags = heap_flags & ~(D3D12_HEAP_FLAG_SHARED | D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER);
+            resc_desc.Flags = resc_desc.Flags & ~D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER;
+        }
+        if((resc_desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) == 0)
+        {
+            heap_flags = heap_flags & ~D3D12_HEAP_FLAG_ALLOW_SHADER_ATOMICS;
+        }
+
+        StructPointerDecoder<Decoded_D3D12_HEAP_PROPERTIES> pHeapProperties;
+        pHeapProperties.SetExternalMemory(&heap_desc.Properties, 1);
+
+        StructPointerDecoder<Decoded_D3D12_RESOURCE_DESC> pResourceDesc;
+        pResourceDesc.SetExternalMemory(&resc_desc, 1);
+
+        auto replay_result = OverrideCreateCommittedResource(replay_object, return_value, &pHeapProperties,
+            heap_flags, &pResourceDesc, InitialState, pOptimizedClearValue,
+            riid, ppvResource);
+#else
         auto replay_result = OverrideCreatePlacedResource(replay_object,
                                                           return_value,
                                                           in_pHeap,
@@ -5114,6 +5160,8 @@ void Dx12ReplayConsumer::Process_ID3D12Device_CreatePlacedResource(
                                                           pOptimizedClearValue,
                                                           riid,
                                                           ppvResource);
+#endif
+
         if (SUCCEEDED(replay_result))
         {
             AddObject(ppvResource->GetPointer(), ppvResource->GetHandlePointer(), std::move(object_info_ppvResource), format::ApiCall_ID3D12Device_CreatePlacedResource);
@@ -8247,6 +8295,35 @@ void Dx12ReplayConsumer::Process_ID3D12Device8_CreatePlacedResource1(
             ppvResource->SetHandleLength(1);
             ppvResource->SetConsumerData(0, &object_info_ppvResource);
         }
+
+#if GFXRECON_DEBUG_CREATE_COMMITTED_INSTEAD_OF_PLACED_RESOURCES
+        GFXRECON_LOG_INFO_ONCE("Replacing CreatePlacedResource call(s) with CreateCommittedResource.");
+        auto heap_desc = static_cast<ID3D12Heap*>(in_pHeap->object)->GetDesc();
+        D3D12_RESOURCE_DESC1 resc_desc = *pDesc->GetPointer();
+
+        // Remove incompatible creation flags due to creating a committed resource instead of a placed resource.
+        auto heap_flags = heap_desc.Flags & ~(D3D12_HEAP_FLAG_DENY_NON_RT_DS_TEXTURES | D3D12_HEAP_FLAG_DENY_RT_DS_TEXTURES | D3D12_HEAP_FLAG_DENY_BUFFERS);
+        if(((heap_desc.Properties.CPUPageProperty & D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE) != 0) ||
+           ((heap_desc.Properties.CPUPageProperty & D3D12_CPU_PAGE_PROPERTY_WRITE_BACK) != 0))
+        {
+            heap_flags = heap_flags & ~(D3D12_HEAP_FLAG_SHARED | D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER);
+            resc_desc.Flags = resc_desc.Flags & ~D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER;
+        }
+        if((resc_desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) == 0)
+        {
+            heap_flags = heap_flags & ~D3D12_HEAP_FLAG_ALLOW_SHADER_ATOMICS;
+        }
+
+        StructPointerDecoder<Decoded_D3D12_HEAP_PROPERTIES> pHeapProperties;
+        pHeapProperties.SetExternalMemory(&heap_desc.Properties, 1);
+
+        StructPointerDecoder<Decoded_D3D12_RESOURCE_DESC1> pResourceDesc1;
+        pResourceDesc1.SetExternalMemory(&resc_desc, 1);
+
+        auto replay_result = OverrideCreateCommittedResource2(replay_object, return_value, &pHeapProperties,
+            heap_flags, &pResourceDesc1, InitialState, pOptimizedClearValue, nullptr,
+            riid, ppvResource);
+#else
         auto replay_result = OverrideCreatePlacedResource1(replay_object,
                                                            return_value,
                                                            in_pHeap,
@@ -8256,6 +8333,8 @@ void Dx12ReplayConsumer::Process_ID3D12Device8_CreatePlacedResource1(
                                                            pOptimizedClearValue,
                                                            riid,
                                                            ppvResource);
+#endif
+
         if (SUCCEEDED(replay_result))
         {
             AddObject(ppvResource->GetPointer(), ppvResource->GetHandlePointer(), std::move(object_info_ppvResource), format::ApiCall_ID3D12Device8_CreatePlacedResource1);
@@ -9241,6 +9320,35 @@ void Dx12ReplayConsumer::Process_ID3D12Device10_CreatePlacedResource2(
             ppvResource->SetHandleLength(1);
             ppvResource->SetConsumerData(0, &object_info_ppvResource);
         }
+
+#if GFXRECON_DEBUG_CREATE_COMMITTED_INSTEAD_OF_PLACED_RESOURCES
+        GFXRECON_LOG_INFO_ONCE("Replacing CreatePlacedResource call(s) with CreateCommittedResource.");
+        auto heap_desc = static_cast<ID3D12Heap*>(in_pHeap->object)->GetDesc();
+        D3D12_RESOURCE_DESC1 resc_desc = *pDesc->GetPointer();
+
+        // Remove incompatible creation flags due to creating a committed resource instead of a placed resource.
+        auto heap_flags = heap_desc.Flags & ~(D3D12_HEAP_FLAG_DENY_NON_RT_DS_TEXTURES | D3D12_HEAP_FLAG_DENY_RT_DS_TEXTURES | D3D12_HEAP_FLAG_DENY_BUFFERS);
+        if(((heap_desc.Properties.CPUPageProperty & D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE) != 0) ||
+           ((heap_desc.Properties.CPUPageProperty & D3D12_CPU_PAGE_PROPERTY_WRITE_BACK) != 0))
+        {
+            heap_flags = heap_flags & ~(D3D12_HEAP_FLAG_SHARED | D3D12_HEAP_FLAG_SHARED_CROSS_ADAPTER);
+            resc_desc.Flags = resc_desc.Flags & ~D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER;
+        }
+        if((resc_desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) == 0)
+        {
+            heap_flags = heap_flags & ~D3D12_HEAP_FLAG_ALLOW_SHADER_ATOMICS;
+        }
+
+        StructPointerDecoder<Decoded_D3D12_HEAP_PROPERTIES> pHeapProperties;
+        pHeapProperties.SetExternalMemory(&heap_desc.Properties, 1);
+
+        StructPointerDecoder<Decoded_D3D12_RESOURCE_DESC1> pResourceDesc1;
+        pResourceDesc1.SetExternalMemory(&resc_desc, 1);
+
+        auto replay_result = OverrideCreateCommittedResource3(replay_object, return_value, &pHeapProperties,
+            heap_flags, &pResourceDesc1, InitialLayout, pOptimizedClearValue, nullptr, NumCastableFormats,
+            pCastableFormats, riid, ppvResource);
+#else
         auto replay_result = OverrideCreatePlacedResource2(replay_object,
                                                            return_value,
                                                            in_pHeap,
@@ -9252,6 +9360,8 @@ void Dx12ReplayConsumer::Process_ID3D12Device10_CreatePlacedResource2(
                                                            pCastableFormats,
                                                            riid,
                                                            ppvResource);
+#endif
+
         if (SUCCEEDED(replay_result))
         {
             AddObject(ppvResource->GetPointer(), ppvResource->GetHandlePointer(), std::move(object_info_ppvResource), format::ApiCall_ID3D12Device10_CreatePlacedResource2);
