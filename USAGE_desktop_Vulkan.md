@@ -614,7 +614,7 @@ gfxrecon-replay         [-h | --help] [--version] [--cpu-mask <binary-mask>] [--
                         [--screenshot-dir <dir>] [--screenshot-prefix <file-prefix>]
                         [--screenshot-scale SCALE] [--screenshot-size WIDTHxHEIGHT]
                         [--screenshot-interval <N>]
-                        [--capture]
+                        [--capture][--preserve-capture-data]
                         [--sfa | --skip-failed-allocations] [--replace-shaders <dir>]
                         [--opcd | --omit-pipeline-cache-data] [--wsi <platform>]
                         [--surface-index <N>] [--remove-unsupported] [--validate]
@@ -731,6 +731,16 @@ Optional arguments:
                         capture functionality is included in the `gfxrecon-replay`
                         executable--no GFXR capture layer is added to the Vulkan layer
                         chain.
+  --preserve-capture-data
+                        An option that can be used with `--capture` and trimming
+                        to preserve capture file data. The capture file data
+                        within the selected trim frames will be an exact copy of
+                        the data from the source capture file. Portable replay
+                        features are not supported. For example, replay should
+                        be done on the same device as capture, memory
+                        translation options are not supported, and if ray
+                        tracing is used, the device must support Vulkan's opaque
+                        capture and replay features.
   --sfa                 Skip vkAllocateMemory, vkAllocateCommandBuffers, and
                         vkAllocateDescriptorSets calls that failed during
                         capture (same as --skip-failed-allocations).

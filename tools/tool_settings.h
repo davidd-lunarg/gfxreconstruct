@@ -83,6 +83,7 @@ const char kOverrideGpuGroupArgument[]           = "--gpu-group";
 const char kPausedOption[]                       = "--paused";
 const char kPauseFrameArgument[]                 = "--pause-frame";
 const char kCaptureOption[]                      = "--capture";
+const char kPreserveCaptureDataOption[]          = "--preserve-capture-data";
 const char kSkipFailedAllocationShortOption[]    = "--sfa";
 const char kSkipFailedAllocationLongOption[]     = "--skip-failed-allocations";
 const char kDiscardCachedPsosShortOption[]       = "--dcp";
@@ -1345,6 +1346,30 @@ GetVulkanReplayOptions(const gfxrecon::util::ArgumentParser&           arg_parse
     replay_options.load_pipeline_cache_filename = arg_parser.GetArgumentValue(kLoadPipelineCacheArgument);
     replay_options.add_new_pipeline_caches      = arg_parser.IsOptionSet(kCreateNewPipelineCacheOption);
     replay_options.do_device_deduplication      = arg_parser.IsOptionSet(kDeduplicateDevice);
+
+    // Validate argument compatibility with `--preserve-captured-data`
+    if (arg_parser.IsOptionSet(kPreserveCaptureDataOption))
+    {
+        replay_options.preserve_capture_data = false;
+
+        const auto& mem_translation_value = arg_parser.GetArgumentValue(kMemoryPortabilityShortOption);
+
+        if (!replay_options.capture)
+        {
+            GFXRECON_LOG_ERROR("`--preserve-capture-data` requires the `--capture` option but it was not set. "
+                               "`--preserve-capture-data` will be ignored.");
+        }
+        else if (!mem_translation_value.empty() && gfxrecon::util::platform::StringCompareNoCase(
+                                                       kMemoryTranslationNone, mem_translation_value.c_str()) != 0)
+        {
+            GFXRECON_LOG_ERROR("`--preserve-capture-data` is not compatible with memory translation. "
+                               "`--preserve-capture-data` will be ignored.");
+        }
+        else
+        {
+            replay_options.preserve_capture_data = true;
+        }
+    }
 
     return replay_options;
 }

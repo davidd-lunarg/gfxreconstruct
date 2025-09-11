@@ -38,7 +38,7 @@ const char kOptions[] =
     "--dump-resources-dump-all-image-subresources,--dump-resources-dump-raw-images,--dump-resources-dump-"
     "separate-alpha,--dump-resources-modifiable-state-only,--pbi-all,--preload-measurement-range,"
     "--add-new-pipeline-caches,--screenshot-ignore-FrameBoundaryANDROID,--dump-resources-dump-unused-vertex-bindings,--"
-    "deduplicate-device,--log-timestamps,--capture";
+    "deduplicate-device,--log-timestamps,--capture,--preserve-capture-data";
 const char kArguments[] =
     "--log-level,--log-file,--cpu-mask,--gpu,--gpu-group,--pause-frame,--wsi,--surface-index,-m|--memory-translation,"
     "--replace-shaders,--screenshots,--screenshot-interval,--denied-messages,--allowed-messages,--screenshot-format,--"
@@ -69,7 +69,7 @@ static void PrintUsage(const char* exe_name)
     GFXRECON_WRITE_CONSOLE("\t\t\t[--screenshot-dir <dir>] [--screenshot-prefix <file-prefix>]");
     GFXRECON_WRITE_CONSOLE("\t\t\t[--screenshot-size <width>x<height>]");
     GFXRECON_WRITE_CONSOLE("\t\t\t[--screenshot-scale <scale>] [--screenshot-interval <N>]");
-    GFXRECON_WRITE_CONSOLE("\t\t\t[--capture]");
+    GFXRECON_WRITE_CONSOLE("\t\t\t[--capture][--preserve-capture-data]");
     GFXRECON_WRITE_CONSOLE("\t\t\t[--sfa | --skip-failed-allocations] [--replace-shaders <dir>]");
     GFXRECON_WRITE_CONSOLE("\t\t\t[--opcd | --omit-pipeline-cache-data] [--wsi <platform>]");
     GFXRECON_WRITE_CONSOLE("\t\t\t[--use-cached-psos] [--surface-index <N>]");
@@ -221,6 +221,16 @@ static void PrintUsage(const char* exe_name)
     GFXRECON_WRITE_CONSOLE("       \t\t\tcapture functionality is included in the `gfxrecon-replay`");
     GFXRECON_WRITE_CONSOLE("       \t\t\texecutable--no GFXR capture layer is added to the Vulkan layer");
     GFXRECON_WRITE_CONSOLE("       \t\t\tchain.");
+    GFXRECON_WRITE_CONSOLE("  --preserve-capture-data");
+    GFXRECON_WRITE_CONSOLE("       \t\t\tAn option that can be used with `--capture` and trimming");
+    GFXRECON_WRITE_CONSOLE("       \t\t\tto preserve capture file data. The capture file data");
+    GFXRECON_WRITE_CONSOLE("       \t\t\twithin the selected trim frames will be an exact copy of");
+    GFXRECON_WRITE_CONSOLE("       \t\t\tthe data from the source capture file. Portable replay");
+    GFXRECON_WRITE_CONSOLE("       \t\t\tfeatures are not supported. For example, replay should");
+    GFXRECON_WRITE_CONSOLE("       \t\t\tbe done on the same device as capture, memory");
+    GFXRECON_WRITE_CONSOLE("       \t\t\ttranslation options are not supported, and if ray");
+    GFXRECON_WRITE_CONSOLE("       \t\t\ttracing is used, the device must support Vulkan's opaque");
+    GFXRECON_WRITE_CONSOLE("       \t\t\tcapture and replay features.");
     GFXRECON_WRITE_CONSOLE("  --sfa\t\t\tSkip vkAllocateMemory, vkAllocateCommandBuffers, and");
     GFXRECON_WRITE_CONSOLE("       \t\t\tvkAllocateDescriptorSets calls that failed during");
     GFXRECON_WRITE_CONSOLE("       \t\t\tcapture (same as --skip-failed-allocations).");
