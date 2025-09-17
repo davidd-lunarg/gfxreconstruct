@@ -56,7 +56,7 @@ template <typename T>
 std::string to_hex_variable_width(T value)
 {
     std::ostringstream stream;
-    stream << "0x" << std::hex << value;
+    stream << "0x???";
     return stream.str();
 }
 

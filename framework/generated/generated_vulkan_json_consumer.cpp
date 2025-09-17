@@ -245,7 +245,7 @@ void VulkanExportJsonConsumer::Process_vkQueueSubmit(
 {
     nlohmann::ordered_json& jdata = WriteApiCallStart(call_info, "vkQueueSubmit");
     const JsonOptions& json_options = GetJsonOptions();
-    FieldToJson(jdata[NameSubmitIndex()], ++submit_index_, json_options);
+    //FieldToJson(jdata[NameSubmitIndex()], ++submit_index_, json_options);
     FieldToJson(jdata[NameReturn()], returnValue, json_options);
     auto& args = jdata[NameArgs()];
         HandleToJson(args["queue"], queue, json_options);
@@ -3127,7 +3127,7 @@ void VulkanExportJsonConsumer::Process_vkQueueSubmit2(
 {
     nlohmann::ordered_json& jdata = WriteApiCallStart(call_info, "vkQueueSubmit2");
     const JsonOptions& json_options = GetJsonOptions();
-    FieldToJson(jdata[NameSubmitIndex()], ++submit_index_, json_options);
+    //FieldToJson(jdata[NameSubmitIndex()], ++submit_index_, json_options);
     FieldToJson(jdata[NameReturn()], returnValue, json_options);
     auto& args = jdata[NameArgs()];
         HandleToJson(args["queue"], queue, json_options);
@@ -3968,7 +3968,7 @@ void VulkanExportJsonConsumer::Process_vkQueuePresentKHR(
 {
     nlohmann::ordered_json& jdata = WriteApiCallStart(call_info, "vkQueuePresentKHR");
     const JsonOptions& json_options = GetJsonOptions();
-    FieldToJson(jdata[NameSubmitIndex()], ++submit_index_, json_options);
+    //FieldToJson(jdata[NameSubmitIndex()], ++submit_index_, json_options);
     FieldToJson(jdata[NameReturn()], returnValue, json_options);
     auto& args = jdata[NameArgs()];
         HandleToJson(args["queue"], queue, json_options);
@@ -6005,7 +6005,7 @@ void VulkanExportJsonConsumer::Process_vkQueueSubmit2KHR(
 {
     nlohmann::ordered_json& jdata = WriteApiCallStart(call_info, "vkQueueSubmit2KHR");
     const JsonOptions& json_options = GetJsonOptions();
-    FieldToJson(jdata[NameSubmitIndex()], ++submit_index_, json_options);
+    //FieldToJson(jdata[NameSubmitIndex()], ++submit_index_, json_options);
     FieldToJson(jdata[NameReturn()], returnValue, json_options);
     auto& args = jdata[NameArgs()];
         HandleToJson(args["queue"], queue, json_options);
