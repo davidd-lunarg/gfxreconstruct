@@ -215,7 +215,8 @@ int main(int argc, const char** argv)
                 // Set the capture manager's instance and device creation callbacks.
                 vulkan_replay_consumer.SetupForRecapture(gfxrecon::vulkan_recapture::GetInstanceProcAddr,
                                                          gfxrecon::vulkan_recapture::dispatch_CreateInstance,
-                                                         gfxrecon::vulkan_recapture::dispatch_CreateDevice);
+                                                         gfxrecon::vulkan_recapture::dispatch_CreateDevice,
+                                                         file_processor.get());
             }
 
             ApiReplayOptions  api_replay_options;

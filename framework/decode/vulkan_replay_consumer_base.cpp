@@ -1261,9 +1261,42 @@ void VulkanReplayConsumerBase::ProcessInitImageCommand(format::HandleId         
     }
 }
 
+void VulkanReplayConsumerBase::WriteBlockForRecapture(const BlockBuffer& block_buffer)
+{
+    auto vulkan_capture_manager = encode::VulkanCaptureManager::Get();
+    GFXRECON_ASSERT(vulkan_capture_manager != nullptr);
+    GFXRECON_ASSERT(options_.preserve_capture_data);
+
+    auto block_data = block_buffer.PeekSpan();
+    vulkan_capture_manager->WriteToFile(block_data.data(), block_data.size());
+}
+
+void VulkanReplayConsumerBase::ActivateTrimmingCallback()
+{
+    auto vulkan_capture_manager = encode::VulkanCaptureManager::Get();
+    GFXRECON_ASSERT(vulkan_capture_manager != nullptr);
+    GFXRECON_ASSERT(options_.preserve_capture_data);
+
+    vulkan_capture_manager->SetCaptureMode(gfxrecon::encode::CommonCaptureManager::kModeTrack |
+                                           gfxrecon::encode::CommonCaptureManager::kModeTrim);
+    file_processor_->process_block_callback =
+        std::bind(&VulkanReplayConsumerBase::WriteBlockForRecapture, this, std::placeholders::_1);
+}
+
+void VulkanReplayConsumerBase::DeactivateTrimmingCallback()
+{
+    auto vulkan_capture_manager = encode::VulkanCaptureManager::Get();
+    GFXRECON_ASSERT(vulkan_capture_manager != nullptr);
+    GFXRECON_ASSERT(options_.preserve_capture_data);
+
+    file_processor_->process_block_callback = nullptr;
+    vulkan_capture_manager->SetCaptureMode(gfxrecon::encode::CommonCaptureManager::kModeTrack);
+}
+
 void VulkanReplayConsumerBase::SetupForRecapture(PFN_vkGetInstanceProcAddr get_instance_proc_addr,
                                                  PFN_vkCreateInstance      create_instance,
-                                                 PFN_vkCreateDevice        create_device)
+                                                 PFN_vkCreateDevice        create_device,
+                                                 FileProcessor*            file_processor)
 {
     GFXRECON_ASSERT(options_.capture);
 
@@ -1278,6 +1311,8 @@ void VulkanReplayConsumerBase::SetupForRecapture(PFN_vkGetInstanceProcAddr get_i
 
     gfxrecon::encode::CommonCaptureManager::SetDefaultUniqueIdOffset(kRecaptureHandleIdOffset);
     gfxrecon::encode::CommonCaptureManager::SetForceDefaultUniqueId(false);
+
+    file_processor_ = file_processor;
 }
 
 void VulkanReplayConsumerBase::PushRecaptureHandleId(const format::HandleId* id)
@@ -3013,6 +3048,31 @@ VulkanReplayConsumerBase::OverrideCreateInstance(VkResult original_result,
 
     if ((*replay_instance != VK_NULL_HANDLE) && (result == VK_SUCCESS))
     {
+        if (options_.preserve_capture_data)
+        {
+            auto vulkan_capture_manager = encode::VulkanCaptureManager::Get();
+            GFXRECON_ASSERT(vulkan_capture_manager != nullptr);
+            if (vulkan_capture_manager->GetTrimBoundary() == encode::CaptureSettings::TrimBoundary::kFrames)
+            {
+                vulkan_capture_manager->SetActivateTrimmingCallback(
+                    std::bind(&VulkanReplayConsumerBase::ActivateTrimmingCallback, this));
+                vulkan_capture_manager->SetDeactivateTrimmingCallback(
+                    std::bind(&VulkanReplayConsumerBase::DeactivateTrimmingCallback, this));
+
+                if (vulkan_capture_manager->IsCaptureModeWrite())
+                {
+                    // TRIMTODO: When IsCaptureModeWrite() == true, the user is trimming starting at frame 1. Need to
+                    // support this case.
+                    GFXRECON_LOG_ERROR("--preserve-capture-data is not compatible with trimming from the first frame.");
+                }
+            }
+            else
+            {
+                GFXRECON_LOG_ERROR(
+                    "The --preserve-capture-data option is only valid when frame-based trimming is enabled.");
+            }
+        }
+
         auto instance_info = reinterpret_cast<VulkanInstanceInfo*>(pInstance->GetConsumerData(0));
         assert(instance_info);
         PostCreateInstanceUpdateState(*replay_instance, create_state.modified_create_info, *instance_info);

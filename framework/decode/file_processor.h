@@ -46,6 +46,8 @@
 #include <utility>
 #include <vector>
 
+#include <functional>
+
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
 GFXRECON_BEGIN_NAMESPACE(decode)
 
@@ -92,8 +94,9 @@ class BlockBuffer
     bool ReadBytes(void* buffer, size_t buffer_size);
     bool ReadBytesAt(void* buffer, size_t buffer_size, size_t at) const;
 
+    BlockSpan PeekSpan() const;
     BlockSpan ReadSpan(size_t buffer_size);
-    BlockSpan ReadSpanAt(size_t buffer_size, size_t at);
+    BlockSpan ReadSpanAt(size_t buffer_size, size_t at) const;
 
     size_t                     Size() const { return block_span_.size(); }
     const format::BlockHeader& Header() const { return header_; }
@@ -155,6 +158,8 @@ class FileProcessor
     FileProcessor();
 
     FileProcessor(uint64_t block_limit);
+
+    std::function<void(const BlockBuffer& block_buffer)> process_block_callback;
 
     virtual ~FileProcessor();
 

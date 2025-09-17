@@ -109,6 +109,11 @@ class CommonCaptureManager
     // This method returns the composite with the apropos Lock initialized
     ApiCallLock AcquireCallLock() const;
 
+    std::function<void()> activate_trimming_callback_;
+    void SetActivateTrimmingCallback(std::function<void()> callback) { activate_trimming_callback_ = callback; }
+    std::function<void()> deactivate_trimming_callback_;
+    void SetDeactivateTrimmingCallback(std::function<void()> callback) { deactivate_trimming_callback_ = callback; }
+
     HandleUnwrapMemory* GetHandleUnwrapMemory()
     {
         auto thread_data = GetThreadData();
@@ -311,6 +316,7 @@ class CommonCaptureManager
         kModeDisabled      = 0x0,
         kModeWrite         = 0x01,
         kModeTrack         = 0x02,
+        kModeTrim          = 0x04,
         kModeWriteAndTrack = (kModeWrite | kModeTrack)
     };
 
@@ -327,6 +333,7 @@ class CommonCaptureManager
     util::ThreadData* GetThreadData();
     bool              IsCaptureModeTrack() const;
     bool              IsCaptureModeWrite() const;
+    bool              IsCaptureModeTrim() const;
     bool              IsCaptureModeDisabled() const;
     bool              IsCaptureSkippingCurrentThread() const;
 

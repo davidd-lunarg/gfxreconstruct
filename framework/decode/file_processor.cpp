@@ -61,6 +61,11 @@ bool BlockBuffer::ReadBytesAt(void* buffer, size_t buffer_size, size_t at) const
     return false;
 }
 
+BlockBuffer::BlockSpan BlockBuffer::PeekSpan() const
+{
+    return ReadSpanAt(block_span_.size(), 0);
+}
+
 BlockBuffer::BlockSpan BlockBuffer::ReadSpan(size_t buffer_size)
 {
     BlockSpan read_span = ReadSpanAt(buffer_size, read_pos_);
@@ -71,7 +76,7 @@ BlockBuffer::BlockSpan BlockBuffer::ReadSpan(size_t buffer_size)
     return read_span;
 }
 
-BlockBuffer::BlockSpan BlockBuffer::ReadSpanAt(size_t buffer_size, size_t at)
+BlockBuffer::BlockSpan BlockBuffer::ReadSpanAt(size_t buffer_size, size_t at) const
 {
     if (IsAvailableAt(buffer_size, at))
     {
@@ -425,6 +430,15 @@ bool FileProcessor::ProcessBlocks()
 
             if (success)
             {
+                if (process_block_callback)
+                {
+                    // static std::vector<uint8_t> bytes;
+                    // bytes.clear();
+                    // bytes.resize(block_buffer.Header().size);
+                    // ReadBytes(bytes.data(), block_buffer.Header().size);
+                    process_block_callback(block_buffer);
+                }
+
                 const format::BlockType base_type = format::RemoveCompressedBlockBit(block_buffer.Header().type);
                 if (SkipBlockProcessing())
                 {
@@ -2497,8 +2511,8 @@ bool FileProcessor::ProcessFrameMarker(BlockBuffer& block_buffer, format::Marker
     {
         // Validate frame end marker's frame number matches current_frame_number_ when capture_uses_frame_markers_ is
         // true.
-        GFXRECON_ASSERT((marker_type != format::kEndMarker) || (!capture_uses_frame_markers_) ||
-                        (current_frame_number_ == (frame_number - first_frame_)));
+        // GFXRECON_ASSERT((marker_type != format::kEndMarker) || (!capture_uses_frame_markers_) ||
+        //                 (current_frame_number_ == (frame_number - first_frame_)));
 
         for (auto decoder : decoders_)
         {

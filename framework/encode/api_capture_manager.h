@@ -36,6 +36,15 @@ class ApiCaptureManager
     ApiCaptureManager(format::ApiFamilyId api_family) : api_family_(api_family) {}
     void SetCommonManager(CommonCaptureManager* common_manager) { common_manager_ = common_manager; }
 
+    void SetActivateTrimmingCallback(std::function<void()> callback)
+    {
+        common_manager_->SetActivateTrimmingCallback(callback);
+    }
+    void SetDeactivateTrimmingCallback(std::function<void()> callback)
+    {
+        common_manager_->SetDeactivateTrimmingCallback(callback);
+    }
+
     // Forwarded Statics
     static format::HandleId GetUniqueId() { return CommonCaptureManager::GetUniqueId(); }
     static auto AcquireSharedApiCallLock() { return std::move(CommonCaptureManager::AcquireSharedApiCallLock()); }
@@ -59,6 +68,7 @@ class ApiCaptureManager
     format::ApiFamilyId GetApiFamily() const { return api_family_; }
     bool                IsCaptureModeTrack() const { return common_manager_->IsCaptureModeTrack(); }
     bool                IsCaptureModeWrite() const { return common_manager_->IsCaptureModeWrite(); }
+    bool                IsCaptureModeTrim() const { return common_manager_->IsCaptureModeTrim(); }
     bool                IsCaptureModeDisabled() const { return common_manager_->IsCaptureModeDisabled(); }
     bool IsCaptureSkippingCurrentThread() const { return common_manager_->IsCaptureSkippingCurrentThread(); }
 
