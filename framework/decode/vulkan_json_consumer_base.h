@@ -189,6 +189,7 @@ class VulkanExportJsonConsumerBase : public VulkanConsumer
 
     uint32_t GetCommandBufferRecordIndex(format::HandleId command_buffer)
     {
+        return 0;
         uint32_t index = ++rec_cmd_index_[command_buffer];
         return index;
     }
