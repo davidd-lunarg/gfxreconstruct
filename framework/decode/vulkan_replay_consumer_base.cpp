@@ -5564,6 +5564,13 @@ VkResult VulkanReplayConsumerBase::OverrideBindBufferMemory(PFN_vkBindBufferMemo
     auto allocator = device_info->allocator.get();
     assert(allocator != nullptr);
 
+    // Force page guard manager to run immediately
+    auto cm = gfxrecon::encode::VulkanCaptureManager::Get();
+    if (cm)
+    {
+        cm->QueueSubmitWriteFillMemoryCmd();
+    }
+
     VkResult result = allocator->BindBufferMemory(buffer_info->handle,
                                                   memory_info->handle,
                                                   memoryOffset,
@@ -5578,6 +5585,13 @@ VkResult VulkanReplayConsumerBase::OverrideBindBufferMemory(PFN_vkBindBufferMemo
         allocator->ReportBindBufferIncompatibility(
             buffer_info->handle, buffer_info->allocator_data, memory_info->allocator_data);
     }
+
+    // Force page guard manager to run immediately and ignore any dirty pages
+    if (cm)
+    {
+        cm->QueueSubmitWriteFillMemoryCmd(true);
+    }
+
     return result;
 }
 

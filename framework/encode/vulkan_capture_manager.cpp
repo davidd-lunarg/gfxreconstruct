@@ -2941,7 +2941,7 @@ void VulkanCaptureManager::PreProcess_vkQueueSubmit2(
     }
 }
 
-void VulkanCaptureManager::QueueSubmitWriteFillMemoryCmd()
+void VulkanCaptureManager::QueueSubmitWriteFillMemoryCmd(bool skip_writes)
 {
     if (GetMemoryTrackingMode() == CaptureSettings::MemoryTrackingMode::kPageGuard ||
         GetMemoryTrackingMode() == CaptureSettings::MemoryTrackingMode::kUserfaultfd)
@@ -2949,9 +2949,13 @@ void VulkanCaptureManager::QueueSubmitWriteFillMemoryCmd()
         util::PageGuardManager* manager = util::PageGuardManager::Get();
         assert(manager != nullptr);
 
-        manager->ProcessMemoryEntries([this](uint64_t memory_id, void* start_address, size_t offset, size_t size) {
-            WriteFillMemoryCmd(memory_id, offset, size, start_address);
-        });
+        manager->ProcessMemoryEntries(
+            [this, skip_writes](uint64_t memory_id, void* start_address, size_t offset, size_t size) {
+                if (!skip_writes)
+                {
+                    WriteFillMemoryCmd(memory_id, offset, size, start_address);
+                }
+            });
     }
     else if (GetMemoryTrackingMode() == CaptureSettings::MemoryTrackingMode::kUnassisted)
     {

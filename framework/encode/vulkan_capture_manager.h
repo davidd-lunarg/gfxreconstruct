@@ -1800,8 +1800,8 @@ class VulkanCaptureManager : public ApiCaptureManager
     bool CheckPNextChainForFrameBoundary(std::shared_lock<CommonCaptureManager::ApiCallMutexT>& current_lock,
                                          const VkBaseInStructure*                               current);
 
-  private:
-    void QueueSubmitWriteFillMemoryCmd();
+  public:
+    void QueueSubmitWriteFillMemoryCmd(bool skip_writes = false);
 
     static std::mutex                               instance_lock_;
     static VulkanCaptureManager*                    singleton_;
