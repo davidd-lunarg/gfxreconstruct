@@ -24,6 +24,8 @@
 #ifndef GFXRECON_ENCODE_VULKAN_STATE_WRITER_H
 #define GFXRECON_ENCODE_VULKAN_STATE_WRITER_H
 
+#define TRACK_ACCELERATION_STRUCTURE_BUILDS 0
+
 #include "encode/command_writer.h"
 #include "encode/parameter_encoder.h"
 #include "encode/vulkan_handle_wrappers.h"

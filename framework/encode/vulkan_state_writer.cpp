@@ -1775,6 +1775,7 @@ void VulkanStateWriter::WriteTlasToBlasDependenciesMetadata(const VulkanStateTab
 
 void VulkanStateWriter::WriteAccelerationStructureStateMetaCommands(const VulkanStateTable& state_table)
 {
+#if TRACK_ACCELERATION_STRUCTURE_BUILDS
     struct AccelerationStructureCommands
     {
         std::vector<encode::AccelerationStructureKHRBuildCommandData*> blas_build;
@@ -1881,6 +1882,7 @@ void VulkanStateWriter::WriteAccelerationStructureStateMetaCommands(const Vulkan
             WriteAccelerationStructureBuildState(device_id, *tlas_build);
         }
     }
+#endif // TRACK_ACCELERATION_STRUCTURE_BUILDS
 }
 
 void VulkanStateWriter::WriteAccelerationStructureResourceInit(

@@ -414,6 +414,7 @@ void VulkanStateTracker::TrackAccelerationStructureBuildCommand(
     const VkAccelerationStructureBuildGeometryInfoKHR*     p_infos,
     const VkAccelerationStructureBuildRangeInfoKHR* const* pp_buildRange_infos)
 {
+#if TRACK_ACCELERATION_STRUCTURE_BUILDS
     if (info_count == 0 || p_infos == nullptr || pp_buildRange_infos == nullptr)
     {
         return;
@@ -548,6 +549,7 @@ void VulkanStateTracker::TrackAccelerationStructureBuildCommand(
             }
         }
     }
+#endif // TRACK_ACCELERATION_STRUCTURE_BUILDS
 }
 
 void VulkanStateTracker::TrackAccelerationStructureCopyCommand(VkCommandBuffer                           command_buffer,
@@ -2111,6 +2113,7 @@ void gfxrecon::encode::VulkanStateTracker::DestroyState(vulkan_wrappers::BufferW
         device_address_trackers_[buffer_wrapper->device].RemoveBuffer(buffer_wrapper);
     }
 
+#if TRACK_ACCELERATION_STRUCTURE_BUILDS
     state_table_.VisitWrappers([this, buffer_wrapper](vulkan_wrappers::AccelerationStructureKHRWrapper* acc_wrapper) {
         GFXRECON_ASSERT(acc_wrapper != nullptr && acc_wrapper->buffer != nullptr);
         auto build_state_it = acc_wrapper->buffer->acceleration_structures.find(acc_wrapper->address);
@@ -2138,6 +2141,7 @@ void gfxrecon::encode::VulkanStateTracker::DestroyState(vulkan_wrappers::BufferW
             }
         }
     });
+#endif // TRACK_ACCELERATION_STRUCTURE_BUILDS
 
     if (buffer_wrapper->bind_memory_id != format::kNullHandleId)
     {
