@@ -5484,7 +5484,8 @@ VkResult VulkanReplayConsumerBase::OverrideMapMemory(PFN_vkMapMemory         fun
                                                      VkDeviceSize            offset,
                                                      VkDeviceSize            size,
                                                      VkMemoryMapFlags        flags,
-                                                     void**                  ppData)
+                                                     void**                  ppData,
+                                                     void*                   original_pData)
 {
     GFXRECON_UNREFERENCED_PARAMETER(func);
     GFXRECON_UNREFERENCED_PARAMETER(original_result);
@@ -5494,7 +5495,19 @@ VkResult VulkanReplayConsumerBase::OverrideMapMemory(PFN_vkMapMemory         fun
     auto allocator = device_info->allocator.get();
     assert(allocator != nullptr);
 
-    return allocator->MapMemory(memory_info->handle, offset, size, flags, ppData, memory_info->allocator_data);
+    auto replay_result =
+        allocator->MapMemory(memory_info->handle, offset, size, flags, ppData, memory_info->allocator_data);
+
+    if (options_.preserve_capture_data)
+    {
+        auto capture_manager = encode::VulkanCaptureManager::Get();
+        if (replay_result == VK_SUCCESS && capture_manager != nullptr)
+        {
+            capture_manager->SetOriginalMappedMemoryPointer(memory_info->handle, original_pData);
+        }
+    }
+
+    return replay_result;
 }
 
 void VulkanReplayConsumerBase::OverrideUnmapMemory(PFN_vkUnmapMemory       func,

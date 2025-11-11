@@ -313,7 +313,9 @@ void VulkanReplayConsumer::Process_vkMapMemory(
     auto in_memory = GetObjectInfoTable().GetVkDeviceMemoryInfo(memory);
     void** out_ppData = ppData->IsNull() ? nullptr : ppData->AllocateOutputData(1);
 
-    VkResult replay_result = OverrideMapMemory(GetDeviceTable(in_device->handle)->MapMemory, returnValue, in_device, in_memory, offset, size, flags, out_ppData);
+    void* original_pData = ppData->IsNull() ? nullptr : reinterpret_cast<void*>(*ppData->GetPointer());
+
+    VkResult replay_result = OverrideMapMemory(GetDeviceTable(in_device->handle)->MapMemory, returnValue, in_device, in_memory, offset, size, flags, out_ppData, original_pData);
     CheckResult("vkMapMemory", returnValue, replay_result, call_info);
 
     PostProcessExternalObject(replay_result, (*ppData->GetPointer()), *ppData->GetOutputPointer(), format::ApiCallId::ApiCall_vkMapMemory, "vkMapMemory");

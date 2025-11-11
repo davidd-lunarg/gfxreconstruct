@@ -802,7 +802,8 @@ class VulkanReplayConsumerBase : public VulkanConsumer
                                VkDeviceSize            offset,
                                VkDeviceSize            size,
                                VkMemoryMapFlags        flags,
-                               void**                  ppData);
+                               void**                  ppData,
+                               void*                   original_pData);
 
     void OverrideUnmapMemory(PFN_vkUnmapMemory       func,
                              const VulkanDeviceInfo* device_info,

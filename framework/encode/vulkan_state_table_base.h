@@ -39,6 +39,9 @@ GFXRECON_BEGIN_NAMESPACE(encode)
 
 class VulkanStateTableBase
 {
+    // TRIMTODO: Unify with same VulkanReplayConsumerBase::kRecaptureHandleIdOffset
+    static constexpr uint64_t kRecaptureHandleIdOffset = 10000000000000000000ULL;
+
   public:
     VulkanStateTableBase() {}
 
@@ -48,6 +51,12 @@ class VulkanStateTableBase
     template <typename T>
     bool InsertEntry(format::HandleId id, T* wrapper, std::map<format::HandleId, T*>& map)
     {
+        //// TRIMTODO: when is this InsertEntry path used? Is this correct handling?
+        // if (id >= kRecaptureHandleIdOffset)
+        //{
+        //     return true;
+        // }
+
         const auto& inserted = map.insert(std::make_pair(id, wrapper));
         return inserted.second;
     }
@@ -79,6 +88,13 @@ class VulkanStateTableBase
                      std::unordered_map<typename Wrapper::HandleType, Wrapper*>& map)
     {
         const std::unique_lock<std::shared_mutex> lock(mutex_);
+
+        //// TRIMTODO: when is this InsertEntry path used? Is this correct handling?
+        // if (wrapper->handle_id >= kRecaptureHandleIdOffset)
+        //{
+        //     return true;
+        // }
+
         const auto&                               inserted = map.insert(std::make_pair(handle, wrapper));
         return inserted.second;
     }
