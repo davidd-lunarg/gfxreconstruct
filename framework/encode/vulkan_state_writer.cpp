@@ -540,6 +540,11 @@ void VulkanStateWriter::WriteImageViewState(const VulkanStateTable& state_table)
     state_table.VisitWrappers([&](const vulkan_wrappers::ImageViewWrapper* wrapper) {
         assert(wrapper != nullptr);
 
+        if (wrapper->image_id > 1000000)
+        {
+            int x = 10;
+        }
+
         // Omit the current image view object if the image used to create it no longer exists.
         if (IsImageValid(wrapper->image_id, state_table))
         {

@@ -7542,6 +7542,15 @@ VkResult VulkanReplayConsumerBase::OverrideCreateSwapchainKHR(
     auto*           swapchain_info   = reinterpret_cast<VulkanSwapchainKHRInfo*>(pSwapchain->GetConsumerData(0));
     GFXRECON_ASSERT(swapchain_info != nullptr);
 
+    // TODO: should --preserve-captured-data force --use-captured-swapchain-indices?
+    if (options_.preserve_capture_data)
+    {
+        auto capture_manager                                     = encode::VulkanCaptureManager::Get();
+        capture_manager->swapchain_id_map_[10000000000000000023ull] = 73;
+        capture_manager->swapchain_id_map_[10000000000000000025ull] = 74;
+        capture_manager->swapchain_id_map_[10000000000000000027ull] = 75;
+    }
+
     VkSwapchainCreateInfoKHR modified_create_info = (*replay_create_info);
 
     // might be passed via pNext-chain
@@ -10176,8 +10185,14 @@ VkResult VulkanReplayConsumerBase::OverrideCreateImageView(
 
     VkImageViewCreateInfo modified_create_info = *create_info;
 
+    auto  image_id = create_info_decoder->GetMetaStructPointer()->image;
     auto* img_info = GetObjectInfoTable().GetVkImageInfo(create_info_decoder->GetMetaStructPointer()->image);
     GFXRECON_ASSERT(img_info != nullptr);
+
+    if (image_id > 1000000000)
+    {
+        int x = 10;
+    }
 
     // If image has external format, this format is undefined.
     if (modified_create_info.format == VK_FORMAT_UNDEFINED)

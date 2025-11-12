@@ -51,11 +51,11 @@ class VulkanStateTableBase
     template <typename T>
     bool InsertEntry(format::HandleId id, T* wrapper, std::map<format::HandleId, T*>& map)
     {
-        //// TRIMTODO: when is this InsertEntry path used? Is this correct handling?
-        // if (id >= kRecaptureHandleIdOffset)
-        //{
-        //     return true;
-        // }
+        // TRIMTODO: when is this InsertEntry path used? Is this correct handling?
+        if (id >= kRecaptureHandleIdOffset + 4)
+        {
+            return true;
+        }
 
         const auto& inserted = map.insert(std::make_pair(id, wrapper));
         return inserted.second;

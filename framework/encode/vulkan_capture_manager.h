@@ -58,6 +58,8 @@ GFXRECON_BEGIN_NAMESPACE(encode)
 class VulkanCaptureManager : public ApiCaptureManager
 {
   public:
+    std::map<format::HandleId, format::HandleId> swapchain_id_map_;
+
     static VulkanCaptureManager* Get() { return singleton_; }
 
     // Creates the capture manager instance if none exists, or increments a reference count if an instance already

@@ -70,7 +70,15 @@ class CommonCaptureManager
     typedef std::shared_mutex ApiCallMutexT;
 
   private:
-    static format::HandleId GetDefaultUniqueId() { return ++default_unique_id_counter_ + default_unique_id_offset_; }
+    static format::HandleId GetDefaultUniqueId()
+    {
+        auto result = ++default_unique_id_counter_ + default_unique_id_offset_;
+        if (result == 10000000000000000023ull)
+        {
+            int x = 10;
+        }
+        return result;
+    }
 
   public:
     static void SetDefaultUniqueIdOffset(format::HandleId offset) { default_unique_id_offset_ = offset; }

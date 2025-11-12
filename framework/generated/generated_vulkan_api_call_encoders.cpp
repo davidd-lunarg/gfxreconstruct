@@ -994,11 +994,19 @@ VKAPI_ATTR VkResult VKAPI_CALL vkBindImageMemory(
 
     VkResult result = vulkan_wrappers::GetDeviceTable(device)->BindImageMemory(device, image, memory, memoryOffset);
 
+    auto wrapper = vulkan_wrappers::GetWrapper<vulkan_wrappers::ImageWrapper>(image);
+    auto image_id = wrapper->handle_id;
+    auto id_map_iter = manager->swapchain_id_map_.find(image_id);
+    if(id_map_iter != manager->swapchain_id_map_.end())
+    {
+        image_id = id_map_iter->second;
+    }
+
     auto encoder = manager->BeginApiCallCapture(format::ApiCallId::ApiCall_vkBindImageMemory);
     if (encoder)
     {
         encoder->EncodeVulkanHandleValue<vulkan_wrappers::DeviceWrapper>(device);
-        encoder->EncodeVulkanHandleValue<vulkan_wrappers::ImageWrapper>(image);
+        encoder->EncodeHandleIdValue(image_id);
         encoder->EncodeVulkanHandleValue<vulkan_wrappers::DeviceMemoryWrapper>(memory);
         encoder->EncodeUInt64Value(memoryOffset);
         encoder->EncodeEnumValue(result);
@@ -2203,6 +2211,15 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateImageView(
     }
 
     auto encoder = manager->BeginTrackedApiCallCapture(format::ApiCallId::ApiCall_vkCreateImageView);
+
+    auto img_wrapper = vulkan_wrappers::GetWrapper<vulkan_wrappers::ImageWrapper>(pCreateInfo->image);
+    auto img_id = img_wrapper->handle_id;
+    auto id_map_iter = manager->swapchain_id_map_.find(img_id);
+    if(id_map_iter != manager->swapchain_id_map_.end())
+    {
+        img_wrapper->handle_id = id_map_iter->second;
+    }
+
     if (encoder)
     {
         encoder->EncodeVulkanHandleValue<vulkan_wrappers::DeviceWrapper>(device);
@@ -2211,6 +2228,13 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateImageView(
         encoder->EncodeVulkanHandlePtr<vulkan_wrappers::ImageViewWrapper>(pView, omit_output_data);
         encoder->EncodeEnumValue(result);
         manager->EndCreateApiCallCapture<VkDevice, vulkan_wrappers::ImageViewWrapper, VkImageViewCreateInfo>(result, device, pView, pCreateInfo);
+    }
+
+    auto wrapper = vulkan_wrappers::GetWrapper<vulkan_wrappers::ImageViewWrapper>(*pView);
+    auto image_id = wrapper->image_id;
+    if(image_id > 100000000)
+    {
+        int x = 10;
     }
 
     CustomEncoderPostCall<format::ApiCallId::ApiCall_vkCreateImageView>::Dispatch(manager, result, device, pCreateInfo, pAllocator, pView);
