@@ -75,7 +75,7 @@ struct VulkanGraphicsBinding : public XrGraphicsBindingVulkanKHR
 class GraphicsBinding
 {
   public:
-    GraphicsBinding() : type(GraphicsBindingType::kUnknown) {};
+    GraphicsBinding() : type(GraphicsBindingType::kUnknown){};
     GraphicsBinding(const VulkanGraphicsBinding& binding) : type(GraphicsBindingType::kVulkan)
     {
         vulkan_binding.emplace(binding);
