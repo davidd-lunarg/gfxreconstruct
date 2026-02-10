@@ -4075,7 +4075,7 @@ VkResult VulkanReplayConsumerBase::OverrideGetQueryPoolResults(PFN_vkGetQueryPoo
     if (original_result == VK_SUCCESS)
     {
         // instead of polling (busy-waiting) vkGetQueryPoolResults, we just wait
-        flags |= VK_QUERY_RESULT_WAIT_BIT;
+        //flags |= VK_QUERY_RESULT_WAIT_BIT;
     }
 
     VkResult result =
