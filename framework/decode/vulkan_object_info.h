@@ -693,6 +693,8 @@ struct VulkanCommandBufferInfo : public VulkanPoolObjectInfo<VkCommandBuffer>
     std::unordered_map<const VulkanBufferInfo*, std::vector<std::pair<size_t, uint32_t>>> addresses_to_resolve;
 
     bool inside_renderpass = false;
+
+    std::unordered_set<VkAccelerationStructureKHR> pending_accel_struct_builds;
 };
 
 struct VulkanRenderPassInfo : public VulkanObjectInfo<VkRenderPass>

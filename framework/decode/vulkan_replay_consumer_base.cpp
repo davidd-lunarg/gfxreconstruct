@@ -4197,6 +4197,22 @@ VkResult VulkanReplayConsumerBase::OverrideQueueSubmit(PFN_vkQueueSubmit        
     VulkanSubmitJobPlan     plan;
     VulkanSubmitJobExecutor executor;
 
+    for (uint32_t i = 0; i < submitCount; ++i)
+    {
+        if (submit_info_data != nullptr)
+        {
+            size_t     command_buffer_count = submit_info_data[i].pCommandBuffers.GetLength();
+            const auto command_buffer_ids   = submit_info_data[i].pCommandBuffers.GetPointer();
+            for (uint32_t j = 0; j < command_buffer_count; ++j)
+            {
+                auto command_buffer_info = GetObjectInfoTable().GetVkCommandBufferInfo(command_buffer_ids[j]);
+
+                submitted_accel_struct_builds.insert(command_buffer_info->pending_accel_struct_builds.begin(),
+                                                     command_buffer_info->pending_accel_struct_builds.end());
+            }
+        }
+    }
+
     if (UseAddressReplacement(device_info) && submit_info_data != nullptr)
     {
         const auto& address_tracker  = GetDeviceAddressTracker(device_info);
@@ -4227,10 +4243,19 @@ VkResult VulkanReplayConsumerBase::OverrideQueueSubmit(PFN_vkQueueSubmit        
     // tracked.
     if ((!have_imported_semaphores_) && (options_.surface_index == -1) && (!options_.dumping_resources))
     {
-        result = func(queue_info->handle, submitCount, submit_infos, fence);
+        // result = func(queue_info->handle, submitCount, submit_infos, fence);
+        // GetDeviceTable(queue_info->handle)->QueueWaitIdle(queue_info->handle);
+
+        for (int i = 0; i < submitCount; ++i)
+        {
+            result = func(queue_info->handle, 1, submit_infos + i, fence);
+            GetDeviceTable(queue_info->handle)->QueueWaitIdle(queue_info->handle);
+        }
     }
     else
     {
+        GFXRECON_LOG_ERROR("Unexpected submit path.");
+
         // Check for imported semaphores in the current submission list, mapping the pSubmits array index to a vector of
         // imported semaphore info structures.
         std::unordered_map<uint32_t, std::vector<const VulkanSemaphoreInfo*>> altered_submits;
@@ -9137,6 +9162,7 @@ VkResult VulkanReplayConsumerBase::OverrideCreateAccelerationStructureKHR(
     bool use_capture_replay_feature = device_info->property_feature_info.feature_accelerationStructureCaptureReplay &&
                                       device_info->allocator->SupportsOpaqueDeviceAddresses();
 
+    uint64_t capture_address = 0;
     if (use_capture_replay_feature)
     {
         // Set opaque device address
@@ -9147,6 +9173,7 @@ VkResult VulkanReplayConsumerBase::OverrideCreateAccelerationStructureKHR(
             modified_create_info.deviceAddress = entry->second;
 
             // assign opaque address, same for capture and replay
+            capture_address                              = modified_create_info.deviceAddress;
             acceleration_structure_info->capture_address = acceleration_structure_info->replay_address =
                 modified_create_info.deviceAddress;
         }
@@ -9156,6 +9183,10 @@ VkResult VulkanReplayConsumerBase::OverrideCreateAccelerationStructureKHR(
                 "Opaque device address is not available for VkAccelerationStructureKHR object (ID = %" PRIu64 ")",
                 capture_id);
         }
+    }
+    else
+    {
+        GFXRECON_ASSERT(false);
     }
 
     if (device_info->property_feature_info.feature_descriptorBufferCaptureReplay && !UseAddressReplacement(device_info))
@@ -9179,6 +9210,21 @@ VkResult VulkanReplayConsumerBase::OverrideCreateAccelerationStructureKHR(
     }
 
     result = func(device, &modified_create_info, GetAllocationCallbacks(pAllocator), replay_accel_struct);
+
+    GFXRECON_ASSERT(replay_accel_struct != nullptr);
+    VkAccelerationStructureDeviceAddressInfoKHR address_info{
+        VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR, nullptr, *replay_accel_struct
+    };
+    auto replay_address =
+        GetDeviceTable(device_info->handle)->GetAccelerationStructureDeviceAddressKHR(device, &address_info);
+    if (replay_address != capture_address)
+    {
+        GFXRECON_LOG_ERROR("Mismatch accel struct address at create.");
+    }
+    if (replay_address == 0)
+    {
+        GFXRECON_LOG_ERROR("Zero AS address.");
+    }
 
     // clean potential opaque creation-data
     device_info->opaque_descriptor_data.erase(capture_id);
@@ -9224,6 +9270,7 @@ void VulkanReplayConsumerBase::OverrideDestroyAccelerationStructureKHR(
             resource_dumper_->HandleDestroyAccelerationStructureKHR(acceleration_structure_info);
         }
     }
+    submitted_accel_struct_builds.erase(acceleration_structure);
     func(device_info->handle, acceleration_structure, GetAllocationCallbacks(pAllocator));
 }
 
@@ -9239,24 +9286,77 @@ void VulkanReplayConsumerBase::OverrideCmdBuildAccelerationStructuresKHR(
     VkAccelerationStructureBuildGeometryInfoKHR* build_geometry_infos = pInfos->GetPointer();
     VkAccelerationStructureBuildRangeInfoKHR**   build_range_infos    = ppBuildRangeInfos->GetPointer();
 
-    // Dump resources handler for CmdBuildAccelerationStructuresKHR is expecting the device addresses unchanged so it
-    // needs to be called before the address replacer
-    if (options_.dumping_resources)
+    bool has_bottom_level = false;
+    bool has_top_level    = false;
+
+    std::unordered_set<VkAccelerationStructureKHR> built_accel_structs;
+    for (int i = 0; i < infoCount; ++i)
     {
-        resource_dumper_->OverrideCmdBuildAccelerationStructuresKHR(
-            command_buffer_info, *GetDeviceTable(device_info->handle), infoCount, pInfos, ppBuildRangeInfos);
+        if (build_geometry_infos[i].mode == VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR)
+        {
+            // if (submitted_accel_struct_builds.find(build_geometry_infos[i].srcAccelerationStructure) ==
+            //     submitted_accel_struct_builds.end())
+            //{
+            GFXRECON_LOG_ERROR_ONCE("Skipping update, building instead.");
+            build_geometry_infos[i].mode                     = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+            build_geometry_infos[i].srcAccelerationStructure = VK_NULL_HANDLE;
+            //}
+            // else
+            //{
+            //    GFXRECON_LOG_ERROR_ONCE("Performing Update on AS.");
+            //}
+        }
+        if (build_geometry_infos[i].type == VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR)
+        {
+            has_top_level = true;
+            if (build_geometry_infos[i].pGeometries->geometry.instances.arrayOfPointers)
+            {
+                GFXRECON_LOG_ERROR("Using TLAS arrayOfPointers.");
+            }
+        }
+        if (build_geometry_infos[i].type == VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR)
+        {
+            has_bottom_level = true;
+        }
+        built_accel_structs.insert(build_geometry_infos[i].dstAccelerationStructure);
     }
 
-    if (UseAddressReplacement(device_info))
+    if (has_top_level && has_bottom_level)
     {
-        auto& address_tracker  = GetDeviceAddressTracker(device_info);
-        auto& address_replacer = GetDeviceAddressReplacer(device_info);
-
-        address_replacer.ProcessCmdBuildAccelerationStructuresKHR(
-            command_buffer_info, infoCount, build_geometry_infos, build_range_infos, address_tracker);
+        GFXRECON_LOG_ERROR("TLAS and BLAS in same build cmd.");
     }
 
-    func(command_buffer, infoCount, build_geometry_infos, build_range_infos);
+    // if (!has_top_level)
+    {
+        VkMemoryBarrier2 asBarrier{
+            .sType        = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+            .pNext        = nullptr,
+            .srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR |
+                            VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR,
+            .srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+            .dstStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR |
+                            VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR,
+            .dstAccessMask =
+                VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+        };
+
+        VkDependencyInfo dep{
+            .sType                    = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .pNext                    = nullptr,
+            .dependencyFlags          = 0,
+            .memoryBarrierCount       = 1,
+            .pMemoryBarriers          = &asBarrier,
+            .bufferMemoryBarrierCount = 0,
+            .pBufferMemoryBarriers    = nullptr,
+            .imageMemoryBarrierCount  = 0,
+            .pImageMemoryBarriers     = nullptr,
+        };
+
+        GetDeviceTable(device_info->handle)->CmdPipelineBarrier2(command_buffer, &dep);
+
+        command_buffer_info->pending_accel_struct_builds.insert(built_accel_structs.begin(), built_accel_structs.end());
+        func(command_buffer, infoCount, build_geometry_infos, build_range_infos);
+    }
 }
 
 void VulkanReplayConsumerBase::OverrideCmdCopyAccelerationStructureKHR(
@@ -9287,7 +9387,44 @@ void VulkanReplayConsumerBase::OverrideCmdCopyAccelerationStructureKHR(
         address_replacer.ProcessCmdCopyAccelerationStructuresKHR(info, address_tracker);
     }
 
-    func(command_buffer, info);
+    // if ((submitted_accel_struct_builds.find(info->src) != submitted_accel_struct_builds.end()) ||
+    //     (command_buffer_info->pending_accel_struct_builds.find(info->src) !=
+    //      command_buffer_info->pending_accel_struct_builds.end()))
+    {
+        VkMemoryBarrier2 asBarrier{
+            .sType        = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+            .pNext        = nullptr,
+            .srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR |
+                            VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR,
+            .srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+            .dstStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR |
+                            VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR,
+            .dstAccessMask =
+                VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+        };
+
+        VkDependencyInfo dep{
+            .sType                    = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .pNext                    = nullptr,
+            .dependencyFlags          = 0,
+            .memoryBarrierCount       = 1,
+            .pMemoryBarriers          = &asBarrier,
+            .bufferMemoryBarrierCount = 0,
+            .pBufferMemoryBarriers    = nullptr,
+            .imageMemoryBarrierCount  = 0,
+            .pImageMemoryBarriers     = nullptr,
+        };
+
+        GetDeviceTable(device_info->handle)->CmdPipelineBarrier2(command_buffer, &dep);
+
+        // GFXRECON_LOG_ERROR_ONCE("Copying AS.");
+        command_buffer_info->pending_accel_struct_builds.insert(info->dst);
+        func(command_buffer, info);
+    }
+    // else
+    //{
+    //     GFXRECON_LOG_ERROR_ONCE("Skipping copy for unbuilt AS.");
+    // }
 }
 
 void VulkanReplayConsumerBase::OverrideCmdWriteAccelerationStructuresPropertiesKHR(
@@ -9866,6 +10003,8 @@ void VulkanReplayConsumerBase::ClearCommandBufferInfo(VulkanCommandBufferInfo* c
     command_buffer_info->addresses_to_replace.clear();
     command_buffer_info->addresses_to_resolve.clear();
     command_buffer_info->inside_renderpass = false;
+
+    command_buffer_info->pending_accel_struct_builds.clear();
 
     auto* device_info = GetObjectInfoTable().GetVkDeviceInfo(command_buffer_info->parent_id);
     GFXRECON_ASSERT(device_info != nullptr);
