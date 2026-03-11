@@ -12220,6 +12220,8 @@ void VulkanReplayConsumer::Process_vkCmdTraceRaysKHR(
     uint32_t                                    height,
     uint32_t                                    depth)
 {
+    return;
+
     auto in_commandBuffer = GetObjectInfoTable().GetVkCommandBufferInfo(commandBuffer);
 
     OverrideCmdTraceRaysKHR(GetDeviceTable(in_commandBuffer->handle)->CmdTraceRaysKHR, in_commandBuffer, pRaygenShaderBindingTable, pMissShaderBindingTable, pHitShaderBindingTable, pCallableShaderBindingTable, width, height, depth);

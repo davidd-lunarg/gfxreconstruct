@@ -4227,8 +4227,30 @@ VkResult VulkanReplayConsumerBase::OverrideQueueSubmit(PFN_vkQueueSubmit        
     // tracked.
     if ((!have_imported_semaphores_) && (options_.surface_index == -1) && (!options_.dumping_resources))
     {
-        result = func(queue_info->handle, submitCount, submit_infos, fence);
+        // result = func(queue_info->handle, submitCount, submit_infos, fence);
+        // GetDeviceTable(queue_info->handle)->QueueWaitIdle(queue_info->handle);
+
+        for (int i = 0; i < submitCount; ++i)
+        {
+            if (i == submitCount - 1)
+            {
+                result = func(queue_info->handle, 1, submit_infos + i, fence);
+            }
+            else
+            {
+                result = func(queue_info->handle, 1, submit_infos + i, VK_NULL_HANDLE);
+            }
+            GetDeviceTable(queue_info->handle)->QueueWaitIdle(queue_info->handle);
+            /*if (fence != VK_NULL_HANDLE && i == submitCount - 1)
+            {
+                if(GetDeviceTable(device_info->handle)->GetFenceStatus(device_info->handle, fence) == VK_SUCCESS)
+                {
+                    GetDeviceTable(device_info->handle)->ResetFences(device_info->handle, 1, &fence);
+                }
+            }*/
+        }
     }
+
     else
     {
         // Check for imported semaphores in the current submission list, mapping the pSubmits array index to a vector of
@@ -9256,7 +9278,32 @@ void VulkanReplayConsumerBase::OverrideCmdBuildAccelerationStructuresKHR(
             command_buffer_info, infoCount, build_geometry_infos, build_range_infos, address_tracker);
     }
 
+    VkMemoryBarrier2 barrier;
+    barrier.sType        = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    barrier.pNext        = nullptr;
+    barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR |
+                           VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR;
+    barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+    barrier.dstStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR |
+                           VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR;
+    barrier.dstAccessMask =
+        VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+
+    VkDependencyInfo dependency;
+    dependency.sType                    = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dependency.pNext                    = nullptr;
+    dependency.dependencyFlags          = 0;
+    dependency.memoryBarrierCount       = 1;
+    dependency.pMemoryBarriers          = &barrier;
+    dependency.bufferMemoryBarrierCount = 0;
+    dependency.pBufferMemoryBarriers    = nullptr;
+    dependency.imageMemoryBarrierCount  = 0;
+    dependency.pImageMemoryBarriers     = nullptr;
+    GetDeviceTable(device_info->handle)->CmdPipelineBarrier2(command_buffer, &dependency);
+
     func(command_buffer, infoCount, build_geometry_infos, build_range_infos);
+
+    GetDeviceTable(device_info->handle)->CmdPipelineBarrier2(command_buffer, &dependency);
 }
 
 void VulkanReplayConsumerBase::OverrideCmdCopyAccelerationStructureKHR(
@@ -9287,7 +9334,33 @@ void VulkanReplayConsumerBase::OverrideCmdCopyAccelerationStructureKHR(
         address_replacer.ProcessCmdCopyAccelerationStructuresKHR(info, address_tracker);
     }
 
+    VkMemoryBarrier2 barrier;
+    barrier.sType        = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    barrier.pNext        = nullptr;
+    barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR |
+                           VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR;
+    barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+    barrier.dstStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR |
+                           VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR;
+    barrier.dstAccessMask =
+        VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+
+    VkDependencyInfo dependency;
+    dependency.sType                    = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dependency.pNext                    = nullptr;
+    dependency.dependencyFlags          = 0;
+    dependency.memoryBarrierCount       = 1;
+    dependency.pMemoryBarriers          = &barrier;
+    dependency.bufferMemoryBarrierCount = 0;
+    dependency.pBufferMemoryBarriers    = nullptr;
+    dependency.imageMemoryBarrierCount  = 0;
+    dependency.pImageMemoryBarriers     = nullptr;
+
+    GetDeviceTable(device_info->handle)->CmdPipelineBarrier2(command_buffer, &dependency);
+
     func(command_buffer, info);
+
+    GetDeviceTable(device_info->handle)->CmdPipelineBarrier2(command_buffer, &dependency);
 }
 
 void VulkanReplayConsumerBase::OverrideCmdWriteAccelerationStructuresPropertiesKHR(
@@ -10237,6 +10310,31 @@ void VulkanReplayConsumerBase::OverrideCmdTraceRaysKHR(
                                                  bound_pipeline->shader_group_handle_map);
         }
 
+        VkMemoryBarrier2 barrier;
+        barrier.sType        = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        barrier.pNext        = nullptr;
+        barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR |
+                               VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR |
+                               VK_PIPELINE_STAGE_2_TRANSFER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | VK_ACCESS_2_TRANSFER_WRITE_BIT |
+                                VK_ACCESS_2_SHADER_WRITE_BIT;
+        barrier.dstStageMask  = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+        barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_SHADER_READ_BIT |
+                                VK_ACCESS_2_UNIFORM_READ_BIT | VK_ACCESS_2_SHADER_BINDING_TABLE_READ_BIT_KHR;
+
+        VkDependencyInfo dependency;
+        dependency.sType                    = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dependency.pNext                    = nullptr;
+        dependency.dependencyFlags          = 0;
+        dependency.memoryBarrierCount       = 1;
+        dependency.pMemoryBarriers          = &barrier;
+        dependency.bufferMemoryBarrierCount = 0;
+        dependency.pBufferMemoryBarriers    = nullptr;
+        dependency.imageMemoryBarrierCount  = 0;
+        dependency.pImageMemoryBarriers     = nullptr;
+
+        GetDeviceTable(device_info->handle)->CmdPipelineBarrier2(commandBuffer, &dependency);
+
         func(commandBuffer,
              in_pRaygenShaderBindingTable,
              in_pMissShaderBindingTable,
@@ -10245,6 +10343,8 @@ void VulkanReplayConsumerBase::OverrideCmdTraceRaysKHR(
              width,
              height,
              depth);
+
+        GetDeviceTable(device_info->handle)->CmdPipelineBarrier2(commandBuffer, &dependency);
     }
 }
 
