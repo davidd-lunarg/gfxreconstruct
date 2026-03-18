@@ -53,6 +53,8 @@
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
 GFXRECON_BEGIN_NAMESPACE(encode)
 
+std::unordered_set<VkQueryPool> as_query_pools;
+
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(
     const VkInstanceCreateInfo*                 pCreateInfo,
     const VkAllocationCallbacks*                pAllocator,
@@ -1662,6 +1664,20 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetQueryPoolResults(
     }
 
     CustomEncoderPostCall<format::ApiCallId::ApiCall_vkGetQueryPoolResults>::Dispatch(manager, result, device, queryPool, firstQuery, queryCount, dataSize, pData, stride, flags);
+
+    if(result == VK_SUCCESS)
+    {
+        auto query_pool_wrapper = vulkan_wrappers::GetWrapper<vulkan_wrappers::QueryPoolWrapper>(queryPool);
+        if(as_query_pools.contains(queryPool))
+        {
+            auto as_sizes = reinterpret_cast<VkDeviceSize*>(pData);
+            for(int i = 0; i < queryCount; ++i)
+            {
+                // Increase reported size by 50% with a limit of 32KB.
+                as_sizes[i] += std::min((32 * 1024), (int)(as_sizes[i] / 2));
+            }
+        }
+    }
 
     return result;
 
@@ -28688,6 +28704,11 @@ VKAPI_ATTR void VKAPI_CALL vkCmdWriteAccelerationStructuresPropertiesKHR(
     }
 
     manager->OverrideCmdWriteAccelerationStructuresPropertiesKHR(commandBuffer, accelerationStructureCount, pAccelerationStructures, queryType, queryPool, firstQuery);
+
+    if (queryType == VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR)
+    {
+        as_query_pools.insert(queryPool);
+    }
 
     CustomEncoderPostCall<format::ApiCallId::ApiCall_vkCmdWriteAccelerationStructuresPropertiesKHR>::Dispatch(manager, commandBuffer, accelerationStructureCount, pAccelerationStructures, queryType, queryPool, firstQuery);
 
