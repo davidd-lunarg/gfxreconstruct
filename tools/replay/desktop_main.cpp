@@ -129,6 +129,7 @@ int main(int argc, const char** argv)
     // Update logging with values retrieved from command line arguments
     gfxrecon::util::Log::Settings log_settings;
     GetLogSettings(arg_parser, log_settings);
+    log_settings.flush_after_write = true;
     gfxrecon::util::Log::UpdateWithSettings(log_settings);
 
     try
