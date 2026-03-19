@@ -660,6 +660,22 @@ VKAPI_ATTR VkResult VKAPI_CALL vkAllocateMemory(
 
     bool omit_output_data = false;
 
+    auto modified_alloc_info = *pAllocateInfo;
+    auto alloc_flags_info = graphics::vulkan_struct_get_pnext<VkMemoryAllocateFlagsInfo>(&modified_alloc_info);
+    VkMemoryAllocateFlagsInfo modified_flags_info;
+    modified_flags_info.flags = 0;
+    modified_flags_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
+    if(alloc_flags_info)
+    {
+        modified_flags_info = *alloc_flags_info;
+        graphics::vulkan_struct_remove_pnext<VkMemoryAllocateFlagsInfo>(&modified_alloc_info);
+    }
+    modified_flags_info.pNext = nullptr;
+    modified_flags_info.flags |= VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
+    graphics::vulkan_struct_add_pnext<VkMemoryAllocateFlagsInfo>(&modified_alloc_info, &modified_flags_info);
+
+    pAllocateInfo = &modified_alloc_info;
+
     CustomEncoderPreCall<format::ApiCallId::ApiCall_vkAllocateMemory>::Dispatch(manager, device, pAllocateInfo, pAllocator, pMemory);
 
     VkResult result = manager->OverrideAllocateMemory(device, pAllocateInfo, pAllocator, pMemory);

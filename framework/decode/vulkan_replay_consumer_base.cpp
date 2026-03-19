@@ -5455,6 +5455,7 @@ VkResult VulkanReplayConsumerBase::OverrideAllocateMemory(
             }
             else if (current_struct->sType == VK_STRUCTURE_TYPE_IMPORT_MEMORY_HOST_POINTER_INFO_EXT)
             {
+                GFXRECON_LOG_ERROR("VK_STRUCTURE_TYPE_IMPORT_MEMORY_HOST_POINTER_INFO_EXT");
                 auto import_info = reinterpret_cast<VkImportMemoryHostPointerInfoEXT*>(current_struct);
 
                 GFXRECON_CHECK_CONVERSION_DATA_LOSS(size_t, modified_allocate_info->allocationSize);
@@ -5495,6 +5496,16 @@ VkResult VulkanReplayConsumerBase::OverrideAllocateMemory(
             flags_info.flags |=
                 VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT | VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT;
             graphics::vulkan_struct_add_pnext(modified_allocate_info, &flags_info);
+        }
+
+        // if (uses_address && !address_override_found)
+        //{
+        //     GFXRECON_LOG_ERROR("uses_address && !address_override_found");
+        // }
+
+        if (!uses_address)
+        {
+            GFXRECON_LOG_ERROR("vkAllocateMemory no address bit");
         }
 
         if (uses_address && !address_override_found)
@@ -6095,6 +6106,8 @@ VulkanReplayConsumerBase::OverrideCreateBuffer(PFN_vkCreateBuffer               
 
     if (uses_address)
     {
+        // GFXRECON_LOG_ERROR("vkCreateBuffer: %llu", *pBuffer->GetPointer());
+
         auto entry = device_info->opaque_addresses.find(capture_id);
         if (entry != device_info->opaque_addresses.end())
         {
@@ -6112,9 +6125,14 @@ VulkanReplayConsumerBase::OverrideCreateBuffer(PFN_vkCreateBuffer               
                                capture_id);
         }
     }
-    else if (force_address)
+    else
     {
-        modified_create_info.usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+        // GFXRECON_LOG_ERROR("vkCreateBuffer no address bit: %llu", *pBuffer->GetPointer());
+
+        if (force_address)
+        {
+            modified_create_info.usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+        }
     }
 
     result = allocator->CreateBuffer(
@@ -9596,6 +9614,8 @@ VkDeviceAddress VulkanReplayConsumerBase::OverrideGetBufferDeviceAddress(
     const VulkanDeviceInfo*                                        device_info,
     const StructPointerDecoder<Decoded_VkBufferDeviceAddressInfo>* pInfo)
 {
+    // GFXRECON_LOG_ERROR("vkGetBufferDeviceAddress: %llu", pInfo->GetMetaStructPointer()->buffer);
+
     assert((device_info != nullptr) && (pInfo != nullptr) && !pInfo->IsNull() && (pInfo->GetPointer() != nullptr));
 
     if (!device_info->property_feature_info.feature_bufferDeviceAddressCaptureReplay)

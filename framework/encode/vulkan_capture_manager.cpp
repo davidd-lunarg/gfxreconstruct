@@ -1398,6 +1398,44 @@ VkResult VulkanCaptureManager::OverrideAllocateMemory(VkDevice                  
     result = vulkan_wrappers::GetDeviceTable(device)->AllocateMemory(
         device_unwrapped, pAllocateInfo_unwrapped, pAllocator, pMemory);
 
+    // Reallocate with previously assigned opaque address.
+    if (result == VK_SUCCESS)
+    {
+        VkDeviceMemoryOpaqueCaptureAddressInfo opaque_info{ VK_STRUCTURE_TYPE_DEVICE_MEMORY_OPAQUE_CAPTURE_ADDRESS_INFO,
+                                                            nullptr,
+                                                            *pMemory };
+
+        uint64_t assigned_address = vulkan_wrappers::GetDeviceTable(device)->GetDeviceMemoryOpaqueCaptureAddress(
+            device_unwrapped, &opaque_info);
+
+        if (assigned_address != 0)
+        {
+            vulkan_wrappers::GetDeviceTable(device)->FreeMemory(device_unwrapped, *pMemory, pAllocator);
+
+            VkMemoryOpaqueCaptureAddressAllocateInfo address_info = {
+                VK_STRUCTURE_TYPE_MEMORY_OPAQUE_CAPTURE_ADDRESS_ALLOCATE_INFO
+            };
+            address_info.opaqueCaptureAddress = assigned_address;
+
+            graphics::vulkan_struct_add_pnext(pAllocateInfo_unwrapped, &address_info);
+
+            auto flags_struct = graphics::vulkan_struct_get_pnext<VkMemoryAllocateFlagsInfo>(pAllocateInfo_unwrapped);
+
+            if (!flags_struct || ((flags_struct->flags & VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT) !=
+                                  VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT))
+            {
+                GFXRECON_LOG_ERROR("Invalid mem alloc flags");
+            }
+
+            result = vulkan_wrappers::GetDeviceTable(device)->AllocateMemory(
+                device_unwrapped, pAllocateInfo_unwrapped, pAllocator, pMemory);
+        }
+        else
+        {
+            GFXRECON_LOG_ERROR("assigned address == 0");
+        }
+    }
+
     if (result == VK_SUCCESS)
     {
         vulkan_wrappers::CreateWrappedHandle<vulkan_wrappers::DeviceWrapper,
