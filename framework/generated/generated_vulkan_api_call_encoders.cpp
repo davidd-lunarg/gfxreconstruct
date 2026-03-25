@@ -53,6 +53,13 @@
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
 GFXRECON_BEGIN_NAMESPACE(encode)
 
+struct AsQueryInfo
+{
+    VkQueryType type;
+    std::vector<format::HandleId> accel_structs;
+};
+std::unordered_map<VkQueryPool, AsQueryInfo> as_query_pools;
+
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(
     const VkInstanceCreateInfo*                 pCreateInfo,
     const VkAllocationCallbacks*                pAllocator,
@@ -1662,6 +1669,22 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetQueryPoolResults(
     }
 
     CustomEncoderPostCall<format::ApiCallId::ApiCall_vkGetQueryPoolResults>::Dispatch(manager, result, device, queryPool, firstQuery, queryCount, dataSize, pData, stride, flags);
+
+    if(result == VK_SUCCESS)
+    {
+        auto iter = as_query_pools.find(queryPool);
+        if(iter != as_query_pools.end())
+        {
+            auto query_type = iter->second.type;
+            auto as_sizes = reinterpret_cast<VkDeviceSize*>(pData);
+            for(int i = 0; i < queryCount; ++i)
+            {
+                auto as_id = iter->second.accel_structs[i + firstQuery];
+                GFXRECON_LOG_INFO("AS id: %llu, block id: %llu, size: %llu, type: %d",
+                    as_id, manager->GetBlockIndex(), as_sizes[i], query_type);
+            }
+        }
+    }
 
     return result;
 
@@ -28688,6 +28711,16 @@ VKAPI_ATTR void VKAPI_CALL vkCmdWriteAccelerationStructuresPropertiesKHR(
     }
 
     manager->OverrideCmdWriteAccelerationStructuresPropertiesKHR(commandBuffer, accelerationStructureCount, pAccelerationStructures, queryType, queryPool, firstQuery);
+
+    as_query_pools[queryPool].type = queryType;
+    if(as_query_pools[queryPool].accel_structs.size() < firstQuery + accelerationStructureCount)
+    {
+        as_query_pools[queryPool].accel_structs.resize(firstQuery + accelerationStructureCount);
+    }
+    for(int i = 0; i < accelerationStructureCount; ++i)
+    {
+       as_query_pools[queryPool].accel_structs[i + firstQuery] = vulkan_wrappers::GetWrappedId<vulkan_wrappers::AccelerationStructureKHRWrapper>(pAccelerationStructures[i]);
+    }
 
     CustomEncoderPostCall<format::ApiCallId::ApiCall_vkCmdWriteAccelerationStructuresPropertiesKHR>::Dispatch(manager, commandBuffer, accelerationStructureCount, pAccelerationStructures, queryType, queryPool, firstQuery);
 

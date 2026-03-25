@@ -38,6 +38,13 @@
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
 GFXRECON_BEGIN_NAMESPACE(decode)
 
+struct AsQueryInfo
+{
+    VkQueryType type;
+    std::vector<format::HandleId> accel_structs;
+};
+std::unordered_map<format::HandleId, AsQueryInfo> as_query_pools;
+
 template <typename T>
 void InitializeOutputStructPNext(StructPointerDecoder<T> *decoder);
 
@@ -658,6 +665,23 @@ void VulkanReplayConsumer::Process_vkGetQueryPoolResults(
     if (!pData->IsNull()) { pData->AllocateOutputData(dataSize); }
 
     VkResult replay_result = OverrideGetQueryPoolResults(GetDeviceTable(in_device->handle)->GetQueryPoolResults, returnValue, in_device, in_queryPool, firstQuery, queryCount, dataSize, pData, stride, flags);
+
+    if(replay_result == VK_SUCCESS)
+    {
+        auto iter = as_query_pools.find(queryPool);
+        if(iter != as_query_pools.end())
+        {
+            auto query_type = iter->second.type;
+            auto as_sizes = reinterpret_cast<VkDeviceSize*>(pData->GetOutputPointer());
+            for(int i = 0; i < queryCount; ++i)
+            {
+                auto as_id = iter->second.accel_structs[i + firstQuery];
+                GFXRECON_LOG_INFO("AS id: %llu, block id: %llu, size: %llu, type: %d",
+                    as_id, block_index_, as_sizes[i], query_type);
+            }
+        }
+    }
+
     CheckResult("vkGetQueryPoolResults", returnValue, replay_result, call_info);
 }
 
@@ -12169,6 +12193,16 @@ void VulkanReplayConsumer::Process_vkCmdWriteAccelerationStructuresPropertiesKHR
     auto in_queryPool = GetObjectInfoTable().GetVkQueryPoolInfo(queryPool);
 
     OverrideCmdWriteAccelerationStructuresPropertiesKHR(GetDeviceTable(in_commandBuffer->handle)->CmdWriteAccelerationStructuresPropertiesKHR, in_commandBuffer, accelerationStructureCount, pAccelerationStructures, queryType, in_queryPool, firstQuery);
+
+    as_query_pools[queryPool].type = queryType;
+    if(as_query_pools[queryPool].accel_structs.size() < firstQuery + accelerationStructureCount)
+    {
+       as_query_pools[queryPool].accel_structs.resize(firstQuery + accelerationStructureCount);
+    }
+    for(int i = 0; i < accelerationStructureCount; ++i)
+    {
+      as_query_pools[queryPool].accel_structs[i + firstQuery] = pAccelerationStructures->GetPointer()[i];
+    }
 
     if (options_.dumping_resources)
     {
