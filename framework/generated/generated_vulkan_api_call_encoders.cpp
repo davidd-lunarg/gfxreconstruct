@@ -1682,6 +1682,12 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetQueryPoolResults(
                 auto as_id = iter->second.accel_structs[i + firstQuery];
                 GFXRECON_LOG_INFO("AS id: %llu, block id: %llu, size: %llu, type: %d",
                     as_id, manager->GetBlockIndex(), as_sizes[i], query_type);
+
+                // Increase reported compacted size by 50% with a limit of 32KB.
+                if(query_type == VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR)
+                {
+                    as_sizes[i] += std::min((32 * 1024), (int)(as_sizes[i] / 2));
+                }
             }
         }
     }
@@ -28695,6 +28701,12 @@ VKAPI_ATTR void VKAPI_CALL vkCmdWriteAccelerationStructuresPropertiesKHR(
     {
         shared_api_call_lock = VulkanCaptureManager::AcquireSharedApiCallLock();
     }
+
+    //// Force queries to return VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SIZE_KHR instead of compacted size.
+    //if (queryType == VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR)
+    //{
+    //    queryType = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SIZE_KHR;
+    //}
 
     CustomEncoderPreCall<format::ApiCallId::ApiCall_vkCmdWriteAccelerationStructuresPropertiesKHR>::Dispatch(manager, commandBuffer, accelerationStructureCount, pAccelerationStructures, queryType, queryPool, firstQuery);
 
