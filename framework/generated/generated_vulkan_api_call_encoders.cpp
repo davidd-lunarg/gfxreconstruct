@@ -53,6 +53,11 @@
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
 GFXRECON_BEGIN_NAMESPACE(encode)
 
+// Track the query type for each pool slot used by
+// vkCmdWriteAccelerationStructuresPropertiesKHR, so vkGetQueryPoolResults can
+// size-pad compacted-size queries.
+std::unordered_map<VkQueryPool, VkQueryType> as_query_pool_types;
+
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(
     const VkInstanceCreateInfo*                 pCreateInfo,
     const VkAllocationCallbacks*                pAllocator,
@@ -1662,6 +1667,25 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetQueryPoolResults(
     }
 
     CustomEncoderPostCall<format::ApiCallId::ApiCall_vkGetQueryPoolResults>::Dispatch(manager, result, device, queryPool, firstQuery, queryCount, dataSize, pData, stride, flags);
+
+    // Pad reported acceleration-structure compacted sizes by 50% (capped at
+    // 32KB). The captured trace replays in environments where the driver-
+    // reported compacted size may shrink slightly across runs; reserving a
+    // little headroom avoids replay-time VK_ERROR_OUT_OF_DEVICE_MEMORY on
+    // the compacted-target buffer allocation.
+    if (result == VK_SUCCESS)
+    {
+        auto iter = as_query_pool_types.find(queryPool);
+        if (iter != as_query_pool_types.end() &&
+            iter->second == VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR)
+        {
+            auto as_sizes = reinterpret_cast<VkDeviceSize*>(pData);
+            for (uint32_t i = 0; i < queryCount; ++i)
+            {
+                as_sizes[i] += std::min(static_cast<VkDeviceSize>(32 * 1024), as_sizes[i] / 2);
+            }
+        }
+    }
 
     return result;
 
@@ -29756,6 +29780,10 @@ VKAPI_ATTR void VKAPI_CALL vkCmdWriteAccelerationStructuresPropertiesKHR(
     }
 
     manager->OverrideCmdWriteAccelerationStructuresPropertiesKHR(commandBuffer, accelerationStructureCount, pAccelerationStructures, queryType, queryPool, firstQuery);
+
+    // Remember the query type so vkGetQueryPoolResults can size-pad
+    // compacted-size queries above.
+    as_query_pool_types[queryPool] = queryType;
 
     CustomEncoderPostCall<format::ApiCallId::ApiCall_vkCmdWriteAccelerationStructuresPropertiesKHR>::Dispatch(manager, commandBuffer, accelerationStructureCount, pAccelerationStructures, queryType, queryPool, firstQuery);
 
