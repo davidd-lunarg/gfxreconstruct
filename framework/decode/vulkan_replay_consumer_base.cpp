@@ -5796,6 +5796,56 @@ void VulkanReplayConsumerBase::DrainPendingASDumps(const VulkanQueueInfo*       
     dt.DestroyCommandPool(device, cmd_pool, nullptr);
 }
 
+const util::ShaderReplacement*
+VulkanReplayConsumerBase::LookupShaderReplacement(const void* original_spirv, size_t original_size)
+{
+    if (options_.replace_shader_dir.empty() || original_spirv == nullptr || original_size == 0)
+    {
+        return nullptr;
+    }
+
+    std::call_once(shader_replace_map_init_,
+                   [this]() { shader_replace_map_.LoadDir(options_.replace_shader_dir); });
+
+    if (shader_replace_map_.empty())
+    {
+        return nullptr;
+    }
+
+    const uint64_t original_hash = util::ShaderReplaceMap::HashSpirV(original_spirv, original_size);
+    const auto*    replacement   = shader_replace_map_.LookupByHash(original_hash);
+    if (replacement == nullptr)
+    {
+        return nullptr;
+    }
+
+    util::SpirvProfile original_profile;
+    std::string        parse_err;
+    if (!util::ShaderReplaceMap::ParseProfile(original_spirv, original_size, &original_profile, &parse_err))
+    {
+        GFXRECON_LOG_ERROR("ShaderReplace: original module is not parseable SPIR-V (%s); skipping swap",
+                           parse_err.c_str());
+        return nullptr;
+    }
+
+    std::string compat_err;
+    if (!util::ShaderReplaceMap::IsCompatibleProfile(original_profile, replacement->profile, &compat_err))
+    {
+        GFXRECON_LOG_ERROR(
+            "ShaderReplace: refusing to swap with '%s': %s. Original module passed through unchanged.",
+            replacement->source_file.c_str(),
+            compat_err.c_str());
+        return nullptr;
+    }
+
+    GFXRECON_LOG_INFO("ShaderReplace: swapped module hash=0x%016" PRIx64 " with '%s' (%zu -> %zu bytes)",
+                      original_hash,
+                      replacement->source_file.c_str(),
+                      original_size,
+                      replacement->bytes.size());
+    return replacement;
+}
+
 VkResult VulkanReplayConsumerBase::OverrideCreateDescriptorSetLayout(
     PFN_vkCreateDescriptorSetLayout                                func,
     VkResult                                                       original_result,
@@ -7892,24 +7942,34 @@ VkResult VulkanReplayConsumerBase::OverrideCreateShaderModule(
 
     VkShaderModuleCreateInfo override_info = *original_info;
 
-    // Replace shader in 'override_info'
+    // Replace shader in 'override_info'. Hash-based lookup first; on miss,
+    // fall back to the legacy sh<pipeline_id> file name.
     std::unique_ptr<char[]> file_code;
-    uint64_t                handle_id = *pShaderModule->GetPointer();
-    std::string             file_name = "sh" + std::to_string(handle_id);
-    std::string             file_path = util::filepath::Join(options_.replace_shader_dir, file_name);
-
-    FILE*   fp     = nullptr;
-    int32_t result = util::platform::FileOpen(&fp, file_path.c_str(), "rb");
-    if (result == 0)
+    if (const auto* rep = LookupShaderReplacement(original_info->pCode, original_info->codeSize))
     {
-        util::platform::FileSeek(fp, 0L, util::platform::FileSeekEnd);
-        size_t file_size = static_cast<size_t>(util::platform::FileTell(fp));
-        file_code        = std::make_unique<char[]>(file_size);
-        util::platform::FileSeek(fp, 0L, util::platform::FileSeekSet);
-        util::platform::FileRead(file_code.get(), file_size, fp);
-        override_info.pCode    = (uint32_t*)file_code.get();
-        override_info.codeSize = file_size;
-        GFXRECON_LOG_INFO("Replacement shader found: %s", file_path.c_str());
+        override_info.pCode    = reinterpret_cast<const uint32_t*>(rep->bytes.data());
+        override_info.codeSize = rep->bytes.size();
+    }
+    else
+    {
+        const uint64_t    handle_id = *pShaderModule->GetPointer();
+        const std::string file_name = "sh" + std::to_string(handle_id);
+        const std::string file_path = util::filepath::Join(options_.replace_shader_dir, file_name);
+
+        FILE*   fp     = nullptr;
+        int32_t result = util::platform::FileOpen(&fp, file_path.c_str(), "rb");
+        if (result == 0)
+        {
+            util::platform::FileSeek(fp, 0L, util::platform::FileSeekEnd);
+            size_t file_size = static_cast<size_t>(util::platform::FileTell(fp));
+            file_code        = std::make_unique<char[]>(file_size);
+            util::platform::FileSeek(fp, 0L, util::platform::FileSeekSet);
+            util::platform::FileRead(file_code.get(), file_size, fp);
+            override_info.pCode    = reinterpret_cast<uint32_t*>(file_code.get());
+            override_info.codeSize = file_size;
+            GFXRECON_LOG_INFO("Replacement shader found: %s", file_path.c_str());
+            util::platform::FileClose(fp);
+        }
     }
 
     VkResult vk_res = func(
@@ -13162,7 +13222,7 @@ void VulkanReplayConsumerBase::RemoveFailOnCompileRequiredFlags(T* create_infos,
 }
 
 [[nodiscard]] std::vector<std::unique_ptr<char[]>> VulkanReplayConsumerBase::ReplaceShaders(
-    uint32_t create_info_count, VkGraphicsPipelineCreateInfo* create_infos, const format::HandleId* pipelines) const
+    uint32_t create_info_count, VkGraphicsPipelineCreateInfo* create_infos, const format::HandleId* pipelines)
 {
     std::vector<std::unique_ptr<char[]>> replaced_file_code;
 
@@ -13171,7 +13231,7 @@ void VulkanReplayConsumerBase::RemoveFailOnCompileRequiredFlags(T* create_infos,
         auto& pipeline_create_info = create_infos[i];
         for (size_t j = 0; j < pipeline_create_info.stageCount; j++)
         {
-            auto& stage_create_info = pipeline_create_info.pStages[i];
+            auto& stage_create_info = pipeline_create_info.pStages[j];
             if (stage_create_info.module != VK_NULL_HANDLE)
             {
                 continue;
@@ -13183,28 +13243,37 @@ void VulkanReplayConsumerBase::RemoveFailOnCompileRequiredFlags(T* create_infos,
                 auto* base = reinterpret_cast<VkBaseInStructure*>(pNext);
                 if (base->sType == VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO)
                 {
-                    auto*       create_info = reinterpret_cast<VkShaderModuleCreateInfo*>(base);
-                    const void* orig_code   = create_info->pCode;
-                    size_t      orig_size   = create_info->codeSize;
-                    uint64_t    handle_id   = pipelines[i];
-                    std::string file_name =
-                        "sh" + std::to_string(handle_id) + "_" + std::to_string(stage_create_info.stage);
-                    std::string file_path = util::filepath::Join(options_.replace_shader_dir, file_name);
+                    auto* create_info = reinterpret_cast<VkShaderModuleCreateInfo*>(base);
 
-                    FILE*   fp     = nullptr;
-                    int32_t result = util::platform::FileOpen(&fp, file_path.c_str(), "rb");
-                    if (result == 0)
+                    // Hash-based replacement first; bytes are owned by shader_replace_map_.
+                    if (const auto* rep = LookupShaderReplacement(create_info->pCode, create_info->codeSize))
                     {
-                        util::platform::FileSeek(fp, 0L, util::platform::FileSeekEnd);
-                        size_t                  file_size = static_cast<size_t>(util::platform::FileTell(fp));
-                        std::unique_ptr<char[]> file_code = std::make_unique<char[]>(file_size);
-                        util::platform::FileSeek(fp, 0L, util::platform::FileSeekSet);
-                        util::platform::FileRead(file_code.get(), file_size, fp);
-                        create_info->pCode    = (uint32_t*)file_code.get();
-                        create_info->codeSize = file_size;
-                        GFXRECON_LOG_INFO("Replacement shader found: %s", file_path.c_str());
-                        replaced_file_code.emplace_back(std::move(file_code));
-                        util::platform::FileClose(fp);
+                        create_info->pCode    = reinterpret_cast<const uint32_t*>(rep->bytes.data());
+                        create_info->codeSize = rep->bytes.size();
+                    }
+                    else
+                    {
+                        // Fallback: legacy sh<pipeline_id>_<stage> filename lookup.
+                        const uint64_t    handle_id = pipelines[i];
+                        const std::string file_name =
+                            "sh" + std::to_string(handle_id) + "_" + std::to_string(stage_create_info.stage);
+                        const std::string file_path = util::filepath::Join(options_.replace_shader_dir, file_name);
+
+                        FILE*   fp     = nullptr;
+                        int32_t result = util::platform::FileOpen(&fp, file_path.c_str(), "rb");
+                        if (result == 0)
+                        {
+                            util::platform::FileSeek(fp, 0L, util::platform::FileSeekEnd);
+                            size_t                  file_size = static_cast<size_t>(util::platform::FileTell(fp));
+                            std::unique_ptr<char[]> file_code = std::make_unique<char[]>(file_size);
+                            util::platform::FileSeek(fp, 0L, util::platform::FileSeekSet);
+                            util::platform::FileRead(file_code.get(), file_size, fp);
+                            create_info->pCode    = reinterpret_cast<uint32_t*>(file_code.get());
+                            create_info->codeSize = file_size;
+                            GFXRECON_LOG_INFO("Replacement shader found: %s", file_path.c_str());
+                            replaced_file_code.emplace_back(std::move(file_code));
+                            util::platform::FileClose(fp);
+                        }
                     }
                 }
                 pNext = const_cast<VkBaseInStructure*>(base->pNext);
@@ -13360,16 +13429,26 @@ VkResult VulkanReplayConsumerBase::OverrideCreateComputePipelines(
 }
 
 [[nodiscard]] std::vector<std::unique_ptr<char[]>> VulkanReplayConsumerBase::ReplaceShaders(
-    uint32_t create_info_count, VkShaderCreateInfoEXT* create_infos, const format::HandleId* shaders) const
+    uint32_t create_info_count, VkShaderCreateInfoEXT* create_infos, const format::HandleId* shaders)
 {
     std::vector<std::unique_ptr<char[]>> replaced_file_code;
 
     for (size_t i = 0; i < create_info_count; i++)
     {
-        auto*       create_info = &create_infos[i];
-        uint64_t    handle_id   = shaders[i];
-        std::string file_name   = "sh" + std::to_string(handle_id);
-        std::string file_path   = util::filepath::Join(options_.replace_shader_dir, file_name);
+        auto* create_info = &create_infos[i];
+
+        // Hash-based replacement first; bytes are owned by shader_replace_map_.
+        if (const auto* rep = LookupShaderReplacement(create_info->pCode, create_info->codeSize))
+        {
+            create_info->pCode    = reinterpret_cast<const uint32_t*>(rep->bytes.data());
+            create_info->codeSize = rep->bytes.size();
+            continue;
+        }
+
+        // Fallback: legacy sh<shader_id> filename lookup.
+        const uint64_t    handle_id = shaders[i];
+        const std::string file_name = "sh" + std::to_string(handle_id);
+        const std::string file_path = util::filepath::Join(options_.replace_shader_dir, file_name);
 
         FILE*   fp     = nullptr;
         int32_t result = util::platform::FileOpen(&fp, file_path.c_str(), "rb");
@@ -13380,7 +13459,7 @@ VkResult VulkanReplayConsumerBase::OverrideCreateComputePipelines(
             std::unique_ptr<char[]> file_code = std::make_unique<char[]>(file_size);
             util::platform::FileSeek(fp, 0L, util::platform::FileSeekSet);
             util::platform::FileRead(file_code.get(), file_size, fp);
-            create_info->pCode    = (uint32_t*)file_code.get();
+            create_info->pCode    = reinterpret_cast<uint32_t*>(file_code.get());
             create_info->codeSize = file_size;
             GFXRECON_LOG_INFO("Replacement shader found: %s", file_path.c_str());
             replaced_file_code.emplace_back(std::move(file_code));

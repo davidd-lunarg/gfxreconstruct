@@ -48,6 +48,7 @@
 #include "graphics/fps_info.h"
 #include "util/defines.h"
 #include "util/logging.h"
+#include "util/shader_replacement.h"
 #include "util/threadpool.h"
 
 #include "application/application.h"
@@ -59,6 +60,7 @@
 #include <cassert>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -1853,11 +1855,11 @@ class VulkanReplayConsumerBase : public VulkanConsumer
 
     [[nodiscard]] std::vector<std::unique_ptr<char[]>> ReplaceShaders(uint32_t                      create_info_count,
                                                                       VkGraphicsPipelineCreateInfo* create_infos,
-                                                                      const format::HandleId*       pipelines) const;
+                                                                      const format::HandleId*       pipelines);
 
     [[nodiscard]] std::vector<std::unique_ptr<char[]>> ReplaceShaders(uint32_t                create_info_count,
                                                                       VkShaderCreateInfoEXT*  create_infos,
-                                                                      const format::HandleId* shaders) const;
+                                                                      const format::HandleId* shaders);
 
     /**
      * @brief   CheckPipelineCacheUUID returns true if provided 'create_info' contains no data
@@ -2053,6 +2055,14 @@ class VulkanReplayConsumerBase : public VulkanConsumer
 
     const bool save_pipeline_caches_to_file;
     const bool load_pipeline_caches_from_file;
+
+    // --replace-shaders: hash-keyed SPIR-V replacement map. Files are loaded
+    // lazily from `options_.replace_shader_dir` on the first lookup. Returns
+    // nullptr if no entry matches the original module's hash; callers may then
+    // fall back to the legacy sh<pipeline_id>_<stage> name lookup.
+    const util::ShaderReplacement* LookupShaderReplacement(const void* original_spirv, size_t original_size);
+    util::ShaderReplaceMap         shader_replace_map_;
+    std::once_flag                 shader_replace_map_init_;
 
     // ASVisualizer: per-device helper that owns the serialization scratch buffers used by the
     // --dump-acceleration-structures feature. Inline copies of built BLAS land in `pool_buffer`
