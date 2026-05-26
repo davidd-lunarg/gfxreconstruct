@@ -44,7 +44,7 @@ const char kArguments[] =
     "format,pbis,--pcj|--pipeline-creation-jobs,--save-pipeline-cache,--load-pipeline-cache,--quit-after-frame,--"
     "present-mode,--wait-before-first-submit,--idle-before-submit,--present-override,--serialize-render-passes,--frame-"
     "warm-up-spirv,--frame-warm-up-load,--wait-before-frame,--loop-frame,--loop-count,--serialize-queue-submissions,--"
-    "replay-event-plugin-path,--replay-event-plugin-params";
+    "replay-event-plugin-path,--replay-event-plugin-params,--dump-acceleration-structures";
 
 static void PrintUsage(const char* exe_name)
 {
@@ -348,6 +348,14 @@ static void PrintUsage(const char* exe_name)
     GFXRECON_WRITE_CONSOLE("          \t\tspecified json file. The format for the json file is");
     GFXRECON_WRITE_CONSOLE("          \t\tdocumented in detail in vulkan_dump_resources.md.");
 #endif
+    GFXRECON_WRITE_CONSOLE("  --dump-acceleration-structures [build-ranges][/[as-id-ranges]]");
+    GFXRECON_WRITE_CONSOLE("          \t\tSerialize bottom-level acceleration structures to .vkas/_input.json");
+    GFXRECON_WRITE_CONSOLE("          \t\tfiles under <capture>_dumped_as_<timestamp>/ at replay time. The");
+    GFXRECON_WRITE_CONSOLE("          \t\toptional ranges restrict which BLAS get dumped:");
+    GFXRECON_WRITE_CONSOLE("          \t\t  \"100,200-300\"     -> build calls at block indices 100 and 200-300");
+    GFXRECON_WRITE_CONSOLE("          \t\t  \"100-200/5,10-15\" -> build calls 100-200, AS capture-IDs 5 and 10-15");
+    GFXRECON_WRITE_CONSOLE("          \t\t  \"/5,10\"           -> all builds, AS capture-IDs 5 and 10 only");
+    GFXRECON_WRITE_CONSOLE("          \t\t  \"/\"               -> every BLAS in every build");
     GFXRECON_WRITE_CONSOLE("  --pipeline-creation-jobs <num_jobs>");
     GFXRECON_WRITE_CONSOLE("          \t\tSpecify the number of asynchronous pipeline-creation jobs as integer.");
     GFXRECON_WRITE_CONSOLE("          \t\tIf <num_jobs> is negative it will be added to the number of cpu-cores");

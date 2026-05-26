@@ -39,6 +39,7 @@
 #include "vulkan/vulkan.h"
 
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <map>
 #include <set>
@@ -707,6 +708,49 @@ struct VulkanCommandBufferInfo : public VulkanPoolObjectInfo<VkCommandBuffer>
 
     // flag indicating if the command-buffer is currently recording a VkRenderpass or VK_KHR_dynamic_rendering scope
     bool in_rendering_scope = false;
+
+    // ASVisualizer: per-geometry data captured at vkCmdBuildAccelerationStructuresKHR time
+    // and read back by DrainPendingASDumps to write _input.json.
+    struct BlasGeometryInfo
+    {
+        VkFormat        vertex_format;
+        VkDeviceSize    vertex_stride;
+        uint32_t        max_vertex;
+        VkDeviceAddress vertex_buffer_address; // replay-time device address (post-replacement)
+        VkIndexType     index_type;
+        VkDeviceAddress index_buffer_address;     // 0 if VK_INDEX_TYPE_NONE_KHR
+        VkDeviceAddress transform_buffer_address; // 0 if no transform
+        uint32_t        primitive_count;
+        uint32_t        primitive_offset; // byte offset into index buffer
+        uint32_t        first_vertex;
+        uint32_t        transform_offset;
+
+        // Offsets into the AS-dump pool where geometry data was copied mid-CB.
+        // kNoGeomCopy means this component was not captured (pool full or buffer not resolved).
+        static constexpr VkDeviceSize kNoGeomCopy     = std::numeric_limits<VkDeviceSize>::max();
+        VkDeviceSize                  vb_pool_offset  = kNoGeomCopy; // vertex buffer copy
+        VkDeviceSize                  vb_copy_size    = 0;
+        VkDeviceSize                  ib_pool_offset  = kNoGeomCopy; // index buffer copy
+        VkDeviceSize                  ib_copy_size    = 0;
+        VkDeviceSize                  xfm_pool_offset = kNoGeomCopy; // transform matrix copy (always 48 bytes)
+    };
+
+    // ASVisualizer: one record per BLAS build that was captured inline in this command buffer.
+    // At command-recording time we reserve a region in the device-local AS-dump pool and a slot
+    // in the serialization-size query pool, then inject a barrier + ResetQueryPool + WriteProperties
+    // + CopyAccelerationStructureToMemoryKHR into the app's command buffer. The record is drained
+    // (read out and written to disk) in OverrideQueueSubmit after the app submit completes.
+    struct PendingBlasDump
+    {
+        format::HandleId              as_id;
+        format::HandleId              buffer_capture_id;
+        uint64_t                      build_block_index;
+        VkDeviceSize                  reserved_size;
+        VkDeviceSize                  pool_offset;
+        uint32_t                      query_index;
+        std::vector<BlasGeometryInfo> geoms;
+    };
+    std::vector<PendingBlasDump> pending_as_dumps;
 };
 
 struct VulkanRenderPassInfo : public VulkanObjectInfo<VkRenderPass>
@@ -747,9 +791,10 @@ struct VulkanAccelerationStructureKHRInfo : public VulkanObjectInfo<VkAccelerati
     VkAccelerationStructureTypeKHR type = VK_ACCELERATION_STRUCTURE_TYPE_MAX_ENUM_KHR;
 
     //! associated buffer
-    VkBuffer     buffer = VK_NULL_HANDLE;
-    VkDeviceSize offset = 0;
-    VkDeviceSize size   = 0;
+    VkBuffer         buffer            = VK_NULL_HANDLE;
+    format::HandleId buffer_capture_id = format::kNullHandleId; // populated for --dump-acceleration-structures
+    VkDeviceSize     offset            = 0;
+    VkDeviceSize     size              = 0;
 };
 
 struct VulkanAccelerationStructureNVInfo : public VulkanObjectInfo<VkAccelerationStructureNV>

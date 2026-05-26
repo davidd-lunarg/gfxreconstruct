@@ -2053,6 +2053,39 @@ class VulkanReplayConsumerBase : public VulkanConsumer
 
     const bool save_pipeline_caches_to_file;
     const bool load_pipeline_caches_from_file;
+
+    // ASVisualizer: per-device helper that owns the serialization scratch buffers used by the
+    // --dump-acceleration-structures feature. Inline copies of built BLAS land in `pool_buffer`
+    // (device-local), a serialization-size query lands in `query_pool`, and the post-submit
+    // drain reads both. Created lazily on first dumped build; destroyed with the device.
+    struct ASDumpContext
+    {
+        VkDevice        device{ VK_NULL_HANDLE };
+        VkBuffer        pool_buffer{ VK_NULL_HANDLE };
+        VkDeviceMemory  pool_memory{ VK_NULL_HANDLE };
+        VkDeviceAddress pool_device_address{ 0 };
+        VkDeviceSize    pool_capacity{ 0 };
+        VkDeviceSize    pool_cursor{ 0 };
+        VkQueryPool     query_pool{ VK_NULL_HANDLE };
+        uint32_t        query_capacity{ 0 };
+        uint32_t        query_cursor{ 0 };
+        // Number of outstanding (not yet drained) PendingBlasDump records referring to this pool.
+        // The cursor is only reset to 0 when this drops to 0, so records recorded into a CB that
+        // has not yet been submitted keep their slot reservations valid across other submits.
+        uint32_t live_reservations{ 0 };
+    };
+
+    ASDumpContext* GetOrCreateASDumpContext(const VulkanDeviceInfo* device_info);
+    void           DestroyASDumpContext(format::HandleId device_id);
+
+    // Drain all PendingBlasDump records collected by a set of submitted command buffers: read
+    // query results, copy out the serialized data to host memory, and write .vkas / _input.json.
+    void DrainPendingASDumps(const VulkanQueueInfo*                       queue_info,
+                             const std::vector<VulkanCommandBufferInfo*>& command_buffers);
+
+    std::unordered_map<format::HandleId, std::unique_ptr<ASDumpContext>> as_dump_contexts_;
+
+    std::map<format::HandleId, uint32_t> acceleration_structure_build_counts_;
 };
 
 GFXRECON_END_NAMESPACE(decode)

@@ -168,6 +168,7 @@ const char kDumpResourcesBeforeDrawOption[]    = "--dump-resources-before-draw";
 
 const char kDumpResourcesArgument[]     = "--dump-resources";
 const char kDumpResourcesDirArgument[]  = "--dump-resources-dir";
+const char kDumpAccelerationStructuresArgument[] = "--dump-acceleration-structures";
 const char kFrameWarmUpSpirv[]          = "--frame-warm-up-spirv";
 const char kFrameWarmUpLoad[]           = "--frame-warm-up-load";
 const char kSerializeQueueSubmissions[] = "--serialize-queue-submissions";
@@ -1395,6 +1396,41 @@ GetVulkanReplayOptions(const gfxrecon::util::ArgumentParser&           arg_parse
 
     replay_options.replay_event_plugin_path   = arg_parser.GetArgumentValue(kReplayEventPluginPath);
     replay_options.replay_event_plugin_params = arg_parser.GetArgumentValue(kReplayEventPluginParams);
+
+    const std::string& dump_as = arg_parser.GetArgumentValue(kDumpAccelerationStructuresArgument);
+    if (!dump_as.empty())
+    {
+        auto& das   = replay_options.dump_acceleration_structures;
+        das.enabled = true;
+
+        // Value format: [build-ranges][/[as-id-ranges]]
+        // A slash separates the two optional parts; omitting either part means "all".
+        // Examples:  "100,200-300"        -> build calls at block indices 100 and 200-300, all AS
+        //            "100-200/5,10-15"    -> build calls 100-200, only AS with capture IDs 5 and 10-15
+        //            "/5,10"              -> all builds, only AS 5 and 10
+        //            "/"                  -> all builds, all AS
+        const size_t slash_pos = dump_as.find('/');
+        if (slash_pos == std::string::npos)
+        {
+            das.build_block_index_ranges =
+                gfxrecon::util::GetUintRanges(dump_as.c_str(), "dump-acceleration-structures");
+        }
+        else
+        {
+            const std::string build_part = dump_as.substr(0, slash_pos);
+            const std::string as_part    = dump_as.substr(slash_pos + 1);
+            if (!build_part.empty())
+            {
+                das.build_block_index_ranges = gfxrecon::util::GetUintRanges(
+                    build_part.c_str(), "dump-acceleration-structures (build-block-range)");
+            }
+            if (!as_part.empty())
+            {
+                das.as_id_ranges =
+                    gfxrecon::util::GetUintRanges(as_part.c_str(), "dump-acceleration-structures (as-id-range)");
+            }
+        }
+    }
 
     return replay_options;
 }

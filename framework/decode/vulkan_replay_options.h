@@ -253,6 +253,20 @@ struct VulkanReplayOptions : public ReplayOptions
     /// Parameters to pass to the replay event plugin.
     std::string replay_event_plugin_params;
 
+    // Bottom-level acceleration-structure dumping. When enabled, BLAS that pass
+    // build_block_index_ranges and as_id_ranges filters are serialized to
+    // <stem>.vkas / <stem>_input.json files on disk at replay time.
+    struct DumpASOptions
+    {
+        bool enabled{ false };
+        // Block-index ranges of vkCmdBuildAccelerationStructuresKHR calls to
+        // dump. Empty means all builds.
+        std::vector<util::UintRange> build_block_index_ranges;
+        // AS capture-ID ranges to dump. Empty means all BLAS in selected builds.
+        std::vector<util::UintRange> as_id_ranges;
+    };
+    DumpASOptions dump_acceleration_structures;
+
     void MaybeWaitBeforeFirstSubmit() const;
     void MaybeWaitBeforeFrame() const;
 };

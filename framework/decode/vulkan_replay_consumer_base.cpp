@@ -50,6 +50,7 @@
 #include "graphics/vulkan_struct_extract_handles.h"
 #include "util/file_path.h"
 #include "util/hash.h"
+#include "util/json_util.h"
 #include "util/platform.h"
 #include "util/logging.h"
 #include "util/callbacks.h"
@@ -62,6 +63,8 @@
 #include "Vulkan-Utility-Libraries/vk_format_utils.h"
 
 #include <algorithm>
+#include <ctime>
+#include <fstream>
 #include <limits>
 #include <numeric>
 #include <unordered_set>
@@ -3722,6 +3725,9 @@ void VulkanReplayConsumerBase::OverrideDestroyDevice(
         swapchain_->CleanDeviceResources(device_info->handle, device_table);
 
         device_info->allocator->Destroy();
+
+        // ASVisualizer: release the per-device AS dump pool and query pool.
+        DestroyASDumpContext(device_info->capture_id);
     }
 
     func(device, GetAllocationCallbacks(pAllocator));
@@ -4523,6 +4529,31 @@ VkResult VulkanReplayConsumerBase::OverrideQueueSubmit(PFN_vkQueueSubmit        
     application_->GetReplayEventSink()->QueueSubmitEnd(
         submit_index, queue_info->capture_id, event_result, completion_source);
 
+    // ASVisualizer: drain any inline-captured BLAS dumps from the submitted command buffers.
+    if (options_.dump_acceleration_structures.enabled && submit_info_data != nullptr)
+    {
+        std::vector<VulkanCommandBufferInfo*> cbs_with_dumps;
+        for (uint32_t i = 0; i < submitCount; ++i)
+        {
+            const size_t command_buffer_count = submit_info_data[i].pCommandBuffers.GetLength();
+            const auto   command_buffer_ids   = submit_info_data[i].pCommandBuffers.GetPointer();
+            for (uint32_t j = 0; j < command_buffer_count; ++j)
+            {
+                auto* cb_info = GetObjectInfoTable().GetVkCommandBufferInfo(command_buffer_ids[j]);
+                if (cb_info != nullptr && !cb_info->pending_as_dumps.empty())
+                {
+                    cbs_with_dumps.push_back(cb_info);
+                }
+            }
+        }
+
+        if (!cbs_with_dumps.empty())
+        {
+            GetDeviceTable(queue_info->handle)->QueueWaitIdle(queue_info->handle);
+            DrainPendingASDumps(queue_info, cbs_with_dumps);
+        }
+    }
+
     return result;
 }
 
@@ -4762,6 +4793,32 @@ VkResult VulkanReplayConsumerBase::OverrideQueueSubmit2(PFN_vkQueueSubmit2      
 
     application_->GetReplayEventSink()->QueueSubmitEnd(
         submit_index, queue_info->capture_id, event_result, completion_source);
+
+    // ASVisualizer: drain any inline-captured BLAS dumps from the submitted command buffers.
+    if (options_.dump_acceleration_structures.enabled && submit_info_data != nullptr)
+    {
+        std::vector<VulkanCommandBufferInfo*> cbs_with_dumps;
+        for (uint32_t i = 0; i < submitCount; ++i)
+        {
+            const size_t command_buffer_count = submit_info_data[i].pCommandBufferInfos->GetLength();
+            const auto   command_buffer_infos = submit_info_data[i].pCommandBufferInfos->GetMetaStructPointer();
+            for (uint32_t j = 0; j < command_buffer_count; ++j)
+            {
+                auto* cb_info =
+                    GetObjectInfoTable().GetVkCommandBufferInfo(command_buffer_infos[j].commandBuffer);
+                if (cb_info != nullptr && !cb_info->pending_as_dumps.empty())
+                {
+                    cbs_with_dumps.push_back(cb_info);
+                }
+            }
+        }
+
+        if (!cbs_with_dumps.empty())
+        {
+            GetDeviceTable(queue_info->handle)->QueueWaitIdle(queue_info->handle);
+            DrainPendingASDumps(queue_info, cbs_with_dumps);
+        }
+    }
 
     return result;
 }
@@ -5129,6 +5186,614 @@ VulkanReplayConsumerBase::OverrideQueueBindSparse(PFN_vkQueueBindSparse         
                                                         allocator_img_mem_datas.data());
     }
     return result;
+}
+
+VulkanReplayConsumerBase::ASDumpContext*
+VulkanReplayConsumerBase::GetOrCreateASDumpContext(const VulkanDeviceInfo* device_info)
+{
+    GFXRECON_ASSERT(device_info != nullptr);
+    const format::HandleId device_id = device_info->capture_id;
+
+    auto it = as_dump_contexts_.find(device_id);
+    if (it != as_dump_contexts_.end())
+        return it->second.get();
+
+    constexpr VkDeviceSize kPoolCapacity  = 256ull * 1024 * 1024; // 256 MiB
+    constexpr uint32_t     kQueryCapacity = 4096;
+
+    const auto& dt     = *GetDeviceTable(device_info->handle);
+    VkDevice    device = device_info->handle;
+
+    const auto* phys_dev_info = object_info_table_->GetVkPhysicalDeviceInfo(device_info->parent_id);
+    GFXRECON_ASSERT(phys_dev_info != nullptr);
+    const VkPhysicalDeviceMemoryProperties& mem_props = phys_dev_info->replay_device_info->memory_properties.value();
+
+    // Device-local pool buffer (serialized BLAS data written here inline in the app's CB).
+    VkBuffer pool_buffer = VK_NULL_HANDLE;
+    {
+        VkBufferCreateInfo bci = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                                   nullptr,
+                                   0,
+                                   kPoolCapacity,
+                                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                                       VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                                   VK_SHARING_MODE_EXCLUSIVE,
+                                   0,
+                                   nullptr };
+        if (dt.CreateBuffer(device, &bci, nullptr, &pool_buffer) != VK_SUCCESS)
+        {
+            GFXRECON_LOG_ERROR("GetOrCreateASDumpContext: CreateBuffer (pool, 256 MiB) failed");
+            return nullptr;
+        }
+    }
+
+    VkDeviceMemory pool_memory = VK_NULL_HANDLE;
+    {
+        VkMemoryRequirements mem_reqs{};
+        dt.GetBufferMemoryRequirements(device, pool_buffer, &mem_reqs);
+
+        uint32_t mem_type =
+            graphics::GetMemoryTypeIndex(mem_props, mem_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        if (mem_type == std::numeric_limits<uint32_t>::max())
+        {
+            GFXRECON_LOG_ERROR("GetOrCreateASDumpContext: no device-local memory type available");
+            dt.DestroyBuffer(device, pool_buffer, nullptr);
+            return nullptr;
+        }
+
+        VkMemoryAllocateFlagsInfo alloc_flags = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
+                                                  nullptr,
+                                                  VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT };
+        VkMemoryAllocateInfo mai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, &alloc_flags, mem_reqs.size, mem_type };
+        if (dt.AllocateMemory(device, &mai, nullptr, &pool_memory) != VK_SUCCESS)
+        {
+            GFXRECON_LOG_ERROR("GetOrCreateASDumpContext: AllocateMemory (pool) failed");
+            dt.DestroyBuffer(device, pool_buffer, nullptr);
+            return nullptr;
+        }
+        dt.BindBufferMemory(device, pool_buffer, pool_memory, 0);
+    }
+
+    VkBufferDeviceAddressInfo bdai = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, nullptr, pool_buffer };
+    VkDeviceAddress           pool_device_address = dt.GetBufferDeviceAddress(device, &bdai);
+    if (pool_device_address == 0)
+    {
+        GFXRECON_LOG_ERROR("GetOrCreateASDumpContext: GetBufferDeviceAddress returned 0");
+        dt.FreeMemory(device, pool_memory, nullptr);
+        dt.DestroyBuffer(device, pool_buffer, nullptr);
+        return nullptr;
+    }
+
+    VkQueryPool query_pool = VK_NULL_HANDLE;
+    {
+        VkQueryPoolCreateInfo qpci = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
+                                       nullptr,
+                                       0,
+                                       VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR,
+                                       kQueryCapacity,
+                                       0 };
+        if (dt.CreateQueryPool(device, &qpci, nullptr, &query_pool) != VK_SUCCESS)
+        {
+            GFXRECON_LOG_ERROR("GetOrCreateASDumpContext: CreateQueryPool (%u slots) failed", kQueryCapacity);
+            dt.FreeMemory(device, pool_memory, nullptr);
+            dt.DestroyBuffer(device, pool_buffer, nullptr);
+            return nullptr;
+        }
+    }
+
+    auto ctx                 = std::make_unique<ASDumpContext>();
+    ctx->device              = device;
+    ctx->pool_buffer         = pool_buffer;
+    ctx->pool_memory         = pool_memory;
+    ctx->pool_device_address = pool_device_address;
+    ctx->pool_capacity       = kPoolCapacity;
+    ctx->pool_cursor         = 0;
+    ctx->query_pool          = query_pool;
+    ctx->query_capacity      = kQueryCapacity;
+    ctx->query_cursor        = 0;
+    ctx->live_reservations   = 0;
+
+    ASDumpContext* raw = ctx.get();
+    as_dump_contexts_.emplace(device_id, std::move(ctx));
+    GFXRECON_LOG_INFO("GetOrCreateASDumpContext: created 256 MiB AS dump pool for device %" PRIu64, device_id);
+    return raw;
+}
+
+void VulkanReplayConsumerBase::DestroyASDumpContext(format::HandleId device_id)
+{
+    auto it = as_dump_contexts_.find(device_id);
+    if (it == as_dump_contexts_.end())
+        return;
+
+    ASDumpContext* ctx = it->second.get();
+    if (ctx->device != VK_NULL_HANDLE)
+    {
+        const auto& dt = *GetDeviceTable(ctx->device);
+        if (ctx->query_pool != VK_NULL_HANDLE)
+            dt.DestroyQueryPool(ctx->device, ctx->query_pool, nullptr);
+        if (ctx->pool_buffer != VK_NULL_HANDLE)
+            dt.DestroyBuffer(ctx->device, ctx->pool_buffer, nullptr);
+        if (ctx->pool_memory != VK_NULL_HANDLE)
+            dt.FreeMemory(ctx->device, ctx->pool_memory, nullptr);
+    }
+    as_dump_contexts_.erase(it);
+}
+
+void VulkanReplayConsumerBase::DrainPendingASDumps(const VulkanQueueInfo*                       queue_info,
+                                                   const std::vector<VulkanCommandBufferInfo*>& command_buffers)
+{
+    GFXRECON_ASSERT(queue_info != nullptr);
+
+    const auto* device_info = object_info_table_->GetVkDeviceInfo(queue_info->parent_id);
+    GFXRECON_ASSERT(device_info != nullptr);
+
+    ASDumpContext* ctx = GetOrCreateASDumpContext(device_info);
+    if (ctx == nullptr)
+        return;
+
+    const auto& dt     = *GetDeviceTable(device_info->handle);
+    VkDevice    device = device_info->handle;
+    VkQueue     queue  = queue_info->handle;
+
+    const auto* phys_dev_info = object_info_table_->GetVkPhysicalDeviceInfo(device_info->parent_id);
+    GFXRECON_ASSERT(phys_dev_info != nullptr);
+    const VkPhysicalDeviceMemoryProperties& mem_props = phys_dev_info->replay_device_info->memory_properties.value();
+
+    // Output directory: <capture_dir>/<capture_stem>_vkas_<YYYYMMDD_HHMMSS>/
+    // Timestamp is evaluated once per process so all drains in one replay share a directory.
+    static const std::string run_timestamp = [] {
+        std::time_t t = std::time(nullptr);
+        std::tm     tm{};
+#if defined(_WIN32)
+        localtime_s(&tm, &t);
+#else
+        localtime_r(&t, &tm);
+#endif
+        char buf[32];
+        std::strftime(buf, sizeof(buf), "%Y%m%d_%H%M%S", &tm);
+        return std::string(buf);
+    }();
+    const std::string capture_dir  = util::filepath::GetBasedir(options_.capture_filename);
+    const std::string capture_stem = util::filepath::GetFilenameStem(options_.capture_filename);
+    const std::string out_dir =
+        util::filepath::Join(capture_dir, capture_stem + "_vkas_" + run_timestamp);
+    if (!util::filepath::Exists(out_dir))
+    {
+        if (util::platform::MakeDirectory(out_dir.c_str()) < 0)
+        {
+            GFXRECON_LOG_ERROR("DrainPendingASDumps: failed to create output directory %s", out_dir.c_str());
+            return;
+        }
+    }
+
+    auto find_host_visible_mem = [&](uint32_t type_bits) -> uint32_t {
+        constexpr VkMemoryPropertyFlags flags =
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        for (uint32_t i = 0; i < mem_props.memoryTypeCount; ++i)
+        {
+            if ((type_bits & (1u << i)) && (mem_props.memoryTypes[i].propertyFlags & flags) == flags)
+                return i;
+        }
+        return std::numeric_limits<uint32_t>::max();
+    };
+
+    // Staging buffer for CPU readback, grown lazily as needed.
+    VkBuffer       staging_buf = VK_NULL_HANDLE;
+    VkDeviceMemory staging_mem = VK_NULL_HANDLE;
+    VkDeviceSize   staging_cap = 0;
+
+    // Half-float to float conversion.
+    auto half_to_float = [](uint16_t h) -> float {
+        const uint32_t sign     = (h >> 15) & 1;
+        const uint32_t exp      = (h >> 10) & 0x1f;
+        const uint32_t mantissa = h & 0x3ff;
+        uint32_t       bits;
+        if (exp == 0)
+            bits = (sign << 31) | ((mantissa) << 13);
+        else if (exp == 0x1f)
+            bits = (sign << 31) | (0xff << 23) | (mantissa << 13);
+        else
+            bits = (sign << 31) | ((exp + 112) << 23) | (mantissa << 13);
+        float f;
+        std::memcpy(&f, &bits, 4);
+        return f;
+    };
+
+    // Grow staging buffer to at least `needed` bytes. Returns true on success.
+    auto ensure_staging = [&](VkDeviceSize needed) -> bool {
+        if (needed <= staging_cap)
+            return true;
+        if (staging_buf != VK_NULL_HANDLE)
+        {
+            dt.DestroyBuffer(device, staging_buf, nullptr);
+            dt.FreeMemory(device, staging_mem, nullptr);
+            staging_buf = VK_NULL_HANDLE;
+            staging_mem = VK_NULL_HANDLE;
+            staging_cap = 0;
+        }
+        const VkDeviceSize alloc_size = needed * 2;
+        VkBufferCreateInfo bci        = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                                          nullptr,
+                                          0,
+                                          alloc_size,
+                                          VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                          VK_SHARING_MODE_EXCLUSIVE,
+                                          0,
+                                          nullptr };
+        if (dt.CreateBuffer(device, &bci, nullptr, &staging_buf) != VK_SUCCESS)
+            return false;
+        VkMemoryRequirements mr{};
+        dt.GetBufferMemoryRequirements(device, staging_buf, &mr);
+        uint32_t mem_type = find_host_visible_mem(mr.memoryTypeBits);
+        if (mem_type == std::numeric_limits<uint32_t>::max())
+        {
+            dt.DestroyBuffer(device, staging_buf, nullptr);
+            staging_buf = VK_NULL_HANDLE;
+            return false;
+        }
+        VkMemoryAllocateInfo mai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, nullptr, mr.size, mem_type };
+        if (dt.AllocateMemory(device, &mai, nullptr, &staging_mem) != VK_SUCCESS)
+        {
+            dt.DestroyBuffer(device, staging_buf, nullptr);
+            staging_buf = VK_NULL_HANDLE;
+            return false;
+        }
+        dt.BindBufferMemory(device, staging_buf, staging_mem, 0);
+        staging_cap = alloc_size;
+        return true;
+    };
+
+    // Copy pool_buffer[pool_offset..+copy_size] to staging[0..copy_size], submit+wait, map.
+    // Returns nullptr on failure. Caller must UnmapMemory when done.
+    auto copy_pool_region =
+        [&](VkDeviceSize pool_offset, VkDeviceSize copy_size, VkCommandBuffer cmd_buf_, VkFence fence_) -> void* {
+        if (!ensure_staging(copy_size))
+            return nullptr;
+
+        dt.ResetCommandBuffer(cmd_buf_, 0);
+        const VkCommandBufferBeginInfo cbbi2 = {
+            VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, nullptr, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr
+        };
+        dt.BeginCommandBuffer(cmd_buf_, &cbbi2);
+
+        VkBufferMemoryBarrier pre = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                                      nullptr,
+                                      VK_ACCESS_TRANSFER_WRITE_BIT,
+                                      VK_ACCESS_TRANSFER_READ_BIT,
+                                      VK_QUEUE_FAMILY_IGNORED,
+                                      VK_QUEUE_FAMILY_IGNORED,
+                                      ctx->pool_buffer,
+                                      pool_offset,
+                                      copy_size };
+        dt.CmdPipelineBarrier(cmd_buf_,
+                              VK_PIPELINE_STAGE_TRANSFER_BIT,
+                              VK_PIPELINE_STAGE_TRANSFER_BIT,
+                              0,
+                              0,
+                              nullptr,
+                              1,
+                              &pre,
+                              0,
+                              nullptr);
+
+        VkBufferCopy region = { pool_offset, 0, copy_size };
+        dt.CmdCopyBuffer(cmd_buf_, ctx->pool_buffer, staging_buf, 1, &region);
+
+        VkBufferMemoryBarrier post = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                                       nullptr,
+                                       VK_ACCESS_TRANSFER_WRITE_BIT,
+                                       VK_ACCESS_HOST_READ_BIT,
+                                       VK_QUEUE_FAMILY_IGNORED,
+                                       VK_QUEUE_FAMILY_IGNORED,
+                                       staging_buf,
+                                       0,
+                                       copy_size };
+        dt.CmdPipelineBarrier(
+            cmd_buf_, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1, &post, 0, nullptr);
+        dt.EndCommandBuffer(cmd_buf_);
+
+        dt.ResetFences(device, 1, &fence_);
+        VkSubmitInfo si2 = { VK_STRUCTURE_TYPE_SUBMIT_INFO, nullptr, 0, nullptr, nullptr, 1, &cmd_buf_, 0, nullptr };
+        if (dt.QueueSubmit(queue, 1, &si2, fence_) != VK_SUCCESS)
+            return nullptr;
+        dt.WaitForFences(device, 1, &fence_, VK_TRUE, UINT64_MAX);
+
+        void* mapped2 = nullptr;
+        dt.MapMemory(device, staging_mem, 0, copy_size, 0, &mapped2);
+        return mapped2;
+    };
+
+    // One-shot command pool + buffer + fence for pool->staging copies.
+    VkCommandPoolCreateInfo cpci     = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+                                         nullptr,
+                                         VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+                                         queue_info->family_index };
+    VkCommandPool           cmd_pool = VK_NULL_HANDLE;
+    if (dt.CreateCommandPool(device, &cpci, nullptr, &cmd_pool) != VK_SUCCESS)
+    {
+        GFXRECON_LOG_ERROR("DrainPendingASDumps: CreateCommandPool failed");
+        return;
+    }
+
+    VkCommandBufferAllocateInfo cbai = {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, nullptr, cmd_pool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1
+    };
+    VkCommandBuffer cmd_buf = VK_NULL_HANDLE;
+    if (dt.AllocateCommandBuffers(device, &cbai, &cmd_buf) != VK_SUCCESS)
+    {
+        GFXRECON_LOG_ERROR("DrainPendingASDumps: AllocateCommandBuffers failed");
+        dt.DestroyCommandPool(device, cmd_pool, nullptr);
+        return;
+    }
+
+    VkFenceCreateInfo fci   = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, nullptr, 0 };
+    VkFence           fence = VK_NULL_HANDLE;
+    if (dt.CreateFence(device, &fci, nullptr, &fence) != VK_SUCCESS)
+    {
+        GFXRECON_LOG_ERROR("DrainPendingASDumps: CreateFence failed");
+        dt.DestroyCommandPool(device, cmd_pool, nullptr);
+        return;
+    }
+
+    for (auto* cb_info : command_buffers)
+    {
+        for (auto& dump : cb_info->pending_as_dumps)
+        {
+            // Read the actual serialized size from the query result (available after QueueWaitIdle).
+            VkDeviceSize serialized_size = 0;
+            VkResult     qr              = dt.GetQueryPoolResults(device,
+                                                 ctx->query_pool,
+                                                 dump.query_index,
+                                                 1,
+                                                 sizeof(VkDeviceSize),
+                                                 &serialized_size,
+                                                 sizeof(VkDeviceSize),
+                                                 VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+            // Count how many pool reservations this dump occupies (BLAS + geometry copies).
+            uint32_t dump_reservation_count = 1; // 1 for the BLAS serialization slot
+            for (const auto& gi : dump.geoms)
+            {
+                using BGI = VulkanCommandBufferInfo::BlasGeometryInfo;
+                if (gi.vb_pool_offset != BGI::kNoGeomCopy)
+                    ++dump_reservation_count;
+                if (gi.ib_pool_offset != BGI::kNoGeomCopy)
+                    ++dump_reservation_count;
+                if (gi.xfm_pool_offset != BGI::kNoGeomCopy)
+                    ++dump_reservation_count;
+            }
+
+            if (qr != VK_SUCCESS || serialized_size == 0)
+            {
+                GFXRECON_LOG_WARNING("DrainPendingASDumps: query for BLAS %" PRIu64 " returned %" PRIu64
+                                     " (result=%d) -- skipping",
+                                     dump.as_id,
+                                     serialized_size,
+                                     static_cast<int>(qr));
+                ctx->live_reservations -= dump_reservation_count;
+                continue;
+            }
+
+            // Copy pool_buffer[pool_offset..pool_offset+serialized_size] to staging, submit, wait, map.
+            void* mapped = copy_pool_region(dump.pool_offset, serialized_size, cmd_buf, fence);
+            if (mapped == nullptr)
+            {
+                GFXRECON_LOG_ERROR("DrainPendingASDumps: staging copy failed for BLAS %" PRIu64, dump.as_id);
+                ctx->live_reservations -= dump_reservation_count;
+                continue;
+            }
+
+            const std::string stem = std::to_string(dump.build_block_index) + "_" + std::to_string(dump.as_id);
+
+            {
+                const std::string vkas_path = util::filepath::Join(out_dir, stem + ".vkas");
+                std::ofstream     vkas_file(vkas_path, std::ios::binary);
+                if (vkas_file)
+                {
+                    vkas_file.write(static_cast<const char*>(mapped), static_cast<std::streamsize>(serialized_size));
+                    GFXRECON_LOG_INFO("DrainPendingASDumps: wrote BLAS %" PRIu64 " (%" PRIu64 " bytes) to %s",
+                                      dump.as_id,
+                                      serialized_size,
+                                      vkas_path.c_str());
+                }
+                else
+                {
+                    GFXRECON_LOG_ERROR("DrainPendingASDumps: failed to open %s for writing", vkas_path.c_str());
+                }
+            }
+            dt.UnmapMemory(device, staging_mem);
+
+            // Geometry readback: read vertex/index/transform data from pool and write _input.json.
+            if (!dump.geoms.empty())
+            {
+                using BGI = VulkanCommandBufferInfo::BlasGeometryInfo;
+
+                // Extract 3 floats from a vertex according to its format and stride.
+                auto extract_position = [&](const uint8_t* vb_data,
+                                            uint32_t       vertex_index,
+                                            VkDeviceSize   stride,
+                                            VkFormat       fmt,
+                                            float&         x,
+                                            float&         y,
+                                            float&         z) -> bool {
+                    const uint8_t* p = vb_data + static_cast<VkDeviceSize>(vertex_index) * stride;
+                    switch (fmt)
+                    {
+                        case VK_FORMAT_R32G32B32_SFLOAT:
+                        case VK_FORMAT_R32G32B32A32_SFLOAT:
+                        {
+                            float v[3];
+                            std::memcpy(v, p, 12);
+                            x = v[0];
+                            y = v[1];
+                            z = v[2];
+                            return true;
+                        }
+                        case VK_FORMAT_R16G16B16_SFLOAT:
+                        case VK_FORMAT_R16G16B16A16_SFLOAT:
+                        {
+                            uint16_t h[3];
+                            std::memcpy(h, p, 6);
+                            x = half_to_float(h[0]);
+                            y = half_to_float(h[1]);
+                            z = half_to_float(h[2]);
+                            return true;
+                        }
+                        case VK_FORMAT_R32G32_SFLOAT:
+                        {
+                            float v[2];
+                            std::memcpy(v, p, 8);
+                            x = v[0];
+                            y = v[1];
+                            z = 0.0f;
+                            return true;
+                        }
+                        case VK_FORMAT_R16G16_SFLOAT:
+                        {
+                            uint16_t h[2];
+                            std::memcpy(h, p, 4);
+                            x = half_to_float(h[0]);
+                            y = half_to_float(h[1]);
+                            z = 0.0f;
+                            return true;
+                        }
+                        default:
+                            return false;
+                    }
+                };
+
+                nlohmann::ordered_json geoms_json = nlohmann::ordered_json::array();
+
+                for (size_t gi_idx = 0; gi_idx < dump.geoms.size(); ++gi_idx)
+                {
+                    const auto& gi = dump.geoms[gi_idx];
+
+                    nlohmann::ordered_json geom_json;
+                    geom_json["vertex_format"]   = static_cast<int>(gi.vertex_format);
+                    geom_json["vertex_stride"]   = gi.vertex_stride;
+                    geom_json["max_vertex"]      = gi.max_vertex;
+                    geom_json["index_type"]      = static_cast<int>(gi.index_type);
+                    geom_json["primitive_count"] = gi.primitive_count;
+
+                    // --- Read transform ---
+                    std::array<std::array<float, 4>, 3> xfm_matrix{};
+                    xfm_matrix[0] = { 1.0f, 0.0f, 0.0f, 0.0f };
+                    xfm_matrix[1] = { 0.0f, 1.0f, 0.0f, 0.0f };
+                    xfm_matrix[2] = { 0.0f, 0.0f, 1.0f, 0.0f };
+                    if (gi.xfm_pool_offset != BGI::kNoGeomCopy)
+                    {
+                        constexpr VkDeviceSize kXfmSize = 48;
+                        void* xfm_mapped = copy_pool_region(gi.xfm_pool_offset, kXfmSize, cmd_buf, fence);
+                        if (xfm_mapped != nullptr)
+                        {
+                            // VkTransformMatrixKHR is 3x4 row-major floats
+                            std::memcpy(&xfm_matrix, xfm_mapped, kXfmSize);
+                            dt.UnmapMemory(device, staging_mem);
+                        }
+                    }
+
+                    nlohmann::ordered_json xfm_json = nlohmann::ordered_json::array();
+                    for (int row = 0; row < 3; ++row)
+                    {
+                        nlohmann::ordered_json row_json = nlohmann::ordered_json::array();
+                        for (int col = 0; col < 4; ++col) row_json.push_back(xfm_matrix[row][col]);
+                        xfm_json.push_back(row_json);
+                    }
+                    geom_json["transform"] = xfm_json;
+
+                    // --- Read vertices ---
+                    nlohmann::ordered_json verts_json = nlohmann::ordered_json::array();
+                    std::vector<uint8_t>   vb_local;
+
+                    if (gi.vb_pool_offset != BGI::kNoGeomCopy && gi.vb_copy_size > 0 && gi.vertex_stride > 0)
+                    {
+                        void* vb_mapped = copy_pool_region(gi.vb_pool_offset, gi.vb_copy_size, cmd_buf, fence);
+                        if (vb_mapped != nullptr)
+                        {
+                            vb_local.resize(gi.vb_copy_size);
+                            std::memcpy(vb_local.data(), vb_mapped, gi.vb_copy_size);
+                            dt.UnmapMemory(device, staging_mem);
+
+                            const uint32_t vertex_count = gi.max_vertex + 1;
+                            for (uint32_t vi = 0; vi < vertex_count; ++vi)
+                            {
+                                float x = 0.0f, y = 0.0f, z = 0.0f;
+                                if (extract_position(vb_local.data(), vi, gi.vertex_stride, gi.vertex_format, x, y, z))
+                                {
+                                    nlohmann::ordered_json v_arr = nlohmann::ordered_json::array();
+                                    v_arr.push_back(x);
+                                    v_arr.push_back(y);
+                                    v_arr.push_back(z);
+                                    verts_json.push_back(v_arr);
+                                }
+                            }
+                        }
+                    }
+                    geom_json["vertices"] = verts_json;
+
+                    // --- Read indices ---
+                    nlohmann::ordered_json indices_json = nlohmann::ordered_json::array();
+                    std::vector<uint32_t>  index_buf;
+
+                    if (gi.ib_pool_offset != BGI::kNoGeomCopy && gi.ib_copy_size > 0 &&
+                        gi.index_type != VK_INDEX_TYPE_NONE_KHR)
+                    {
+                        void* ib_mapped = copy_pool_region(gi.ib_pool_offset, gi.ib_copy_size, cmd_buf, fence);
+                        if (ib_mapped != nullptr)
+                        {
+                            const uint32_t tri_count = gi.primitive_count;
+                            index_buf.resize(static_cast<size_t>(tri_count) * 3);
+                            if (gi.index_type == VK_INDEX_TYPE_UINT16)
+                            {
+                                const uint16_t* src = static_cast<const uint16_t*>(ib_mapped);
+                                for (uint32_t ii = 0; ii < tri_count * 3; ++ii) index_buf[ii] = src[ii];
+                            }
+                            else
+                            {
+                                std::memcpy(index_buf.data(), ib_mapped, tri_count * 3 * sizeof(uint32_t));
+                            }
+                            dt.UnmapMemory(device, staging_mem);
+
+                            for (uint32_t ii = 0; ii < tri_count * 3; ++ii) indices_json.push_back(index_buf[ii]);
+                        }
+                    }
+                    geom_json["indices"] = indices_json;
+
+                    geoms_json.push_back(std::move(geom_json));
+                }
+
+                // Write _input.json
+                const std::string input_json_path = util::filepath::Join(out_dir, stem + "_input.json");
+                std::ofstream     input_json_file(input_json_path);
+                if (input_json_file)
+                {
+                    nlohmann::ordered_json root;
+                    root["capture_id"]        = dump.as_id;
+                    root["build_block_index"] = dump.build_block_index;
+                    root["geometries"]        = std::move(geoms_json);
+                    input_json_file << root.dump(util::kJsonIndentWidth) << "\n";
+                }
+            }
+
+            ctx->live_reservations -= dump_reservation_count;
+        }
+
+        cb_info->pending_as_dumps.clear();
+    }
+
+    // Reset pool cursors once all outstanding reservations have been drained.
+    if (ctx->live_reservations == 0)
+    {
+        ctx->pool_cursor  = 0;
+        ctx->query_cursor = 0;
+    }
+
+    if (staging_buf != VK_NULL_HANDLE)
+    {
+        dt.DestroyBuffer(device, staging_buf, nullptr);
+        dt.FreeMemory(device, staging_mem, nullptr);
+    }
+    dt.DestroyFence(device, fence, nullptr);
+    dt.DestroyCommandPool(device, cmd_pool, nullptr);
 }
 
 VkResult VulkanReplayConsumerBase::OverrideCreateDescriptorSetLayout(
@@ -9383,11 +10048,12 @@ VkResult VulkanReplayConsumerBase::OverrideCreateAccelerationStructureKHR(
     auto* acceleration_structure_info =
         reinterpret_cast<VulkanAccelerationStructureKHRInfo*>(pAccelerationStructureKHR->GetConsumerData(0));
     GFXRECON_ASSERT(acceleration_structure_info);
-    acceleration_structure_info->capture_id = capture_id;
-    acceleration_structure_info->type       = replay_create_info->type;
-    acceleration_structure_info->buffer     = replay_create_info->buffer;
-    acceleration_structure_info->offset     = replay_create_info->offset;
-    acceleration_structure_info->size       = replay_create_info->size;
+    acceleration_structure_info->capture_id        = capture_id;
+    acceleration_structure_info->type              = replay_create_info->type;
+    acceleration_structure_info->buffer            = replay_create_info->buffer;
+    acceleration_structure_info->buffer_capture_id = pCreateInfo->GetMetaStructPointer()->buffer;
+    acceleration_structure_info->offset            = replay_create_info->offset;
+    acceleration_structure_info->size              = replay_create_info->size;
 
     auto& address_tracker = GetDeviceAddressTracker(device_info);
     auto* buffer_info     = address_tracker.GetBufferByHandle(acceleration_structure_info->buffer);
@@ -9519,6 +10185,312 @@ void VulkanReplayConsumerBase::OverrideCmdBuildAccelerationStructuresKHR(
     }
 
     func(command_buffer, infoCount, build_geometry_infos, build_range_infos);
+
+    // ASVisualizer: serialize each dumped BLAS inline, right after the real build, so later
+    // commands in the same submit cannot overwrite the data we want to capture.
+    const auto& das = options_.dump_acceleration_structures;
+    if (!das.enabled)
+        return;
+
+    const auto in_range = [](uint64_t value, const std::vector<util::UintRange>& ranges) {
+        for (const auto& r : ranges)
+        {
+            if (value >= r.first && value <= r.last)
+                return true;
+        }
+        return false;
+    };
+    if (!das.build_block_index_ranges.empty() && !in_range(block_index_, das.build_block_index_ranges))
+        return;
+
+    // Collect BLAS dump candidates that survive the filters.
+    struct Candidate
+    {
+        format::HandleId                                       as_id;
+        format::HandleId                                       buffer_capture_id;
+        VkAccelerationStructureKHR                             handle;
+        VkDeviceSize                                           reserved_size;
+        std::vector<VulkanCommandBufferInfo::BlasGeometryInfo> geoms;
+    };
+    std::vector<Candidate> candidates;
+    candidates.reserve(infoCount);
+
+    // Upper bound on serialization size. Vulkan does not cap it hard, but in practice the
+    // serialized blob is the AS build size plus the 56-byte header; 4 KiB of slack absorbs
+    // driver-dependent metadata with room to spare.
+    constexpr VkDeviceSize kSerializationSlack = 4 * 1024;
+
+    for (uint32_t i = 0; i < infoCount; ++i)
+    {
+        const format::HandleId dst_as_id = pInfos->GetMetaStructPointer()[i].dstAccelerationStructure;
+        acceleration_structure_build_counts_[dst_as_id]++;
+
+        if (!das.as_id_ranges.empty() && !in_range(dst_as_id, das.as_id_ranges))
+            continue;
+
+        const auto* as_info = object_info_table_->GetVkAccelerationStructureKHRInfo(dst_as_id);
+        if (as_info == nullptr || as_info->handle == VK_NULL_HANDLE)
+            continue;
+        if (as_info->type != VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR)
+            continue;
+        if (as_info->buffer_capture_id == format::kNullHandleId)
+            continue;
+
+        Candidate c{};
+        c.as_id             = dst_as_id;
+        c.buffer_capture_id = as_info->buffer_capture_id;
+        c.handle            = as_info->handle;
+        c.reserved_size     = as_info->size + kSerializationSlack;
+
+        const VkAccelerationStructureBuildGeometryInfoKHR& info   = build_geometry_infos[i];
+        const VkAccelerationStructureBuildRangeInfoKHR*    ranges = build_range_infos[i];
+        for (uint32_t g = 0; g < info.geometryCount; ++g)
+        {
+            const VkAccelerationStructureGeometryKHR* geom =
+                info.pGeometries != nullptr ? &info.pGeometries[g] : info.ppGeometries[g];
+            if (geom->geometryType != VK_GEOMETRY_TYPE_TRIANGLES_KHR)
+                continue;
+
+            const VkAccelerationStructureGeometryTrianglesDataKHR& tri = geom->geometry.triangles;
+            const VkAccelerationStructureBuildRangeInfoKHR&        rng = ranges[g];
+
+            VulkanCommandBufferInfo::BlasGeometryInfo gi{};
+            gi.vertex_format            = tri.vertexFormat;
+            gi.vertex_stride            = tri.vertexStride;
+            gi.max_vertex               = tri.maxVertex;
+            gi.vertex_buffer_address    = tri.vertexData.deviceAddress;
+            gi.index_type               = tri.indexType;
+            gi.index_buffer_address     = (tri.indexType != VK_INDEX_TYPE_NONE_KHR) ? tri.indexData.deviceAddress : 0;
+            gi.transform_buffer_address = tri.transformData.deviceAddress;
+            gi.primitive_count          = rng.primitiveCount;
+            gi.primitive_offset         = rng.primitiveOffset;
+            gi.first_vertex             = rng.firstVertex;
+            gi.transform_offset         = rng.transformOffset;
+            c.geoms.push_back(gi);
+        }
+
+        candidates.push_back(std::move(c));
+    }
+
+    if (candidates.empty())
+        return;
+
+    ASDumpContext* ctx = GetOrCreateASDumpContext(device_info);
+    if (ctx == nullptr)
+        return;
+
+    const auto& dt = *GetDeviceTable(device_info->handle);
+
+    const auto full_barrier = [&](VkCommandBuffer cb) {
+        const VkMemoryBarrier mb = { VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+                                     nullptr,
+                                     VK_ACCESS_MEMORY_WRITE_BIT,
+                                     VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT };
+        dt.CmdPipelineBarrier(
+            cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &mb, 0, nullptr, 0, nullptr);
+    };
+
+    // Heavy barrier before the serialize-to-memory pass: any prior producer must be drained
+    // and visible to AS_READ / TRANSFER_READ.
+    full_barrier(command_buffer);
+
+    const size_t dump_base = command_buffer_info->pending_as_dumps.size();
+
+    for (auto& c : candidates)
+    {
+        // Reserve pool + query slot. Skip (with warning) on overflow; do not abort the replay.
+        const VkDeviceSize aligned_reserved = (c.reserved_size + 255) & ~VkDeviceSize{ 255 };
+        if (ctx->pool_cursor + aligned_reserved > ctx->pool_capacity || ctx->query_cursor >= ctx->query_capacity)
+        {
+            GFXRECON_LOG_WARNING("DumpAccelerationStructures: pool full (pool_cursor=%" PRIu64 " pool_cap=%" PRIu64
+                                 " query_cursor=%u query_cap=%u) "
+                                 "-- skipping BLAS %" PRIu64 " at build block index %" PRIu64,
+                                 ctx->pool_cursor,
+                                 ctx->pool_capacity,
+                                 ctx->query_cursor,
+                                 ctx->query_capacity,
+                                 c.as_id,
+                                 block_index_);
+            continue;
+        }
+
+        VulkanCommandBufferInfo::PendingBlasDump record{};
+        record.as_id             = c.as_id;
+        record.buffer_capture_id = c.buffer_capture_id;
+        record.build_block_index = block_index_;
+        record.reserved_size     = c.reserved_size;
+        record.pool_offset       = ctx->pool_cursor;
+        record.query_index       = ctx->query_cursor;
+        record.geoms             = std::move(c.geoms);
+
+        ctx->pool_cursor += aligned_reserved;
+        ctx->query_cursor += 1;
+        ctx->live_reservations += 1;
+
+        // Reset the query slot (must be done before writing into it) and inject the size
+        // query + serialize-to-memory copy targeting the reserved pool region.
+        dt.CmdResetQueryPool(command_buffer, ctx->query_pool, record.query_index, 1);
+        dt.CmdWriteAccelerationStructuresPropertiesKHR(command_buffer,
+                                                       1,
+                                                       &c.handle,
+                                                       VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR,
+                                                       ctx->query_pool,
+                                                       record.query_index);
+
+        VkDeviceOrHostAddressKHR dest_addr{};
+        dest_addr.deviceAddress = ctx->pool_device_address + record.pool_offset;
+
+        VkCopyAccelerationStructureToMemoryInfoKHR copy_info = {
+            VK_STRUCTURE_TYPE_COPY_ACCELERATION_STRUCTURE_TO_MEMORY_INFO_KHR,
+            nullptr,
+            c.handle,
+            dest_addr,
+            VK_COPY_ACCELERATION_STRUCTURE_MODE_SERIALIZE_KHR
+        };
+        dt.CmdCopyAccelerationStructureToMemoryKHR(command_buffer, &copy_info);
+
+        command_buffer_info->pending_as_dumps.push_back(std::move(record));
+    }
+
+    // Heavy barrier after the serialize-to-memory pass so the writes into the pool
+    // are fully drained before any subsequent consumer (geom copies below, or anything
+    // queued later in the CB) observes them.
+    full_barrier(command_buffer);
+
+    // Pass 2: inject mid-CB geometry copies for each BLAS dump that was just recorded.
+    // A barrier ensures the AS build writes (and any prior TRANSFER writes into the pool)
+    // are visible before we start reading vertex/index/transform data out of GPU buffers.
+    const size_t dump_end = command_buffer_info->pending_as_dumps.size();
+    if (dump_end > dump_base)
+    {
+        // Must cover any producer of the geometry inputs (compute skinning, vertex
+        // decompression, transfer uploads, AS build) and make those writes visible to
+        // our TRANSFER_READ. Memory availability/visibility is per-dst-access: the app's
+        // own pre-build SHADER_WRITE->AS_READ barrier does NOT make the data visible to
+        // TRANSFER_READ.
+        const VkMemoryBarrier geom_barrier = {
+            VK_STRUCTURE_TYPE_MEMORY_BARRIER, nullptr, VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT
+        };
+        dt.CmdPipelineBarrier(command_buffer,
+                              VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                              VK_PIPELINE_STAGE_TRANSFER_BIT,
+                              0,
+                              1,
+                              &geom_barrier,
+                              0,
+                              nullptr,
+                              0,
+                              nullptr);
+
+        const VulkanDeviceAddressTracker& addr_tracker = GetDeviceAddressTracker(device_info);
+
+        for (size_t di = dump_base; di < dump_end; ++di)
+        {
+            VulkanCommandBufferInfo::PendingBlasDump& dump = command_buffer_info->pending_as_dumps[di];
+            for (auto& gi : dump.geoms)
+            {
+                // --- Vertex buffer ---
+                if (gi.vertex_buffer_address != 0)
+                {
+                    size_t                  vb_byte_offset = 0;
+                    const VulkanBufferInfo* vb_info =
+                        addr_tracker.GetBufferByReplayDeviceAddress(gi.vertex_buffer_address, &vb_byte_offset);
+                    if (vb_info != nullptr)
+                    {
+                        // Bytes covering [primitiveOffset + firstVertex*stride ..
+                        //                 primitiveOffset + (firstVertex+maxVertex+1)*stride]
+                        const VkDeviceSize vb_start = gi.primitive_offset + gi.first_vertex * gi.vertex_stride;
+                        const VkDeviceSize vb_size  = static_cast<VkDeviceSize>(gi.max_vertex + 1) * gi.vertex_stride;
+                        const VkDeviceSize aligned_vb = (vb_size + 255) & ~VkDeviceSize{ 255 };
+                        if (ctx->pool_cursor + aligned_vb <= ctx->pool_capacity)
+                        {
+                            VkBufferCopy vb_copy{};
+                            vb_copy.srcOffset = static_cast<VkDeviceSize>(vb_byte_offset) + vb_start;
+                            vb_copy.dstOffset = ctx->pool_cursor;
+                            vb_copy.size      = vb_size;
+                            dt.CmdCopyBuffer(command_buffer, vb_info->handle, ctx->pool_buffer, 1, &vb_copy);
+
+                            gi.vb_pool_offset = ctx->pool_cursor;
+                            gi.vb_copy_size   = vb_size;
+                            ctx->pool_cursor += aligned_vb;
+                            ctx->live_reservations += 1; // one extra reservation for this geometry copy
+                        }
+                        else
+                        {
+                            GFXRECON_LOG_WARNING(
+                                "DumpAccelerationStructures: pool full, skipping VB copy for BLAS %" PRIu64,
+                                dump.as_id);
+                        }
+                    }
+                }
+
+                // --- Index buffer ---
+                if (gi.index_type != VK_INDEX_TYPE_NONE_KHR && gi.index_buffer_address != 0)
+                {
+                    size_t                  ib_byte_offset = 0;
+                    const VulkanBufferInfo* ib_info =
+                        addr_tracker.GetBufferByReplayDeviceAddress(gi.index_buffer_address, &ib_byte_offset);
+                    if (ib_info != nullptr)
+                    {
+                        const VkDeviceSize index_size = (gi.index_type == VK_INDEX_TYPE_UINT16) ? 2 : 4;
+                        const VkDeviceSize ib_start   = gi.primitive_offset;
+                        const VkDeviceSize ib_size    = static_cast<VkDeviceSize>(gi.primitive_count) * 3 * index_size;
+                        const VkDeviceSize aligned_ib = (ib_size + 255) & ~VkDeviceSize{ 255 };
+                        if (ctx->pool_cursor + aligned_ib <= ctx->pool_capacity)
+                        {
+                            VkBufferCopy ib_copy{};
+                            ib_copy.srcOffset = static_cast<VkDeviceSize>(ib_byte_offset) + ib_start;
+                            ib_copy.dstOffset = ctx->pool_cursor;
+                            ib_copy.size      = ib_size;
+                            dt.CmdCopyBuffer(command_buffer, ib_info->handle, ctx->pool_buffer, 1, &ib_copy);
+
+                            gi.ib_pool_offset = ctx->pool_cursor;
+                            gi.ib_copy_size   = ib_size;
+                            ctx->pool_cursor += aligned_ib;
+                            ctx->live_reservations += 1;
+                        }
+                        else
+                        {
+                            GFXRECON_LOG_WARNING(
+                                "DumpAccelerationStructures: pool full, skipping IB copy for BLAS %" PRIu64,
+                                dump.as_id);
+                        }
+                    }
+                }
+
+                // --- Transform matrix (48 bytes: VkTransformMatrixKHR) ---
+                if (gi.transform_buffer_address != 0)
+                {
+                    size_t                  xfm_byte_offset = 0;
+                    const VulkanBufferInfo* xfm_info =
+                        addr_tracker.GetBufferByReplayDeviceAddress(gi.transform_buffer_address, &xfm_byte_offset);
+                    if (xfm_info != nullptr)
+                    {
+                        constexpr VkDeviceSize kXfmSize    = 48; // sizeof(VkTransformMatrixKHR)
+                        constexpr VkDeviceSize kXfmAligned = 256;
+                        if (ctx->pool_cursor + kXfmAligned <= ctx->pool_capacity)
+                        {
+                            VkBufferCopy xfm_copy{};
+                            xfm_copy.srcOffset = static_cast<VkDeviceSize>(xfm_byte_offset) + gi.transform_offset;
+                            xfm_copy.dstOffset = ctx->pool_cursor;
+                            xfm_copy.size      = kXfmSize;
+                            dt.CmdCopyBuffer(command_buffer, xfm_info->handle, ctx->pool_buffer, 1, &xfm_copy);
+
+                            gi.xfm_pool_offset = ctx->pool_cursor;
+                            ctx->pool_cursor += kXfmAligned;
+                            ctx->live_reservations += 1;
+                        }
+                        else
+                        {
+                            GFXRECON_LOG_WARNING(
+                                "DumpAccelerationStructures: pool full, skipping XFM copy for BLAS %" PRIu64,
+                                dump.as_id);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 void VulkanReplayConsumerBase::OverrideCmdCopyAccelerationStructureKHR(
@@ -9548,6 +10520,134 @@ void VulkanReplayConsumerBase::OverrideCmdCopyAccelerationStructureKHR(
         address_replacer.ProcessCmdCopyAccelerationStructuresKHR(info, address_tracker);
     }
     func(command_buffer, info);
+
+    // ASVisualizer: also dump BLAS that the app *copies* into a destination, so e.g.
+    // compaction-copy targets get a .vkas snapshot taken just after the copy.
+    const auto& das = options_.dump_acceleration_structures;
+    if (!das.enabled)
+        return;
+
+    const auto in_range = [](uint64_t value, const std::vector<util::UintRange>& ranges) {
+        for (const auto& r : ranges)
+        {
+            if (value >= r.first && value <= r.last)
+                return true;
+        }
+        return false;
+    };
+    if (!das.build_block_index_ranges.empty() && !in_range(block_index_, das.build_block_index_ranges))
+        return;
+
+    constexpr VkDeviceSize kSerializationSlack = 4 * 1024;
+
+    const format::HandleId dst_as_id = pInfo->GetMetaStructPointer()->dst;
+    acceleration_structure_build_counts_[dst_as_id]++;
+
+    if (!das.as_id_ranges.empty() && !in_range(dst_as_id, das.as_id_ranges))
+        return;
+
+    const auto* as_info = object_info_table_->GetVkAccelerationStructureKHRInfo(dst_as_id);
+    if (as_info == nullptr || as_info->handle == VK_NULL_HANDLE)
+        return;
+    if (as_info->type != VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR)
+        return;
+    if (as_info->buffer_capture_id == format::kNullHandleId)
+        return;
+
+    ASDumpContext* ctx = GetOrCreateASDumpContext(device_info);
+    if (ctx == nullptr)
+        return;
+
+    const auto& dt = *GetDeviceTable(device_info->handle);
+
+    // Heavy barrier before the serialize-to-memory pass: the just-completed
+    // CopyAccelerationStructure must be drained and visible to AS_READ.
+    {
+        const VkMemoryBarrier mb = { VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+                                     nullptr,
+                                     VK_ACCESS_MEMORY_WRITE_BIT,
+                                     VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT };
+        dt.CmdPipelineBarrier(command_buffer,
+                              VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                              VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                              0,
+                              1,
+                              &mb,
+                              0,
+                              nullptr,
+                              0,
+                              nullptr);
+    }
+
+    const VkDeviceSize reserved_size    = as_info->size + kSerializationSlack;
+    const VkDeviceSize aligned_reserved = (reserved_size + 255) & ~VkDeviceSize{ 255 };
+    if (ctx->pool_cursor + aligned_reserved > ctx->pool_capacity || ctx->query_cursor >= ctx->query_capacity)
+    {
+        GFXRECON_LOG_WARNING("DumpAccelerationStructures: pool full (pool_cursor=%" PRIu64 " pool_cap=%" PRIu64
+                             " query_cursor=%u query_cap=%u) "
+                             "-- skipping BLAS %" PRIu64 " at build block index %" PRIu64,
+                             ctx->pool_cursor,
+                             ctx->pool_capacity,
+                             ctx->query_cursor,
+                             ctx->query_capacity,
+                             dst_as_id,
+                             block_index_);
+        return;
+    }
+
+    VulkanCommandBufferInfo::PendingBlasDump record{};
+    record.as_id             = dst_as_id;
+    record.buffer_capture_id = as_info->buffer_capture_id;
+    record.build_block_index = block_index_;
+    record.reserved_size     = reserved_size;
+    record.pool_offset       = ctx->pool_cursor;
+    record.query_index       = ctx->query_cursor;
+    // No source geometries available on a copy -- _input.json will only carry the
+    // top-level capture_id/build_block_index, with an empty geometries array.
+
+    ctx->pool_cursor += aligned_reserved;
+    ctx->query_cursor += 1;
+    ctx->live_reservations += 1;
+
+    dt.CmdResetQueryPool(command_buffer, ctx->query_pool, record.query_index, 1);
+    dt.CmdWriteAccelerationStructuresPropertiesKHR(command_buffer,
+                                                   1,
+                                                   &as_info->handle,
+                                                   VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR,
+                                                   ctx->query_pool,
+                                                   record.query_index);
+
+    VkDeviceOrHostAddressKHR dest_addr{};
+    dest_addr.deviceAddress = ctx->pool_device_address + record.pool_offset;
+
+    VkCopyAccelerationStructureToMemoryInfoKHR copy_info = {
+        VK_STRUCTURE_TYPE_COPY_ACCELERATION_STRUCTURE_TO_MEMORY_INFO_KHR,
+        nullptr,
+        as_info->handle,
+        dest_addr,
+        VK_COPY_ACCELERATION_STRUCTURE_MODE_SERIALIZE_KHR
+    };
+    dt.CmdCopyAccelerationStructureToMemoryKHR(command_buffer, &copy_info);
+
+    command_buffer_info->pending_as_dumps.push_back(std::move(record));
+
+    // Heavy barrier after the serialize-to-memory pass.
+    {
+        const VkMemoryBarrier mb = { VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+                                     nullptr,
+                                     VK_ACCESS_MEMORY_WRITE_BIT,
+                                     VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT };
+        dt.CmdPipelineBarrier(command_buffer,
+                              VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                              VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                              0,
+                              1,
+                              &mb,
+                              0,
+                              nullptr,
+                              0,
+                              nullptr);
+    }
 }
 
 void VulkanReplayConsumerBase::OverrideCmdWriteAccelerationStructuresPropertiesKHR(
