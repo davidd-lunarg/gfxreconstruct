@@ -34,7 +34,7 @@ const char kOptions[] =
     "indices,--dcp,--discard-cached-psos,--use-colorspace-fallback,--use-cached-psos,--dx12-override-object-names,--"
     "dx12-ags-inject-markers,--offscreen-swapchain-frame-boundary,--wait-before-present,--dump-resources-before-draw,"
     "--dump-resources-modifiable-state-only,--pbi-all,--preload-measurement-range,--add-new-pipeline-caches,--"
-    "screenshot-ignore-FrameBoundaryANDROID,--deduplicate-device,--log-timestamps,--capture";
+    "screenshot-ignore-FrameBoundaryANDROID,--deduplicate-device,--log-timestamps,--capture,--serialize-atomic-dispatches";
 const char kArguments[] =
     "--log-level,--log-file,--cpu-mask,--gpu,--gpu-group,--pause-frame,--wsi,--surface-index,-m|--memory-translation,"
     "--replace-shaders,--screenshots,--screenshot-interval,--denied-messages,--allowed-messages,--screenshot-format,--"
@@ -44,7 +44,7 @@ const char kArguments[] =
     "format,pbis,--pcj|--pipeline-creation-jobs,--save-pipeline-cache,--load-pipeline-cache,--quit-after-frame,--"
     "present-mode,--wait-before-first-submit,--idle-before-submit,--present-override,--serialize-render-passes,--frame-"
     "warm-up-spirv,--frame-warm-up-load,--wait-before-frame,--loop-frame,--loop-count,--serialize-queue-submissions,--"
-    "replay-event-plugin-path,--replay-event-plugin-params,--dump-acceleration-structures";
+    "replay-event-plugin-path,--replay-event-plugin-params,--dump-acceleration-structures,--serialize-atomic-allowlist";
 
 static void PrintUsage(const char* exe_name)
 {
@@ -356,6 +356,17 @@ static void PrintUsage(const char* exe_name)
     GFXRECON_WRITE_CONSOLE("          \t\t  \"100-200/5,10-15\" -> build calls 100-200, AS capture-IDs 5 and 10-15");
     GFXRECON_WRITE_CONSOLE("          \t\t  \"/5,10\"           -> all builds, AS capture-IDs 5 and 10 only");
     GFXRECON_WRITE_CONSOLE("          \t\t  \"/\"               -> every BLAS in every build");
+    GFXRECON_WRITE_CONSOLE("  --serialize-atomic-dispatches");
+    GFXRECON_WRITE_CONSOLE("          \t\tWorkgroup-level serialization of compute pipelines whose SPIR-V");
+    GFXRECON_WRITE_CONSOLE("          \t\tcontains OpAtomic*. Each affected vkCmdDispatch(gx, gy, gz) runs");
+    GFXRECON_WRITE_CONSOLE("          \t\tas gx*gy*gz back-to-back (1,1,1) dispatches separated by");
+    GFXRECON_WRITE_CONSOLE("          \t\tcompute->compute barriers; the synthetic WorkGroupID is fed via");
+    GFXRECON_WRITE_CONSOLE("          \t\tan injected push-constant range. Removes cross-workgroup atomic");
+    GFXRECON_WRITE_CONSOLE("          \t\trace nondeterminism at significant perf cost. Default off.");
+    GFXRECON_WRITE_CONSOLE("  --serialize-atomic-allowlist <h1,h2,...>");
+    GFXRECON_WRITE_CONSOLE("          \t\tComma-separated 16-hex FNV-1a64 module hashes. When set and");
+    GFXRECON_WRITE_CONSOLE("          \t\t--serialize-atomic-dispatches is active, only the listed compute");
+    GFXRECON_WRITE_CONSOLE("          \t\tmodules get patched; everything else passes through unchanged.");
     GFXRECON_WRITE_CONSOLE("  --pipeline-creation-jobs <num_jobs>");
     GFXRECON_WRITE_CONSOLE("          \t\tSpecify the number of asynchronous pipeline-creation jobs as integer.");
     GFXRECON_WRITE_CONSOLE("          \t\tIf <num_jobs> is negative it will be added to the number of cpu-cores");

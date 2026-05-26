@@ -54,6 +54,8 @@
 #include "util/platform.h"
 #include "util/logging.h"
 #include "util/callbacks.h"
+#include "util/serialize_atomic_allowlist.h"
+#include "util/spirv_workgroup_serializer.h"
 
 #include "spirv_reflect.h"
 
@@ -63,6 +65,8 @@
 #include "Vulkan-Utility-Libraries/vk_format_utils.h"
 
 #include <algorithm>
+#include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <fstream>
 #include <limits>
@@ -3728,6 +3732,24 @@ void VulkanReplayConsumerBase::OverrideDestroyDevice(
 
         // ASVisualizer: release the per-device AS dump pool and query pool.
         DestroyASDumpContext(device_info->capture_id);
+
+        // --serialize-atomic-dispatches: destroy any pipeline layouts we
+        // created for this device to carry the synth push-constant range.
+        for (auto it = serialize_extra_layouts_.begin(); it != serialize_extra_layouts_.end();)
+        {
+            if (it->first == device)
+            {
+                if (it->second != VK_NULL_HANDLE)
+                {
+                    device_table->DestroyPipelineLayout(device, it->second, nullptr);
+                }
+                it = serialize_extra_layouts_.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
     }
 
     func(device, GetAllocationCallbacks(pAllocator));
@@ -5846,6 +5868,135 @@ VulkanReplayConsumerBase::LookupShaderReplacement(const void* original_spirv, si
     return replacement;
 }
 
+bool VulkanReplayConsumerBase::MaybeSerializeDispatch(format::HandleId commandBuffer_id,
+                                                     uint32_t         groupCountX,
+                                                     uint32_t         groupCountY,
+                                                     uint32_t         groupCountZ)
+{
+    if (!options_.serialize_atomic_dispatches)
+        return false;
+
+    auto* cb_info = object_info_table_->GetVkCommandBufferInfo(commandBuffer_id);
+    if (cb_info == nullptr)
+        return false;
+    auto it = cb_info->bound_pipelines.find(VK_PIPELINE_BIND_POINT_COMPUTE);
+    if (it == cb_info->bound_pipelines.end())
+        return false;
+    const format::HandleId    pipe_cap_id = it->second;
+    const VulkanPipelineInfo* pipe_info   = object_info_table_->GetVkPipelineInfo(pipe_cap_id);
+    if (pipe_info == nullptr || !pipe_info->serialize_dispatches)
+        return false;
+    if (pipe_info->synth_pc_layout == VK_NULL_HANDLE || pipe_info->synth_pc_size == 0)
+        return false;
+
+    const auto* pool_info = object_info_table_->GetVkCommandPoolInfo(cb_info->pool_id);
+    if (pool_info == nullptr)
+        return false;
+    const auto* device_info = object_info_table_->GetVkDeviceInfo(pool_info->parent_id);
+    if (device_info == nullptr)
+        return false;
+    const graphics::VulkanDeviceTable* dt = GetDeviceTable(device_info->handle);
+    if (dt == nullptr)
+        return false;
+
+    util::BeginInjectedCommands();
+
+    const uint64_t total = static_cast<uint64_t>(groupCountX) * groupCountY * groupCountZ;
+
+    // Compute->compute barrier between serialised (1,1,1) dispatches so each
+    // workgroup completes its writes before the next reads/writes.
+    VkMemoryBarrier mb{};
+    mb.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    mb.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    mb.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+
+    uint32_t synth[3]{};
+    for (uint32_t z = 0; z < groupCountZ; ++z)
+    {
+        synth[2] = z;
+        for (uint32_t y = 0; y < groupCountY; ++y)
+        {
+            synth[1] = y;
+            for (uint32_t x = 0; x < groupCountX; ++x)
+            {
+                synth[0] = x;
+                dt->CmdPushConstants(cb_info->handle,
+                                     pipe_info->synth_pc_layout,
+                                     VK_SHADER_STAGE_COMPUTE_BIT,
+                                     pipe_info->synth_pc_offset,
+                                     pipe_info->synth_pc_size,
+                                     synth);
+                dt->CmdDispatch(cb_info->handle, 1, 1, 1);
+                const bool last = (x + 1 == groupCountX) && (y + 1 == groupCountY) && (z + 1 == groupCountZ);
+                if (!last)
+                {
+                    dt->CmdPipelineBarrier(cb_info->handle,
+                                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                           0,
+                                           1,
+                                           &mb,
+                                           0,
+                                           nullptr,
+                                           0,
+                                           nullptr);
+                }
+            }
+        }
+    }
+
+    // First-fire-per-pipeline INFO; subsequent fires at DEBUG to avoid log spam.
+    if (serialize_logged_pipelines_.insert(pipe_cap_id).second)
+    {
+        GFXRECON_LOG_INFO("SerializeAtomicDispatches: first-fire on pipeline %" PRIu64
+                          ", expanded (%u,%u,%u) -> %" PRIu64 " (1,1,1) dispatches",
+                          pipe_cap_id,
+                          groupCountX,
+                          groupCountY,
+                          groupCountZ,
+                          total);
+    }
+    else
+    {
+        GFXRECON_LOG_DEBUG("SerializeAtomicDispatches: pipeline %" PRIu64 " expanded (%u,%u,%u) -> %" PRIu64
+                           " serialised dispatches",
+                           pipe_cap_id,
+                           groupCountX,
+                           groupCountY,
+                           groupCountZ,
+                           total);
+    }
+
+    util::EndInjectedCommands();
+    return true;
+}
+
+void VulkanReplayConsumerBase::MaybeWarnSerializeIndirect(format::HandleId commandBuffer_id)
+{
+    if (!options_.serialize_atomic_dispatches)
+        return;
+
+    auto* cb_info = object_info_table_->GetVkCommandBufferInfo(commandBuffer_id);
+    if (cb_info == nullptr)
+        return;
+    auto it = cb_info->bound_pipelines.find(VK_PIPELINE_BIND_POINT_COMPUTE);
+    if (it == cb_info->bound_pipelines.end())
+        return;
+    const format::HandleId    pipe_cap_id = it->second;
+    const VulkanPipelineInfo* pipe_info   = object_info_table_->GetVkPipelineInfo(pipe_cap_id);
+    if (pipe_info == nullptr || !pipe_info->serialize_dispatches)
+        return;
+
+    if (!serialize_warned_indirect_pipelines_.insert(pipe_cap_id).second)
+        return;
+
+    GFXRECON_LOG_WARNING("SerializeAtomicDispatches: indirect dispatch on serialised pipeline %" PRIu64
+                         " -- its patched SPIR-V reads gl_WorkGroupID from a push-constant range we don't"
+                         " write on the indirect path, so output is undefined. Direct dispatches on this"
+                         " pipeline are still serialised correctly; only indirect ones misbehave.",
+                         pipe_cap_id);
+}
+
 VkResult VulkanReplayConsumerBase::OverrideCreateDescriptorSetLayout(
     PFN_vkCreateDescriptorSetLayout                                func,
     VkResult                                                       original_result,
@@ -7927,7 +8078,8 @@ VkResult VulkanReplayConsumerBase::OverrideCreateShaderModule(
     GFXRECON_ASSERT(shader_module_info != nullptr);
 
     auto original_info = pCreateInfo->GetPointer();
-    if (original_result < 0 || options_.replace_shader_dir.empty())
+    if (original_result < 0 ||
+        (options_.replace_shader_dir.empty() && !options_.serialize_atomic_dispatches))
     {
         VkResult vk_res = func(
             device_info->handle, original_info, GetAllocationCallbacks(pAllocator), pShaderModule->GetHandlePointer());
@@ -7942,33 +8094,141 @@ VkResult VulkanReplayConsumerBase::OverrideCreateShaderModule(
 
     VkShaderModuleCreateInfo override_info = *original_info;
 
-    // Replace shader in 'override_info'. Hash-based lookup first; on miss,
-    // fall back to the legacy sh<pipeline_id> file name.
+    // --replace-shaders: hash-based lookup first; on miss, fall back to the
+    // legacy sh<pipeline_id> file name.
     std::unique_ptr<char[]> file_code;
-    if (const auto* rep = LookupShaderReplacement(original_info->pCode, original_info->codeSize))
+    if (!options_.replace_shader_dir.empty())
     {
-        override_info.pCode    = reinterpret_cast<const uint32_t*>(rep->bytes.data());
-        override_info.codeSize = rep->bytes.size();
-    }
-    else
-    {
-        const uint64_t    handle_id = *pShaderModule->GetPointer();
-        const std::string file_name = "sh" + std::to_string(handle_id);
-        const std::string file_path = util::filepath::Join(options_.replace_shader_dir, file_name);
-
-        FILE*   fp     = nullptr;
-        int32_t result = util::platform::FileOpen(&fp, file_path.c_str(), "rb");
-        if (result == 0)
+        if (const auto* rep = LookupShaderReplacement(original_info->pCode, original_info->codeSize))
         {
-            util::platform::FileSeek(fp, 0L, util::platform::FileSeekEnd);
-            size_t file_size = static_cast<size_t>(util::platform::FileTell(fp));
-            file_code        = std::make_unique<char[]>(file_size);
-            util::platform::FileSeek(fp, 0L, util::platform::FileSeekSet);
-            util::platform::FileRead(file_code.get(), file_size, fp);
-            override_info.pCode    = reinterpret_cast<uint32_t*>(file_code.get());
-            override_info.codeSize = file_size;
-            GFXRECON_LOG_INFO("Replacement shader found: %s", file_path.c_str());
-            util::platform::FileClose(fp);
+            override_info.pCode    = reinterpret_cast<const uint32_t*>(rep->bytes.data());
+            override_info.codeSize = rep->bytes.size();
+        }
+        else
+        {
+            const uint64_t    handle_id = *pShaderModule->GetPointer();
+            const std::string file_name = "sh" + std::to_string(handle_id);
+            const std::string file_path = util::filepath::Join(options_.replace_shader_dir, file_name);
+
+            FILE*   fp     = nullptr;
+            int32_t result = util::platform::FileOpen(&fp, file_path.c_str(), "rb");
+            if (result == 0)
+            {
+                util::platform::FileSeek(fp, 0L, util::platform::FileSeekEnd);
+                size_t file_size = static_cast<size_t>(util::platform::FileTell(fp));
+                file_code        = std::make_unique<char[]>(file_size);
+                util::platform::FileSeek(fp, 0L, util::platform::FileSeekSet);
+                util::platform::FileRead(file_code.get(), file_size, fp);
+                override_info.pCode    = reinterpret_cast<uint32_t*>(file_code.get());
+                override_info.codeSize = file_size;
+                GFXRECON_LOG_INFO("Replacement shader found: %s", file_path.c_str());
+                util::platform::FileClose(fp);
+            }
+        }
+    }
+
+    // --serialize-atomic-dispatches: if the (possibly already-replaced) module
+    // contains OpAtomic*, rewrite reads of BuiltIn WorkgroupId / GlobalInvocationId
+    // to use a synthetic value supplied via an injected push-constant uvec3
+    // (delivered before each (1,1,1) sub-dispatch in MaybeSerializeDispatch).
+    // Allow-list precedence (highest first):
+    //   1. --serialize-atomic-allowlist <hashes>   (replay CLI flag)
+    //   2. GFXR_SERIALIZE_ATOMIC_ALLOWLIST env var
+    //   3. compile-time util::kSerializeAtomicAllowlistHexHashes
+    //   4. empty -> patch every atomic-using module
+    if (options_.serialize_atomic_dispatches &&
+        util::ContainsAtomicOps(override_info.pCode, override_info.codeSize / sizeof(uint32_t)))
+    {
+        if (!serialize_allowlist_loaded_)
+        {
+            serialize_allowlist_loaded_ = true;
+
+            auto parse_into = [this](const char* str) {
+                size_t      inserted = 0;
+                const char* p        = str;
+                while (*p)
+                {
+                    while (*p == ',' || *p == ' ') ++p;
+                    if (!*p) break;
+                    const char* tok = p;
+                    while (*p && *p != ',' && *p != ' ') ++p;
+                    const size_t len = static_cast<size_t>(p - tok);
+                    if (len == 0) continue;
+                    char         buf[17] = { 0 };
+                    const size_t n       = (len < 16) ? len : 16;
+                    std::memcpy(buf, tok, n);
+                    char*    end = nullptr;
+                    uint64_t h   = std::strtoull(buf, &end, 16);
+                    if (end != buf)
+                    {
+                        serialize_allowlist_.insert(h);
+                        ++inserted;
+                    }
+                }
+                return inserted;
+            };
+
+            if (!options_.serialize_atomic_allowlist.empty())
+            {
+                const size_t n = parse_into(options_.serialize_atomic_allowlist.c_str());
+                GFXRECON_LOG_INFO(
+                    "SerializeAtomicDispatches: --serialize-atomic-allowlist loaded from CLI; %zu hashes active", n);
+            }
+            else if (const char* env = std::getenv("GFXR_SERIALIZE_ATOMIC_ALLOWLIST"))
+            {
+                const size_t n = parse_into(env);
+                GFXRECON_LOG_INFO(
+                    "SerializeAtomicDispatches: GFXR_SERIALIZE_ATOMIC_ALLOWLIST loaded from env; %zu hashes active", n);
+            }
+            else if (util::kSerializeAtomicAllowlistCount > 0)
+            {
+                size_t n = 0;
+                for (size_t i = 0; i < util::kSerializeAtomicAllowlistCount; ++i)
+                {
+                    n += parse_into(util::kSerializeAtomicAllowlistHexHashes[i]);
+                }
+                GFXRECON_LOG_INFO(
+                    "SerializeAtomicDispatches: compile-time allow-list loaded; %zu hashes active", n);
+            }
+            else
+            {
+                GFXRECON_LOG_INFO("SerializeAtomicDispatches: allow-list empty -- patching every atomic-using module");
+            }
+        }
+
+        const uint64_t mod_hash =
+            util::ShaderReplaceMap::HashSpirV(override_info.pCode, override_info.codeSize);
+        if (!serialize_allowlist_.empty() && serialize_allowlist_.count(mod_hash) == 0)
+        {
+            GFXRECON_LOG_INFO("SerializeAtomicDispatches: module hash %016" PRIx64
+                              " not on allow-list; passing through unpatched",
+                              mod_hash);
+        }
+        else
+        {
+            util::WorkgroupSerializerOutput patched;
+            if (util::PatchForWorkgroupSerialization(override_info.pCode,
+                                                     override_info.codeSize / sizeof(uint32_t),
+                                                     patched) &&
+                patched.push_constant_size_bytes != 0)
+            {
+                // Stash the patched bytes so they outlive this call.
+                const auto cap_id = *pShaderModule->GetPointer();
+                auto&      slot   = serialize_patched_modules_[cap_id];
+                slot                   = std::move(patched.patched);
+                override_info.pCode    = slot.data();
+                override_info.codeSize = slot.size() * sizeof(uint32_t);
+
+                shader_module_info->patched_for_serialize = true;
+                shader_module_info->synth_pc_offset       = patched.push_constant_offset_bytes;
+                shader_module_info->synth_pc_size         = patched.push_constant_size_bytes;
+                GFXRECON_LOG_INFO("SerializeAtomicDispatches: patched shader module %" PRIu64
+                                  " (hash %016" PRIx64 ", synth PC @ %u B, %u B)",
+                                  static_cast<uint64_t>(cap_id),
+                                  mod_hash,
+                                  patched.push_constant_offset_bytes,
+                                  patched.push_constant_size_bytes);
+            }
         }
     }
 
@@ -13401,6 +13661,86 @@ VkResult VulkanReplayConsumerBase::OverrideCreateComputePipelines(
         pipeline_cache    = CreateNewPipelineCache(device_info, cache_pipeline_id);
     }
 
+    // --serialize-atomic-dispatches: if any create_info's bound shader module
+    // was patched at module-create time, rebuild that pipeline's VkPipelineLayout
+    // to include the synthetic push-constant range.
+    std::vector<VkComputePipelineCreateInfo> ser_local_create_infos;
+    std::vector<VkPipelineLayout>            ser_new_layouts_per_ci(create_info_count, VK_NULL_HANDLE);
+    std::vector<uint32_t>                    ser_synth_offset_per_ci(create_info_count, 0);
+    std::vector<uint32_t>                    ser_synth_size_per_ci(create_info_count, 0);
+
+    if (options_.serialize_atomic_dispatches)
+    {
+        bool        any_patched = false;
+        const auto* meta_infos  = pCreateInfos->GetMetaStructPointer();
+        for (uint32_t i = 0; i < create_info_count; ++i)
+        {
+            if (meta_infos == nullptr)
+                break;
+            const auto&            meta_stage = meta_infos[i].stage;
+            const format::HandleId mod_cap_id =
+                (meta_stage != nullptr) ? meta_stage->module : format::kNullHandleId;
+            const VulkanShaderModuleInfo* mod_info = object_info_table_->GetVkShaderModuleInfo(mod_cap_id);
+            if (mod_info == nullptr || !mod_info->patched_for_serialize)
+                continue;
+
+            const format::HandleId          layout_cap_id = meta_infos[i].layout;
+            const VulkanPipelineLayoutInfo* layout_info =
+                object_info_table_->GetVkPipelineLayoutInfo(layout_cap_id);
+            if (layout_info == nullptr)
+            {
+                GFXRECON_LOG_WARNING("SerializeAtomicDispatches: cannot find pipeline layout info for module %" PRIu64
+                                     "; skipping layout extension",
+                                     mod_cap_id);
+                continue;
+            }
+
+            // Extended push-constant ranges = original ranges + synth COMPUTE-stage range.
+            std::vector<VkPushConstantRange> ranges = layout_info->push_constant_ranges_serialize;
+            VkPushConstantRange              synth{};
+            synth.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+            synth.offset     = mod_info->synth_pc_offset;
+            synth.size       = mod_info->synth_pc_size;
+            ranges.push_back(synth);
+
+            VkPipelineLayoutCreateInfo new_lci{};
+            new_lci.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+            new_lci.setLayoutCount         = static_cast<uint32_t>(layout_info->set_layout_handles_serialize.size());
+            new_lci.pSetLayouts            = layout_info->set_layout_handles_serialize.empty()
+                                                 ? nullptr
+                                                 : layout_info->set_layout_handles_serialize.data();
+            new_lci.pushConstantRangeCount = static_cast<uint32_t>(ranges.size());
+            new_lci.pPushConstantRanges    = ranges.empty() ? nullptr : ranges.data();
+
+            VkPipelineLayout new_layout = VK_NULL_HANDLE;
+            VkResult         lr =
+                GetDeviceTable(in_device)->CreatePipelineLayout(in_device, &new_lci, nullptr, &new_layout);
+            if (lr != VK_SUCCESS || new_layout == VK_NULL_HANDLE)
+            {
+                GFXRECON_LOG_WARNING("SerializeAtomicDispatches: vkCreatePipelineLayout returned %d; pipeline %u will "
+                                     "run un-serialised",
+                                     lr,
+                                     static_cast<uint32_t>(i));
+                continue;
+            }
+
+            if (ser_local_create_infos.empty())
+            {
+                ser_local_create_infos.assign(in_p_create_infos, in_p_create_infos + create_info_count);
+            }
+            ser_local_create_infos[i].layout = new_layout;
+            ser_new_layouts_per_ci[i]        = new_layout;
+            ser_synth_offset_per_ci[i]       = mod_info->synth_pc_offset;
+            ser_synth_size_per_ci[i]         = mod_info->synth_pc_size;
+            serialize_extra_layouts_.emplace_back(in_device, new_layout);
+            any_patched = true;
+        }
+        if (any_patched)
+        {
+            in_p_create_infos = ser_local_create_infos.data();
+        }
+    }
+
     VkResult replay_result =
         func(in_device, pipeline_cache, create_info_count, in_p_create_infos, in_p_allocation_callbacks, out_pipelines);
 
@@ -13414,6 +13754,25 @@ VkResult VulkanReplayConsumerBase::OverrideCreateComputePipelines(
     {
         // populate all VulkanPipelineInfo structs with information related to shader-modules
         graphics::populate_shader_stages(pCreateInfos, pPipelines, GetObjectInfoTable());
+    }
+
+    // --serialize-atomic-dispatches: tag the new pipelines so MaybeSerializeDispatch
+    // expands their CmdDispatch calls.
+    if (replay_result == VK_SUCCESS && options_.serialize_atomic_dispatches)
+    {
+        for (uint32_t i = 0; i < create_info_count; ++i)
+        {
+            if (ser_new_layouts_per_ci[i] == VK_NULL_HANDLE)
+                continue;
+            auto* p_info = reinterpret_cast<VulkanPipelineInfo*>(pPipelines->GetConsumerData(i));
+            if (p_info == nullptr)
+                continue;
+            p_info->serialize_dispatches  = true;
+            p_info->synth_pc_offset       = ser_synth_offset_per_ci[i];
+            p_info->synth_pc_size         = ser_synth_size_per_ci[i];
+            p_info->synth_pc_layout       = ser_new_layouts_per_ci[i];
+            p_info->synth_pc_layout_owned = true;
+        }
     }
 
     // Information is stored in the created PipelineInfos only when the dumping resources feature is in use
@@ -14346,6 +14705,36 @@ VkResult VulkanReplayConsumerBase::OverrideCreatePipelineLayout(
             if (set_layout_info != nullptr)
             {
                 ppl_layout_info->desc_set_layouts[i] = set_layout_info->bindings_layout;
+            }
+        }
+    }
+
+    // --serialize-atomic-dispatches: cache the create-info inputs so
+    // OverrideCreateComputePipelines can recreate this layout with the
+    // synthetic push-constant range appended.
+    if (result == VK_SUCCESS && options_.serialize_atomic_dispatches)
+    {
+        auto* ppl_layout_info = reinterpret_cast<VulkanPipelineLayoutInfo*>(pPipelineLayout->GetConsumerData(0));
+        if (ppl_layout_info != nullptr)
+        {
+            const auto* ci        = pCreateInfo->GetPointer();
+            const auto* meta_info = pCreateInfo->GetMetaStructPointer();
+            if (ci != nullptr && meta_info != nullptr && meta_info->decoded_value != nullptr)
+            {
+                const uint32_t          set_layout_count = ci->setLayoutCount;
+                const format::HandleId* set_layout_ids   = meta_info->pSetLayouts.GetPointer();
+                ppl_layout_info->set_layout_handles_serialize.resize(set_layout_count, VK_NULL_HANDLE);
+                for (uint32_t i = 0; i < set_layout_count; ++i)
+                {
+                    const auto* info = object_info_table_->GetVkDescriptorSetLayoutInfo(set_layout_ids[i]);
+                    if (info != nullptr)
+                        ppl_layout_info->set_layout_handles_serialize[i] = info->handle;
+                }
+                if (ci->pPushConstantRanges != nullptr && ci->pushConstantRangeCount > 0)
+                {
+                    ppl_layout_info->push_constant_ranges_serialize.assign(
+                        ci->pPushConstantRanges, ci->pPushConstantRanges + ci->pushConstantRangeCount);
+                }
             }
         }
     }

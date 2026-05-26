@@ -169,6 +169,8 @@ const char kDumpResourcesBeforeDrawOption[]    = "--dump-resources-before-draw";
 const char kDumpResourcesArgument[]     = "--dump-resources";
 const char kDumpResourcesDirArgument[]  = "--dump-resources-dir";
 const char kDumpAccelerationStructuresArgument[] = "--dump-acceleration-structures";
+const char kSerializeAtomicDispatches[]          = "--serialize-atomic-dispatches";
+const char kSerializeAtomicAllowlist[]           = "--serialize-atomic-allowlist";
 const char kFrameWarmUpSpirv[]          = "--frame-warm-up-spirv";
 const char kFrameWarmUpLoad[]           = "--frame-warm-up-load";
 const char kSerializeQueueSubmissions[] = "--serialize-queue-submissions";
@@ -1431,6 +1433,9 @@ GetVulkanReplayOptions(const gfxrecon::util::ArgumentParser&           arg_parse
             }
         }
     }
+
+    replay_options.serialize_atomic_dispatches = arg_parser.IsOptionSet(kSerializeAtomicDispatches);
+    replay_options.serialize_atomic_allowlist  = arg_parser.GetArgumentValue(kSerializeAtomicAllowlist);
 
     return replay_options;
 }

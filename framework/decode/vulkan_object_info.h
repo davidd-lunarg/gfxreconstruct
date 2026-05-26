@@ -502,6 +502,14 @@ struct VulkanShaderModuleInfo : public VulkanObjectInfo<VkShaderModule>
 {
     // keep track of existing usage of buffer-references
     std::vector<gfxrecon::util::SpirVParsingUtil::BufferReferenceInfo> buffer_reference_infos;
+
+    // --serialize-atomic-dispatches: set when the WGID/GID patcher rewrote
+    // this module to read its workgroup id from an injected push-constant
+    // range. synth_pc_offset / synth_pc_size describe that range in bytes;
+    // the dispatch hook writes a uvec3 there before each (1,1,1) sub-dispatch.
+    bool     patched_for_serialize{ false };
+    uint32_t synth_pc_offset{ 0 };
+    uint32_t synth_pc_size{ 0 };
 };
 
 struct DescriptorBindingLayout
@@ -523,6 +531,12 @@ struct VulkanPipelineLayoutInfo : public VulkanObjectInfo<VkPipelineLayout>
 {
     // One per descriptor set
     std::vector<DescriptorBindingLayoutMap> desc_set_layouts;
+
+    // --serialize-atomic-dispatches: cache of the original
+    // vkCreatePipelineLayout inputs so OverrideCreateComputePipelines can
+    // recreate this layout with the synthetic push-constant range appended.
+    std::vector<VkDescriptorSetLayout> set_layout_handles_serialize;
+    std::vector<VkPushConstantRange>   push_constant_ranges_serialize;
 };
 
 struct VulkanPipelineInfo : public VulkanObjectInfoAsync<VkPipeline>
@@ -572,6 +586,20 @@ struct VulkanPipelineInfo : public VulkanObjectInfoAsync<VkPipeline>
 
     // Pipeline layout info
     std::vector<DescriptorBindingLayoutMap> desc_set_layouts;
+
+    // --serialize-atomic-dispatches: when true, MaybeSerializeDispatch expands
+    // a single CmdDispatch on this pipeline into the (push-constant,
+    // dispatch(1,1,1), barrier) loop. synth_pc_offset/size describe the byte
+    // range in the (possibly newly-introduced) push-constant block that the
+    // host writes with the synthetic gl_WorkGroupID before each (1,1,1)
+    // dispatch; synth_pc_layout is the VkPipelineLayout the replay layer
+    // recreated to carry the synth push-constant range. synth_pc_layout_owned
+    // means the layer created the layout and must destroy it.
+    bool             serialize_dispatches{ false };
+    uint32_t         synth_pc_offset{ 0 };
+    uint32_t         synth_pc_size{ 0 };
+    VkPipelineLayout synth_pc_layout{ VK_NULL_HANDLE };
+    bool             synth_pc_layout_owned{ false };
 };
 
 struct VulkanDescriptorPoolInfo : public VulkanPoolInfo<VkDescriptorPool>

@@ -1757,7 +1757,10 @@ void VulkanReplayConsumer::Process_vkCmdDispatch(
 {
     VkCommandBuffer in_commandBuffer = MapHandle<VulkanCommandBufferInfo>(commandBuffer, &CommonObjectInfoTable::GetVkCommandBufferInfo);
 
-    GetDeviceTable(in_commandBuffer)->CmdDispatch(in_commandBuffer, groupCountX, groupCountY, groupCountZ);
+    if (!MaybeSerializeDispatch(commandBuffer, groupCountX, groupCountY, groupCountZ))
+    {
+        GetDeviceTable(in_commandBuffer)->CmdDispatch(in_commandBuffer, groupCountX, groupCountY, groupCountZ);
+    }
 
     if (options_.dumping_resources)
     {
@@ -1774,6 +1777,7 @@ void VulkanReplayConsumer::Process_vkCmdDispatchIndirect(
     VkCommandBuffer in_commandBuffer = MapHandle<VulkanCommandBufferInfo>(commandBuffer, &CommonObjectInfoTable::GetVkCommandBufferInfo);
     VkBuffer in_buffer = MapHandle<VulkanBufferInfo>(buffer, &CommonObjectInfoTable::GetVkBufferInfo);
 
+    MaybeWarnSerializeIndirect(commandBuffer);
     GetDeviceTable(in_commandBuffer)->CmdDispatchIndirect(in_commandBuffer, in_buffer, offset);
 
     if (options_.dumping_resources)
@@ -2707,6 +2711,7 @@ void VulkanReplayConsumer::Process_vkCmdDispatchBase(
 {
     VkCommandBuffer in_commandBuffer = MapHandle<VulkanCommandBufferInfo>(commandBuffer, &CommonObjectInfoTable::GetVkCommandBufferInfo);
 
+    MaybeWarnSerializeIndirect(commandBuffer);
     GetDeviceTable(in_commandBuffer)->CmdDispatchBase(in_commandBuffer, baseGroupX, baseGroupY, baseGroupZ, groupCountX, groupCountY, groupCountZ);
 
     if (options_.dumping_resources)
@@ -4965,6 +4970,7 @@ void VulkanReplayConsumer::Process_vkCmdDispatchBaseKHR(
 {
     VkCommandBuffer in_commandBuffer = MapHandle<VulkanCommandBufferInfo>(commandBuffer, &CommonObjectInfoTable::GetVkCommandBufferInfo);
 
+    MaybeWarnSerializeIndirect(commandBuffer);
     GetDeviceTable(in_commandBuffer)->CmdDispatchBaseKHR(in_commandBuffer, baseGroupX, baseGroupY, baseGroupZ, groupCountX, groupCountY, groupCountZ);
 
     if (options_.dumping_resources)
@@ -6343,6 +6349,7 @@ void VulkanReplayConsumer::Process_vkCmdDispatchIndirect2KHR(
     const VkDispatchIndirect2InfoKHR* in_pInfo = pInfo->GetPointer();
     MapStructHandles(pInfo->GetMetaStructPointer(), GetObjectInfoTable());
 
+    MaybeWarnSerializeIndirect(commandBuffer);
     GetDeviceTable(in_commandBuffer)->CmdDispatchIndirect2KHR(in_commandBuffer, in_pInfo);
 
     if (options_.dumping_resources)

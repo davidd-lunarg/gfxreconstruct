@@ -253,6 +253,27 @@ struct VulkanReplayOptions : public ReplayOptions
     /// Parameters to pass to the replay event plugin.
     std::string replay_event_plugin_params;
 
+    /// Workgroup-level serialization of compute pipelines whose SPIR-V contains
+    /// OpAtomic*. At replay, each affected vkCmdDispatch(gx, gy, gz) is replaced
+    /// by gx*gy*gz back-to-back vkCmdDispatch(1, 1, 1) calls separated by
+    /// COMPUTE->COMPUTE barriers; the synthetic gl_WorkGroupID is delivered via
+    /// an injected push-constant range and replaces the shader's reads of
+    /// BuiltIn WorkgroupId/GlobalInvocationId. Removes the cross-workgroup
+    /// atomic-ordering race (intra-warp race remains, but is empirically
+    /// deterministic on a single GPU/driver). Default off.
+    bool serialize_atomic_dispatches{ false };
+
+    /// Optional comma-separated 16-hex FNV-1a64 module-hash list. When set,
+    /// only compute modules whose hash matches an entry are patched by
+    /// --serialize-atomic-dispatches; everything else passes through unchanged.
+    /// Precedence (highest first): this CLI value, the
+    /// GFXR_SERIALIZE_ATOMIC_ALLOWLIST env var, the compile-time
+    /// kSerializeAtomicAllowlistHexHashes list. Use the sentinel
+    /// "0000000000000000" to "patch nothing" while keeping the allow-list
+    /// mechanism active. Empty/unset = compile-time fallback (which itself may
+    /// be empty -> patch every atomic-using module).
+    std::string serialize_atomic_allowlist;
+
     // Bottom-level acceleration-structure dumping. When enabled, BLAS that pass
     // build_block_index_ranges and as_id_ranges filters are serialized to
     // <stem>.vkas / <stem>_input.json files on disk at replay time.

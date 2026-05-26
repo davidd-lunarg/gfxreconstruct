@@ -94,6 +94,9 @@ target_sources(gfxrecon_util
                     ${CMAKE_CURRENT_LIST_DIR}/spirv_helper.h
                     ${CMAKE_CURRENT_LIST_DIR}/spirv_parsing_util.h
                     ${CMAKE_CURRENT_LIST_DIR}/spirv_parsing_util.cpp
+                    ${CMAKE_CURRENT_LIST_DIR}/spirv_workgroup_serializer.h
+                    ${CMAKE_CURRENT_LIST_DIR}/spirv_workgroup_serializer.cpp
+                    ${CMAKE_CURRENT_LIST_DIR}/serialize_atomic_allowlist.h
                     $<$<BOOL:${D3D12_SUPPORT}>:${CMAKE_CURRENT_LIST_DIR}/interception/hooking_detours.h>
                     $<$<BOOL:${D3D12_SUPPORT}>:${CMAKE_CURRENT_LIST_DIR}/interception/hooking_detours.cpp>
                     $<$<BOOL:${D3D12_SUPPORT}>:${CMAKE_CURRENT_LIST_DIR}/interception/interception_util.h>

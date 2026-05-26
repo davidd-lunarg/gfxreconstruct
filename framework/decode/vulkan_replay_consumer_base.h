@@ -2064,6 +2064,31 @@ class VulkanReplayConsumerBase : public VulkanConsumer
     util::ShaderReplaceMap         shader_replace_map_;
     std::once_flag                 shader_replace_map_init_;
 
+    // --serialize-atomic-dispatches: at each vkCmdDispatch on a serialized
+    // pipeline, expand into gx*gy*gz back-to-back (1,1,1) dispatches with
+    // a synthetic WGID pushed via push-constant before each. Returns true
+    // if the dispatch was handled (caller skips the regular CmdDispatch).
+    bool MaybeSerializeDispatch(format::HandleId commandBuffer_id,
+                                uint32_t         groupCountX,
+                                uint32_t         groupCountY,
+                                uint32_t         groupCountZ);
+
+    // --serialize-atomic-dispatches: indirect dispatches on a serialized
+    // pipeline can't deliver a synthetic WGID via push-constant. Emits a
+    // one-shot warning per offending pipeline; the dispatch still runs.
+    void MaybeWarnSerializeIndirect(format::HandleId commandBuffer_id);
+
+    // --serialize-atomic-dispatches state.
+    std::unordered_set<uint64_t> serialize_allowlist_;
+    bool                         serialize_allowlist_loaded_{ false };
+    // Patched bytes stay alive for the duration of vkCreateShaderModule.
+    std::unordered_map<format::HandleId, std::vector<uint32_t>> serialize_patched_modules_;
+    // Synth-PC pipeline layouts the layer created; destroyed on device destroy.
+    std::vector<std::pair<VkDevice, VkPipelineLayout>>          serialize_extra_layouts_;
+    // First-fire / warning de-duplication sets.
+    std::unordered_set<format::HandleId> serialize_logged_pipelines_;
+    std::unordered_set<format::HandleId> serialize_warned_indirect_pipelines_;
+
     // ASVisualizer: per-device helper that owns the serialization scratch buffers used by the
     // --dump-acceleration-structures feature. Inline copies of built BLAS land in `pool_buffer`
     // (device-local), a serialization-size query lands in `query_pool`, and the post-submit
