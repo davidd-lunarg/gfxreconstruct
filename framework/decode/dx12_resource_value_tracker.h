@@ -104,7 +104,8 @@ class Dx12ResourceValueTracker
 
     virtual void GetTrackedResourceValues(Dx12FillCommandResourceValueMap& values);
 
-  protected:
+  public:
+    // Public so unit tests can construct fill-command state without a D3D12 device.
     typedef std::vector<std::pair<uint64_t, uint64_t>> ResourceRanges;
 
     struct TrackedFillCommandInfo
@@ -116,6 +117,8 @@ class Dx12ResourceValueTracker
         std::shared_ptr<std::vector<uint8_t>>
             init_subresource_data; ///< A copy of the data from init subresource calls.
     };
+
+  protected:
 
     struct ProcessExecuteCommandListArgs
     {

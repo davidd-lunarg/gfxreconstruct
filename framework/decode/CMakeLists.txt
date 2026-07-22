@@ -480,6 +480,7 @@ if (${RUN_TESTS})
     add_executable(gfxrecon_decode_test "")
     target_sources(gfxrecon_decode_test PRIVATE
             ${CMAKE_CURRENT_LIST_DIR}/test/main.cpp
+            $<$<BOOL:${D3D12_SUPPORT}>:${CMAKE_CURRENT_LIST_DIR}/test/dx12_experimental_resource_value_tracker_tests.cpp>
             ${CMAKE_CURRENT_LIST_DIR}/../../tools/platform_debug_helper.cpp)
     target_link_libraries(gfxrecon_decode_test PRIVATE gfxrecon_decode)
     if (MSVC)

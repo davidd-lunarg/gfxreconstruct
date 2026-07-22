@@ -97,23 +97,25 @@ void Dx12ExperimentalResourceValueTracker::GetTrackedResourceValues(Dx12FillComm
             auto block_resource_values_iter = tracked_values.find(block_index);
             if (block_resource_values_iter != tracked_values.end())
             {
+                auto& res_vals = block_resource_values_iter->second;
                 for (auto& non_dxr_range : non_dxr_ranges_pair.second)
                 {
-                    auto& res_vals   = block_resource_values_iter->second;
-                    auto  min_offset = non_dxr_range.first;
-                    auto  max_offset = non_dxr_range.second;
-                    auto  end_iter =
+                    auto min_offset = non_dxr_range.first;
+                    auto max_offset = non_dxr_range.second;
+                    auto end_iter =
                         std::remove_if(res_vals.begin(),
                                        res_vals.end(),
                                        [min_offset, max_offset](const Dx12FillCommandResourceValue& res_val) {
                                            return (res_val.offset >= min_offset) && (res_val.offset < max_offset);
                                        });
                     res_vals.erase(end_iter, res_vals.end());
+                }
 
-                    if (res_vals.empty())
-                    {
-                        tracked_values.erase(block_index);
-                    }
+                // Erase only after all ranges are applied; erasing inside the range loop invalidates
+                // block_resource_values_iter for the next range.
+                if (res_vals.empty())
+                {
+                    tracked_values.erase(block_resource_values_iter);
                 }
             }
         }
@@ -189,8 +191,6 @@ void Dx12ExperimentalResourceValueTracker::PostProcessFillMemoryCommand(uint64_t
         GFXRECON_ASSERT((offset % kMinDataAlignment) == 0);
         FindResourceValuesThreaded(tracked_fill_command, data, size);
     }
-
-    UpdateFillCommandState(resource_id, tracked_fill_command);
 }
 
 void Dx12ExperimentalResourceValueTracker::PostProcessInitSubresourceCommand(
@@ -256,6 +256,7 @@ bool MatchShaderIdentifier(const std::set<graphics::Dx12ShaderIdentifier>& shade
 void Dx12ExperimentalResourceValueTracker::FindResourceValues(
     const uint8_t*                                               data,
     uint64_t                                                     data_size,
+    uint64_t                                                     record_limit,
     const std::set<graphics::Dx12ShaderIdentifier>*              shader_ids,
     const graphics::Dx12GpuVaMap*                                gpu_va_map,
     const decode::Dx12DescriptorMap*                             gpu_descriptor_map,
@@ -267,11 +268,12 @@ void Dx12ExperimentalResourceValueTracker::FindResourceValues(
     const uint64_t kAddrSize = sizeof(uint64_t);
     const uint64_t kIdSize   = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
 
-    // These values were found through testing. They are useful for reducing computation time and the number of false
-    // positives (data incorrectly identified as a resource value).
-    const uint64_t kMinGpuVaAlignment = 16;
+    if ((record_limit == 0) || (record_limit > data_size))
+    {
+        record_limit = data_size;
+    }
 
-    for (uint64_t i = 0; (i + kMinDataAlignment) <= data_size; i += kMinDataAlignment)
+    for (uint64_t i = 0; (i + kMinDataAlignment) <= record_limit; i += kMinDataAlignment)
     {
         // First check for a shader id match.
         if ((shader_ids != nullptr) && ((i + kIdSize) <= data_size))
@@ -303,13 +305,15 @@ void Dx12ExperimentalResourceValueTracker::FindResourceValues(
             }
         }
 
-        // Finally check for GPU VA match.
+        // No value-alignment gate on VAs: record arguments can point at arbitrary structure elements (19% of
+        // real record VAs measured on a large DXR title are not 8-byte aligned). The range gate and the VA map
+        // lookup are the filters.
         if ((gpu_va_map != nullptr) && ((i + kAddrSize) <= data_size))
         {
 
             uint64_t old_address;
             util::platform::MemoryCopy(&old_address, kAddrSize, data + i, kAddrSize);
-            if ((old_address >= min_gpu_va_) && (old_address < max_gpu_va_) && (old_address % kMinGpuVaAlignment == 0))
+            if ((old_address >= min_gpu_va_) && (old_address < max_gpu_va_))
             {
                 bool found_address = false;
                 gpu_va_map->Map(old_address, nullptr, &found_address);
@@ -337,6 +341,11 @@ void Dx12ExperimentalResourceValueTracker::FindResourceValuesThreaded(
     const uint64_t kMinPerThreadSize = 512;
     uint64_t       per_thread_size   = util::platform::AlignValue<D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES>(
         std::max(data_size / kThreadCount, kMinPerThreadSize));
+
+    // Threads read past their chunk so boundary-straddling values are found by the chunk owning their start;
+    // values may only start inside the chunk (record_limit), so the overlap produces no duplicate hits.
+    const uint64_t kChunkOverlap = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES - kMinDataAlignment;
+
     uint64_t next_thread_offset = 0;
     for (auto& thread_data : find_resource_values_thread_datas_)
     {
@@ -350,9 +359,11 @@ void Dx12ExperimentalResourceValueTracker::FindResourceValuesThreaded(
 
         if (thread_data.data_size > 0)
         {
+            uint64_t scan_size = std::min(thread_data.data_size + kChunkOverlap, data_size - thread_data.data_offset);
             thread_data.thread = std::thread(&Dx12ExperimentalResourceValueTracker::FindResourceValues,
                                              this,
                                              data + thread_data.data_offset,
+                                             scan_size,
                                              thread_data.data_size,
                                              &unique_unassociated_shader_ids_,
                                              &active_unassociated_gpu_va_map_,
@@ -437,6 +448,7 @@ void Dx12ExperimentalResourceValueTracker::AddShaderRecordData(format::HandleId 
         temp_found_shader_record_values_.clear();
         FindResourceValues(shader_record_data,
                            shader_record_size,
+                           shader_record_size,
                            nullptr,
                            &gpu_va_map,
                            &descriptor_map,
@@ -479,11 +491,6 @@ void Dx12ExperimentalResourceValueTracker::AddNonDxrFillCommandBlocks(format::Ha
 
             auto& non_dxr_ranges         = non_dxr_fill_command_data_[iter->second.fill_command_block_index];
             non_dxr_ranges[original_min] = original_max;
-        }
-
-        if (resource_fill_commands.empty())
-        {
-            tracked_fill_commands_.erase(resource_id);
         }
 
         iter = next_iter;

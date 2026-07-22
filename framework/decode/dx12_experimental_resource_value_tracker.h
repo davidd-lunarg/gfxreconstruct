@@ -129,6 +129,28 @@ class Dx12ExperimentalResourceValueTracker : public Dx12ResourceValueTracker
 
     virtual void RemoveGpuDescriptorHeap(uint64_t capture_address) override;
 
+  public:
+    // Public so the content scanner can be unit tested without a D3D12 device.
+    //
+    // FindResourceValues scans data for candidate resource values. Values may only start in [0, record_limit)
+    // but reads may extend up to data_size, so values straddling a chunk boundary are found by the chunk that
+    // owns their start. record_limit == 0 means data_size (standalone scan).
+    void FindResourceValues(const uint8_t*                                               data,
+                            uint64_t                                                     data_size,
+                            uint64_t                                                     record_limit,
+                            const std::set<graphics::Dx12ShaderIdentifier>*              shader_ids,
+                            const graphics::Dx12GpuVaMap*                                gpu_va_map,
+                            const decode::Dx12DescriptorMap*                             gpu_descriptor_map,
+                            std::vector<std::pair<uint64_t, format::ResourceValueType>>* found_resource_values) const;
+
+    void FindResourceValuesThreaded(const TrackedFillCommandInfo& tracked_fill_command,
+                                    const uint8_t*                data,
+                                    uint64_t                      data_size);
+
+    void AddNonDxrFillCommandBlocks(format::HandleId resource_id,
+                                    uint64_t         resource_min_offset,
+                                    uint64_t         resource_max_offset);
+
   private:
     const uint64_t kMinDataAlignment = 4;
 
@@ -146,21 +168,6 @@ class Dx12ExperimentalResourceValueTracker : public Dx12ResourceValueTracker
 
         void Reset() { non_dxr_resources_.clear(); }
     };
-
-    void AddNonDxrFillCommandBlocks(format::HandleId resource_id,
-                                    uint64_t         resource_min_offset,
-                                    uint64_t         resource_max_offset);
-
-    void FindResourceValues(const uint8_t*                                               data,
-                            uint64_t                                                     data_size,
-                            const std::set<graphics::Dx12ShaderIdentifier>*              shader_ids,
-                            const graphics::Dx12GpuVaMap*                                gpu_va_map,
-                            const decode::Dx12DescriptorMap*                             gpu_descriptor_map,
-                            std::vector<std::pair<uint64_t, format::ResourceValueType>>* found_resource_values) const;
-
-    void FindResourceValuesThreaded(const TrackedFillCommandInfo& tracked_fill_command,
-                                    const uint8_t*                data,
-                                    uint64_t                      data_size);
 
     bool track_unassociated_values_;   ///< True for first pass of experimental tracking.
     bool resolve_unassociated_values_; ///< True for second pass of experimental tracking.
