@@ -30,6 +30,8 @@
 #include "graphics/dx12_gpu_va_map.h"
 #include "util/defines.h"
 
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
@@ -113,6 +115,58 @@ struct Dx12ResourceValueAuditSummary
 
     // First-seen samples of distinct unresolved GPU VAs (bounded; for diagnosing the residue).
     std::vector<Dx12UnresolvedValueSample> unresolved_gpu_va_samples;
+};
+
+// One content-scan hit from the second experimental pass. offset is in annotation space: the same space as
+// Dx12FillCommandResourceValue::offset for the hit's fill or init block.
+struct Dx12ScanHitCandidate
+{
+    uint64_t          block_index{ 0 };
+    uint64_t          offset{ 0 };
+    ResourceValueType type{ ResourceValueType::kUnknown };
+    uint64_t          value{ 0 }; ///< The hit's 8-byte window as a little-endian u64; 0 for shader IDs.
+    format::HandleId  target_resource_id{ format::kNullHandleId };   ///< VA hits: resource the value points into.
+    format::HandleId  location_resource_id{ format::kNullHandleId }; ///< Resource whose payload holds the hit.
+};
+
+// Capture-space allocation bounds of a needle resource (a resource some unassociated value points into).
+struct Dx12CaptureAllocation
+{
+    uint64_t capture_address{ 0 };
+    uint64_t width{ 0 };
+};
+
+// Perturbation plan for the verification pass: candidate GPU VA values tagged with in-allocation deltas,
+// plus every observation those tags can legally produce at a use site. Decode is by exact value match, so
+// all keys are kept globally collision-free at build time.
+struct Dx12DerivedExpectation
+{
+    uint64_t unresolved_value{ 0 }; ///< The GPU-derived value whose chain this expectation confirms.
+    uint64_t base_value{ 0 };       ///< The tagged candidate value identified as the chain's base.
+};
+
+struct Dx12PerturbationPlan
+{
+    std::unordered_map<uint64_t, uint64_t>               value_to_tagged; ///< candidate original -> tagged
+    std::unordered_map<uint64_t, uint64_t>               tagged_to_value; ///< tagged -> candidate original
+    std::unordered_map<uint64_t, Dx12DerivedExpectation> derived_expectations; ///< keyed by expected observation
+    std::unordered_set<uint64_t>                         untested_values; ///< no collision-free in-range delta
+    std::unordered_set<uint64_t>                         unresolved_values;
+    uint64_t                                             ambiguous_expectations{ 0 };
+};
+
+struct Dx12PerturbationResults
+{
+    uint64_t copied_decodes{ 0 };        ///< Observations equal to a tagged candidate value.
+    uint64_t derived_decodes{ 0 };       ///< Observations equal to an expected derived value.
+    uint64_t untagged_candidate_observations{ 0 }; ///< Observations equal to a raw (untagged flow) candidate.
+    uint64_t untested_observations{ 0 };
+    uint64_t unverified_unresolved_observations{ 0 };
+
+    std::unordered_set<uint64_t> confirmed_values;         ///< Candidate values proven to reach a use site.
+    std::unordered_set<uint64_t> derived_confirmed_values; ///< Unresolved values proven derived from a tagged base.
+    std::unordered_set<uint64_t> observed_untagged_values;
+    std::unordered_set<uint64_t> unverified_unresolved_values;
 };
 
 class Dx12ResourceValueTracker
@@ -204,6 +258,16 @@ class Dx12ResourceValueTracker
     // Report-only closure ledger from the audit pass; the mapper merges its post-execution readback counts
     // into the same summary.
     virtual void GetAuditSummary(Dx12ResourceValueAuditSummary& summary) {}
+
+    // Second-pass exports consumed by the perturbation (verification) pass.
+    virtual void GetScanHitCandidates(std::vector<Dx12ScanHitCandidate>& hits) {}
+    virtual void GetNeedleAllocations(std::map<format::HandleId, Dx12CaptureAllocation>& allocations) {}
+    virtual void GetUnresolvedGpuVaValues(std::unordered_map<uint64_t, format::HandleId>& values) {}
+
+    // The third (verification) pass: enter decode mode with a perturbation plan; each use-site GPU VA
+    // observation is classified against the plan's expected tagged and derived values.
+    virtual void SetPerturbationDecode(Dx12PerturbationPlan&& plan) {}
+    virtual void GetPerturbationResults(Dx12PerturbationResults& results) {}
 
     virtual void AddShaderRecordData(format::HandleId                 resource_id,
                                      uint64_t                         offset,

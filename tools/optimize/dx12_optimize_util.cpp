@@ -29,6 +29,7 @@
 #include "dx12_file_optimizer.h"
 #include "decode/dx12_object_info.h"
 #include "generated/generated_dx12_replay_consumer.h"
+#include "decode/dx12_experimental_resource_value_tracker.h"
 #include "decode/dx12_resource_value_tracker.h"
 #include "decode/file_processor.h"
 
@@ -41,6 +42,9 @@
 #include <algorithm>
 #include <cinttypes>
 #include <map>
+#include <set>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
@@ -57,6 +61,12 @@ struct Dx12OptimizationInfo
     // DXR optimization
     decode::Dx12FillCommandResourceValueMap  fill_command_resource_values;
     decode::Dx12UnassociatedResourceValueMap unassociated_resource_values;
+
+    // DXR/EI perturbation-verification inputs collected from the second experimental pass.
+    std::vector<decode::Dx12ScanHitCandidate>                             scan_hits;
+    std::map<format::HandleId, decode::Dx12CaptureAllocation>             needle_allocations;
+    std::unordered_map<uint64_t, format::HandleId>                        unresolved_gpu_vas;
+    decode::Dx12ResourceValueTrackingConsumer::NonRvExecuteIndirectRanges non_rv_ei_ranges;
 
     bool found_opt_fill_mem{ false };
     bool inject_noop_resource_value_optimization{ false };
@@ -354,6 +364,12 @@ bool GetDxrOptimizationInfo(const std::string&               input_filename,
                 decode::Dx12ResourceValueAuditSummary audit_summary;
                 resource_value_tracking_consumer->GetResourceValueAuditSummary(audit_summary);
                 WriteDxrAuditReport(audit_summary);
+
+                // Export the verification-pass inputs; scan hits are not yet merged into the output annotations.
+                resource_value_tracking_consumer->GetResourceValueScanHits(info.scan_hits);
+                resource_value_tracking_consumer->GetNeedleAllocations(info.needle_allocations);
+                resource_value_tracking_consumer->GetUnresolvedGpuVaValues(info.unresolved_gpu_vas);
+                info.non_rv_ei_ranges = resource_value_tracking_consumer->GetNonRvExecuteIndirectRanges();
             }
 
             if (BypassResourceValueOptimization(*resource_value_tracking_consumer, options, info))
@@ -361,7 +377,8 @@ bool GetDxrOptimizationInfo(const std::string&               input_filename,
                 // No further DXR/EI optimization needed if the file was already optimized.
                 options.optimize_resource_values = false;
             }
-            else if (info.fill_command_resource_values.empty() && info.unassociated_resource_values.empty())
+            else if (info.fill_command_resource_values.empty() && info.unassociated_resource_values.empty() &&
+                     info.scan_hits.empty())
             {
                 // If the file is not optimized for DXR/EI but does not contain any resource values that need to be
                 // mapped during replay, mark it as optimized.
@@ -389,6 +406,293 @@ bool GetDxrOptimizationInfo(const std::string&               input_filename,
     }
 
     return dxr_scan_result;
+}
+
+// Run the perturbation (verification) replay: tagged candidate bytes are patched into fill/init payloads,
+// nothing is written to the GPU by the mapper, and every use-site GPU VA observation is decoded against the
+// plan. Returns false if the replay did not complete (e.g. a tagged false positive broke it).
+bool RunDxrPerturbationPass(const std::string&                                                input_filename,
+                            const Dx12OptimizationInfo&                                       info,
+                            const decode::Dx12OptimizationOptions&                            options,
+                            decode::Dx12ResourceValueTrackingConsumer::PerturbationPatchMap&& patches,
+                            decode::Dx12PerturbationPlan&&                                    plan,
+                            decode::Dx12PerturbationResults&                                  results)
+{
+    bool pass_result = false;
+
+    std::shared_ptr<application::Application> application;
+    decode::BlockSkippingFileProcessor        file_processor;
+    if (file_processor.Initialize(input_filename))
+    {
+        decode::Dx12Decoder                                        decoder;
+        std::unique_ptr<decode::Dx12ResourceValueTrackingConsumer> consumer = nullptr;
+
+        CreateResourceValueTrackingConsumer(&file_processor, consumer, application, options);
+
+        GFXRECON_WRITE_CONSOLE("Verifying DXR/EI optimization candidates with a perturbation replay.");
+        consumer->SetResourceValuePerturbation(std::move(patches), std::move(plan));
+
+        decoder.AddConsumer(consumer.get());
+        file_processor.AddDecoder(&decoder);
+        file_processor.SetBlocksToSkip(info.unreferenced_blocks);
+
+#ifdef GFXRECON_AGS_SUPPORT
+        gfxrecon::decode::AgsReplayConsumer ags_replay_consumer;
+        gfxrecon::decode::AgsDecoder        ags_decoder;
+        ags_replay_consumer.AddDx12Consumer(consumer.get());
+        ags_decoder.AddConsumer(reinterpret_cast<gfxrecon::decode::AgsConsumerBase*>(&ags_replay_consumer));
+
+        file_processor.AddDecoder(&ags_decoder);
+#endif // GFXRECON_AGS_SUPPORT
+
+        GFXRECON_ASSERT(application != nullptr);
+
+        application->Run();
+
+        if (FileProcessorSucceeded(file_processor))
+        {
+            consumer->GetPerturbationResults(results);
+            pass_result = true;
+        }
+        else
+        {
+            GFXRECON_WRITE_CONSOLE("The perturbation verification replay did not complete.");
+        }
+    }
+
+    return pass_result;
+}
+
+// Append the flagged scan hits to the output annotations, then sort each block's values by offset and drop
+// exact duplicates and overlaps (the walk and the scan can annotate the same location).
+void MergeDxrScanHitAnnotations(decode::Dx12FillCommandResourceValueMap&         annotations,
+                                const std::vector<decode::Dx12ScanHitCandidate>& hits,
+                                const std::vector<bool>&                         emit_flags)
+{
+    for (size_t i = 0; i < hits.size(); ++i)
+    {
+        if (emit_flags[i])
+        {
+            annotations[hits[i].block_index].push_back({ hits[i].offset, hits[i].type });
+        }
+    }
+
+    for (auto& block_pair : annotations)
+    {
+        auto& values = block_pair.second;
+        std::sort(values.begin(),
+                  values.end(),
+                  [](const decode::Dx12FillCommandResourceValue& l, const decode::Dx12FillCommandResourceValue& r) {
+                      if (l.offset != r.offset)
+                      {
+                          return l.offset < r.offset;
+                      }
+                      return static_cast<uint32_t>(l.type) < static_cast<uint32_t>(r.type);
+                  });
+
+        std::vector<decode::Dx12FillCommandResourceValue> merged;
+        merged.reserve(values.size());
+        uint64_t next_free_offset = 0;
+        for (const auto& value : values)
+        {
+            if (!merged.empty() && (value.offset < next_free_offset))
+            {
+                continue;
+            }
+            merged.push_back(value);
+            next_free_offset = value.offset + decode::GetResourceValueSize(value.type);
+        }
+        values = std::move(merged);
+    }
+}
+
+// Verify the second pass's content-scan candidates with a perturbation replay and merge the verdicts into
+// the output annotations: GPU VA hits are emitted only when their value was confirmed at a use site
+// (directly, or named as the base of a GPU-derived value); other hit types are emitted as found.
+void VerifyDxrOptimizationCandidates(const std::string&                     input_filename,
+                                     const decode::Dx12OptimizationOptions& options,
+                                     Dx12OptimizationInfo&                  info)
+{
+    const auto& hits = info.scan_hits;
+    if (hits.empty())
+    {
+        return;
+    }
+
+    std::vector<bool> emit(hits.size(), false);
+    std::vector<bool> excluded(hits.size(), false);
+    uint64_t          va_location_count       = 0;
+    uint64_t          excluded_location_count = 0;
+
+    for (size_t i = 0; i < hits.size(); ++i)
+    {
+        if (hits[i].type != decode::ResourceValueType::kGpuVirtualAddress)
+        {
+            emit[i] = true;
+            continue;
+        }
+        ++va_location_count;
+
+        auto ranges_iter = info.non_rv_ei_ranges.find(hits[i].location_resource_id);
+        if (ranges_iter != info.non_rv_ei_ranges.end())
+        {
+            for (const auto& range : ranges_iter->second)
+            {
+                if ((hits[i].offset < range.second) && ((hits[i].offset + sizeof(uint64_t)) > range.first))
+                {
+                    excluded[i] = true;
+                    ++excluded_location_count;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Distinct candidate values grouped by the resource they point into, from non-excluded locations.
+    std::map<format::HandleId, std::set<uint64_t>> candidate_sets;
+    for (size_t i = 0; i < hits.size(); ++i)
+    {
+        if ((hits[i].type == decode::ResourceValueType::kGpuVirtualAddress) && !excluded[i])
+        {
+            candidate_sets[hits[i].target_resource_id].insert(hits[i].value);
+        }
+    }
+    std::map<format::HandleId, std::vector<uint64_t>> tested;
+    for (const auto& target_pair : candidate_sets)
+    {
+        tested[target_pair.first].assign(target_pair.second.begin(), target_pair.second.end());
+    }
+
+    std::map<format::HandleId, std::vector<uint64_t>> unresolved_by_target;
+    for (const auto& unresolved_pair : info.unresolved_gpu_vas)
+    {
+        unresolved_by_target[unresolved_pair.second].push_back(unresolved_pair.first);
+    }
+
+    decode::Dx12PerturbationResults results;
+    std::unordered_set<uint64_t>    tested_values;
+    uint64_t                        untested_value_count = 0;
+    uint64_t                        ambiguous_count      = 0;
+    bool                            verified             = false;
+    const int                       kMaxAttempts         = 3;
+    for (int attempt = 0; (attempt < kMaxAttempts) && !verified; ++attempt)
+    {
+        decode::Dx12PerturbationPlan plan;
+        decode::Dx12ExperimentalResourceValueTracker::BuildPerturbationPlan(
+            tested, unresolved_by_target, info.needle_allocations, plan);
+
+        tested_values.clear();
+        for (const auto& value_pair : plan.value_to_tagged)
+        {
+            tested_values.insert(value_pair.first);
+        }
+        untested_value_count = plan.untested_values.size();
+        ambiguous_count      = plan.ambiguous_expectations;
+
+        decode::Dx12ResourceValueTrackingConsumer::PerturbationPatchMap patches;
+        for (size_t i = 0; i < hits.size(); ++i)
+        {
+            if ((hits[i].type != decode::ResourceValueType::kGpuVirtualAddress) || excluded[i])
+            {
+                continue;
+            }
+            auto tagged_iter = plan.value_to_tagged.find(hits[i].value);
+            if (tagged_iter != plan.value_to_tagged.end())
+            {
+                patches[hits[i].block_index].push_back({ hits[i].offset, tagged_iter->second });
+            }
+        }
+
+        decode::Dx12PerturbationResults attempt_results;
+        if (RunDxrPerturbationPass(
+                input_filename, info, options, std::move(patches), std::move(plan), attempt_results))
+        {
+            results  = std::move(attempt_results);
+            verified = true;
+        }
+        else if ((attempt + 1) < kMaxAttempts)
+        {
+            // A tagged false positive broke the replay; halve every target's tested set to contain it.
+            GFXRECON_WRITE_CONSOLE("Retrying perturbation verification with half the tested candidates.");
+            for (auto& target_pair : tested)
+            {
+                target_pair.second.resize((target_pair.second.size() + 1) / 2);
+            }
+        }
+    }
+
+    if (!verified)
+    {
+        GFXRECON_WRITE_CONSOLE("WARNING: perturbation verification did not complete; emitting all content-scan "
+                               "candidates unverified.");
+        for (size_t i = 0; i < hits.size(); ++i)
+        {
+            if (hits[i].type == decode::ResourceValueType::kGpuVirtualAddress)
+            {
+                emit[i] = true;
+            }
+        }
+        MergeDxrScanHitAnnotations(info.fill_command_resource_values, hits, emit);
+        return;
+    }
+
+    uint64_t emitted_va_locations = 0;
+    for (size_t i = 0; i < hits.size(); ++i)
+    {
+        if ((hits[i].type == decode::ResourceValueType::kGpuVirtualAddress) && !excluded[i] &&
+            (results.confirmed_values.count(hits[i].value) > 0))
+        {
+            emit[i] = true;
+            ++emitted_va_locations;
+        }
+    }
+
+    uint64_t refuted_value_count = 0;
+    for (auto value : tested_values)
+    {
+        if (results.confirmed_values.count(value) == 0)
+        {
+            ++refuted_value_count;
+        }
+    }
+
+    GFXRECON_WRITE_CONSOLE("DXR/EI perturbation verification:");
+    GFXRECON_WRITE_CONSOLE("  tagged %zu candidate value(s); %" PRIu64 " untested (no delta room), %" PRIu64
+                           " of %" PRIu64 " VA location(s) excluded (consumed by executed ExecuteIndirect), %" PRIu64
+                           " ambiguous expectation(s)",
+                           tested_values.size(),
+                           untested_value_count,
+                           excluded_location_count,
+                           va_location_count,
+                           ambiguous_count);
+    GFXRECON_WRITE_CONSOLE("  decodes at use sites: %" PRIu64 " copied, %" PRIu64 " derived",
+                           results.copied_decodes,
+                           results.derived_decodes);
+    GFXRECON_WRITE_CONSOLE("  confirmed %zu candidate value(s) -> %" PRIu64
+                           " VA location(s) emitted; refuted %" PRIu64 " value(s) (tagged, never decoded; dropped)",
+                           results.confirmed_values.size(),
+                           emitted_va_locations,
+                           refuted_value_count);
+    GFXRECON_WRITE_CONSOLE("  GPU-derived residue: %zu of %zu distinct unresolved value(s) proven derived from "
+                           "tagged bases",
+                           results.derived_confirmed_values.size(),
+                           info.unresolved_gpu_vas.size());
+    if (!results.unverified_unresolved_values.empty())
+    {
+        GFXRECON_WRITE_CONSOLE("  STILL UNVERIFIED: %zu unresolved value(s) observed unchanged (%" PRIu64
+                               " observation(s)); their derivation chains do not root in any tagged location.",
+                               results.unverified_unresolved_values.size(),
+                               results.unverified_unresolved_observations);
+    }
+    if (!results.observed_untagged_values.empty())
+    {
+        GFXRECON_WRITE_CONSOLE("  %zu tagged value(s) also observed untagged at use sites (%" PRIu64
+                               " observation(s)); some flows bypass the perturbed locations.",
+                               results.observed_untagged_values.size(),
+                               results.untagged_candidate_observations);
+    }
+
+    MergeDxrScanHitAnnotations(info.fill_command_resource_values, hits, emit);
 }
 
 bool GetDx12OptimizationInfo(const std::string&               input_filename,
@@ -420,6 +724,11 @@ bool GetDx12OptimizationInfo(const std::string&               input_filename,
                 "The first pass of experimental DXR/EI optimization was unable to find all required optimization data. "
                 "A second pass will attempt to find this data using a brute-force search.");
             dxr_scan_result = dxr_scan_result && GetDxrOptimizationInfo(input_filename, info, false, options);
+
+            if (dxr_scan_result && options.optimize_resource_values)
+            {
+                VerifyDxrOptimizationCandidates(input_filename, options, info);
+            }
         }
     }
 

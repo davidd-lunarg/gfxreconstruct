@@ -89,6 +89,23 @@ class Dx12ExperimentalResourceValueTracker : public Dx12ResourceValueTracker
 
     virtual void GetAuditSummary(Dx12ResourceValueAuditSummary& summary) override;
 
+    virtual void GetScanHitCandidates(std::vector<Dx12ScanHitCandidate>& hits) override;
+    virtual void GetNeedleAllocations(std::map<format::HandleId, Dx12CaptureAllocation>& allocations) override;
+    virtual void GetUnresolvedGpuVaValues(std::unordered_map<uint64_t, format::HandleId>& values) override;
+
+    virtual void SetPerturbationDecode(Dx12PerturbationPlan&& plan) override;
+    virtual void GetPerturbationResults(Dx12PerturbationResults& results) override;
+
+    // Build the perturbation plan: distinct GPU VA values grouped by target resource, with each target's
+    // capture-space bounds. Every tested candidate gets a distinct 16-aligned delta, in-allocation and
+    // collision-free against all originals, tags, and expected derived observations; one derived expectation
+    // (unresolved + base's delta) is precomputed per unresolved/base pair sharing a target allocation, so a
+    // derived decode names its exact base. Pure function; public so it can be unit tested.
+    static void BuildPerturbationPlan(const std::map<format::HandleId, std::vector<uint64_t>>& candidate_values,
+                                      const std::map<format::HandleId, std::vector<uint64_t>>& unresolved_values,
+                                      const std::map<format::HandleId, Dx12CaptureAllocation>& allocations,
+                                      Dx12PerturbationPlan&                                    plan);
+
     virtual void AddShaderRecordData(format::HandleId                 resource_id,
                                      uint64_t                         offset,
                                      uint64_t                         shader_record_size,
@@ -147,6 +164,7 @@ class Dx12ExperimentalResourceValueTracker : public Dx12ResourceValueTracker
                             std::vector<std::pair<uint64_t, format::ResourceValueType>>* found_resource_values) const;
 
     void FindResourceValuesThreaded(const TrackedFillCommandInfo& tracked_fill_command,
+                                    format::HandleId              location_resource_id,
                                     const uint8_t*                data,
                                     uint64_t                      data_size);
 
@@ -162,6 +180,9 @@ class Dx12ExperimentalResourceValueTracker : public Dx12ResourceValueTracker
                             const uint8_t*                resource_value_data,
                             const graphics::Dx12GpuVaMap& gpu_va_map,
                             bool                          walk_attributed);
+
+    // Classify one use-site observation against the perturbation plan (decode mode, verification pass).
+    void DecodeResourceValue(ResourceValueType type, const uint8_t* resource_value_data);
 
     const uint64_t kMinDataAlignment = 4;
 
@@ -216,9 +237,21 @@ class Dx12ExperimentalResourceValueTracker : public Dx12ResourceValueTracker
     std::unordered_set<uint64_t>             scanned_candidate_descriptors_;
 
     Dx12ResourceValueAuditSummary            audit_summary_;
-    std::unordered_set<uint64_t>             unresolved_gpu_va_values_;
+    std::unordered_map<uint64_t, format::HandleId> unresolved_gpu_va_values_; ///< value -> target resource
     std::unordered_set<uint64_t>             dead_capture_va_values_;
     std::set<graphics::Dx12ShaderIdentifier> unresolved_shader_id_values_;
+
+    // Scan hits recorded with their content during the resolve pass; the pass driver merges them into the
+    // output annotations after the verification pass has produced per-value verdicts.
+    std::vector<Dx12ScanHitCandidate> scan_hit_candidates_;
+
+    // Capture-space bounds of the needle resources, registered in resolve mode.
+    std::map<format::HandleId, Dx12CaptureAllocation> needle_allocations_;
+
+    // Decode mode (verification pass) state.
+    bool                    decode_mode_{ false };
+    Dx12PerturbationPlan    perturbation_plan_;
+    Dx12PerturbationResults perturbation_results_;
 };
 
 GFXRECON_END_NAMESPACE(decode)

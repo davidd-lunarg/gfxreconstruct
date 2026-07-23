@@ -62,6 +62,16 @@ class Dx12ResourceValueMapper
     // readback counts.
     void GetAuditSummary(Dx12ResourceValueAuditSummary& summary);
 
+    // Second-pass exports for the perturbation (verification) pass.
+    void GetScanHitCandidates(std::vector<Dx12ScanHitCandidate>& hits);
+    void GetNeedleAllocations(std::map<format::HandleId, Dx12CaptureAllocation>& allocations);
+    void GetUnresolvedGpuVaValues(std::unordered_map<uint64_t, format::HandleId>& values);
+
+    // Enter the verification pass: audit mode (no GPU writes) with every use-site GPU VA observation
+    // decoded against the perturbation plan.
+    void SetPerturbationDecode(Dx12PerturbationPlan&& plan);
+    void GetPerturbationResults(Dx12PerturbationResults& results);
+
     // Sets needs_mapping = true if the command lists contain resources that need to be mapped.
     void PreProcessExecuteCommandLists(DxObjectInfo*                             command_queue_object_info,
                                        UINT                                      num_command_lists,

@@ -37,6 +37,13 @@ bool Dx12ExperimentalResourceValueTracker::AddTrackedResourceValue(format::Handl
                                                                    const uint8_t*                resource_value_data,
                                                                    const graphics::Dx12GpuVaMap& gpu_va_map)
 {
+    if (decode_mode_)
+    {
+        // Verification pass: every observation only feeds the perturbation decode.
+        DecodeResourceValue(type, resource_value_data);
+        return false;
+    }
+
     bool success =
         Dx12ResourceValueTracker::AddTrackedResourceValue(resource_id, type, offset, resource_value_data, gpu_va_map);
 
@@ -167,7 +174,7 @@ void Dx12ExperimentalResourceValueTracker::AuditResourceValue(format::HandleId  
         if (type == ResourceValueType::kGpuVirtualAddress)
         {
             ++audit_summary_.unresolved_by_target_resource[target_resource_id];
-            if (unresolved_gpu_va_values_.insert(value).second &&
+            if (unresolved_gpu_va_values_.emplace(value, target_resource_id).second &&
                 (audit_summary_.unresolved_gpu_va_samples.size() < kMaxUnresolvedValueSamples))
             {
                 audit_summary_.unresolved_gpu_va_samples.push_back(
@@ -175,6 +182,210 @@ void Dx12ExperimentalResourceValueTracker::AuditResourceValue(format::HandleId  
             }
         }
         ++audit_summary_.unresolved_by_resource[resource_id];
+    }
+}
+
+void Dx12ExperimentalResourceValueTracker::DecodeResourceValue(ResourceValueType type,
+                                                               const uint8_t*    resource_value_data)
+{
+    if (type != ResourceValueType::kGpuVirtualAddress)
+    {
+        // v1 tags GPU VAs only; shader IDs are validated by exact 32-byte content match in the audit pass.
+        return;
+    }
+
+    uint64_t value = 0;
+    util::platform::MemoryCopy(&value, sizeof(value), resource_value_data, sizeof(value));
+
+    auto tagged_iter = perturbation_plan_.tagged_to_value.find(value);
+    if (tagged_iter != perturbation_plan_.tagged_to_value.end())
+    {
+        ++perturbation_results_.copied_decodes;
+        perturbation_results_.confirmed_values.insert(tagged_iter->second);
+        return;
+    }
+
+    auto derived_iter = perturbation_plan_.derived_expectations.find(value);
+    if (derived_iter != perturbation_plan_.derived_expectations.end())
+    {
+        ++perturbation_results_.derived_decodes;
+        perturbation_results_.derived_confirmed_values.insert(derived_iter->second.unresolved_value);
+        perturbation_results_.confirmed_values.insert(derived_iter->second.base_value);
+        return;
+    }
+
+    if (perturbation_plan_.value_to_tagged.count(value) > 0)
+    {
+        // A tagged candidate value arrived untagged: this flow came from a location that was not perturbed
+        // (excluded or outside the scanned payloads).
+        ++perturbation_results_.untagged_candidate_observations;
+        perturbation_results_.observed_untagged_values.insert(value);
+        return;
+    }
+
+    if (perturbation_plan_.untested_values.count(value) > 0)
+    {
+        ++perturbation_results_.untested_observations;
+        return;
+    }
+
+    if (perturbation_plan_.unresolved_values.count(value) > 0)
+    {
+        // A GPU-derived value arrived unchanged: its derivation chain does not root in any tagged location.
+        ++perturbation_results_.unverified_unresolved_observations;
+        perturbation_results_.unverified_unresolved_values.insert(value);
+    }
+    // Anything else is walk-covered or otherwise out of the verification's scope.
+}
+
+void Dx12ExperimentalResourceValueTracker::SetPerturbationDecode(Dx12PerturbationPlan&& plan)
+{
+    // Verification pass: no unassociated tracking and no content scanning; only use-site decode runs.
+    track_unassociated_values_   = false;
+    resolve_unassociated_values_ = false;
+    decode_mode_                 = true;
+    perturbation_plan_           = std::move(plan);
+}
+
+void Dx12ExperimentalResourceValueTracker::GetPerturbationResults(Dx12PerturbationResults& results)
+{
+    results = std::move(perturbation_results_);
+    perturbation_results_ = Dx12PerturbationResults();
+}
+
+void Dx12ExperimentalResourceValueTracker::GetScanHitCandidates(std::vector<Dx12ScanHitCandidate>& hits)
+{
+    hits = std::move(scan_hit_candidates_);
+    scan_hit_candidates_.clear();
+}
+
+void Dx12ExperimentalResourceValueTracker::GetNeedleAllocations(
+    std::map<format::HandleId, Dx12CaptureAllocation>& allocations)
+{
+    allocations = needle_allocations_;
+}
+
+void Dx12ExperimentalResourceValueTracker::GetUnresolvedGpuVaValues(
+    std::unordered_map<uint64_t, format::HandleId>& values)
+{
+    values = unresolved_gpu_va_values_;
+}
+
+void Dx12ExperimentalResourceValueTracker::BuildPerturbationPlan(
+    const std::map<format::HandleId, std::vector<uint64_t>>& candidate_values,
+    const std::map<format::HandleId, std::vector<uint64_t>>& unresolved_values,
+    const std::map<format::HandleId, Dx12CaptureAllocation>& allocations,
+    Dx12PerturbationPlan&                                    plan)
+{
+    // Deltas start at 16 * kFirstDeltaMultiple so a tag is unlikely to coincide with a small legitimate
+    // record stride; every key entering the decode maps is checked against everything already reserved.
+    const uint64_t kDeltaAlignment     = 16;
+    const uint64_t kFirstDeltaMultiple = 9;
+    const uint64_t kMaxDeltaAttempts   = 64;
+
+    std::unordered_set<uint64_t> reserved;
+    for (const auto& target_pair : candidate_values)
+    {
+        for (auto value : target_pair.second)
+        {
+            reserved.insert(value);
+        }
+    }
+    for (const auto& target_pair : unresolved_values)
+    {
+        for (auto value : target_pair.second)
+        {
+            reserved.insert(value);
+            plan.unresolved_values.insert(value);
+        }
+    }
+
+    for (const auto& target_pair : candidate_values)
+    {
+        const std::vector<uint64_t>* unresolved      = nullptr;
+        auto                         unresolved_iter = unresolved_values.find(target_pair.first);
+        if (unresolved_iter != unresolved_values.end())
+        {
+            unresolved = &unresolved_iter->second;
+        }
+
+        auto allocation_iter = allocations.find(target_pair.first);
+        if (allocation_iter == allocations.end())
+        {
+            for (auto value : target_pair.second)
+            {
+                plan.untested_values.insert(value);
+            }
+            continue;
+        }
+        const auto& allocation = allocation_iter->second;
+
+        // Deltas must be distinct within a target allocation so a derived decode names exactly one base.
+        std::unordered_set<uint64_t> used_deltas;
+        uint64_t                     next_multiple = kFirstDeltaMultiple;
+        for (auto value : target_pair.second)
+        {
+            uint64_t chosen_delta = 0;
+            bool     chosen       = false;
+            for (int direction : { 1, -1 })
+            {
+                uint64_t multiple = next_multiple;
+                for (uint64_t attempt = 0; (attempt < kMaxDeltaAttempts) && !chosen; ++attempt, ++multiple)
+                {
+                    uint64_t magnitude = multiple * kDeltaAlignment;
+                    if ((direction < 0) && (magnitude > value))
+                    {
+                        break;
+                    }
+                    uint64_t tagged = (direction > 0) ? (value + magnitude) : (value - magnitude);
+                    if ((tagged < allocation.capture_address) ||
+                        (tagged >= (allocation.capture_address + allocation.width)))
+                    {
+                        // Out of the allocation in this direction; larger magnitudes only get further out.
+                        break;
+                    }
+                    uint64_t delta = tagged - value;
+                    if ((reserved.count(tagged) > 0) || (used_deltas.count(delta) > 0))
+                    {
+                        continue;
+                    }
+                    chosen_delta = delta;
+                    chosen       = true;
+                }
+                if (chosen)
+                {
+                    next_multiple = multiple;
+                    break;
+                }
+            }
+
+            if (!chosen)
+            {
+                plan.untested_values.insert(value);
+                continue;
+            }
+
+            uint64_t tagged              = value + chosen_delta;
+            plan.value_to_tagged[value]  = tagged;
+            plan.tagged_to_value[tagged] = value;
+            reserved.insert(tagged);
+            used_deltas.insert(chosen_delta);
+
+            if (unresolved != nullptr)
+            {
+                for (auto unresolved_value : *unresolved)
+                {
+                    uint64_t expected = unresolved_value + chosen_delta;
+                    if (reserved.count(expected) > 0)
+                    {
+                        ++plan.ambiguous_expectations;
+                        continue;
+                    }
+                    plan.derived_expectations[expected] = { unresolved_value, value };
+                    reserved.insert(expected);
+                }
+            }
+        }
     }
 }
 
@@ -290,7 +501,7 @@ void Dx12ExperimentalResourceValueTracker::PostProcessFillMemoryCommand(uint64_t
         }
 
         GFXRECON_ASSERT((offset % kMinDataAlignment) == 0);
-        FindResourceValuesThreaded(tracked_fill_command, data, size);
+        FindResourceValuesThreaded(tracked_fill_command, resource_id, data, size);
     }
 }
 
@@ -315,7 +526,7 @@ void Dx12ExperimentalResourceValueTracker::PostProcessInitSubresourceCommand(
 
         if (resolve_unassociated_values_)
         {
-            FindResourceValuesThreaded(tracked_fill_command, data, command_header.data_size);
+            FindResourceValuesThreaded(tracked_fill_command, command_header.resource_id, data, command_header.data_size);
         }
 
         UpdateFillCommandState(command_header.resource_id, tracked_fill_command);
@@ -430,7 +641,10 @@ void Dx12ExperimentalResourceValueTracker::FindResourceValues(
 }
 
 void Dx12ExperimentalResourceValueTracker::FindResourceValuesThreaded(
-    const TrackedFillCommandInfo& tracked_fill_command, const uint8_t* data, uint64_t data_size)
+    const TrackedFillCommandInfo& tracked_fill_command,
+    format::HandleId              location_resource_id,
+    const uint8_t*                data,
+    uint64_t                      data_size)
 {
     const uint64_t kThreadCount = 8;
 
@@ -480,9 +694,17 @@ void Dx12ExperimentalResourceValueTracker::FindResourceValuesThreaded(
             thread_data.thread.join();
             for (const auto& found_resource_value : thread_data.found_resource_values)
             {
-                // Record the found value's content so the audit ledger can classify use-site observations
-                // as covered by a content-scan candidate.
+                // Record the hit with its content: the sets feed the ledger's candidate coverage, and the
+                // driver merges the hit locations into the annotations only after verification.
                 const uint8_t* value_data = data + thread_data.data_offset + found_resource_value.first;
+
+                Dx12ScanHitCandidate hit;
+                hit.block_index = tracked_fill_command.fill_command_block_index;
+                hit.offset =
+                    tracked_fill_command.original_offset + thread_data.data_offset + found_resource_value.first;
+                hit.type                 = found_resource_value.second;
+                hit.location_resource_id = location_resource_id;
+
                 if (found_resource_value.second == ResourceValueType::kShaderIdentifier)
                 {
                     scanned_candidate_shader_ids_.insert(graphics::PackDx12ShaderIdentifier(value_data));
@@ -491,9 +713,12 @@ void Dx12ExperimentalResourceValueTracker::FindResourceValuesThreaded(
                 {
                     uint64_t value = 0;
                     util::platform::MemoryCopy(&value, sizeof(value), value_data, sizeof(value));
+                    hit.value = value;
                     if (found_resource_value.second == ResourceValueType::kGpuVirtualAddress)
                     {
                         scanned_candidate_gpu_vas_.insert(value);
+                        bool found = false;
+                        active_unassociated_gpu_va_map_.Map(value, &hit.target_resource_id, &found);
                     }
                     else
                     {
@@ -501,10 +726,7 @@ void Dx12ExperimentalResourceValueTracker::FindResourceValuesThreaded(
                     }
                 }
 
-                AddBlockResourceValue(tracked_fill_command.fill_command_block_index,
-                                      tracked_fill_command.original_offset + thread_data.data_offset +
-                                          found_resource_value.first,
-                                      found_resource_value.second);
+                scan_hit_candidates_.push_back(hit);
             }
         }
     }
@@ -734,6 +956,9 @@ void Dx12ExperimentalResourceValueTracker::AddResourceGpuVa(format::HandleId    
         active_unassociated_gpu_va_map_.Add(resource_id, capture_address, width, replay_address);
         min_gpu_va_ = std::min(min_gpu_va_, capture_address);
         max_gpu_va_ = std::max(max_gpu_va_, capture_address + width);
+
+        // Keep the capture-space bounds so the perturbation codec can size in-allocation deltas.
+        needle_allocations_[resource_id] = { capture_address, width };
     }
 }
 

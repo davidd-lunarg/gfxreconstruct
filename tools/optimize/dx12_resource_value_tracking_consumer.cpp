@@ -22,6 +22,8 @@
 
 #include "dx12_resource_value_tracking_consumer.h"
 
+#include "util/platform.h"
+
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
 GFXRECON_BEGIN_NAMESPACE(decode)
 
@@ -75,6 +77,99 @@ void Dx12ResourceValueTrackingConsumer::GetResourceValueAuditSummary(Dx12Resourc
     }
 }
 
+void Dx12ResourceValueTrackingConsumer::GetResourceValueScanHits(std::vector<Dx12ScanHitCandidate>& hits)
+{
+    if (GetResourceValueMapper() != nullptr)
+    {
+        GetResourceValueMapper()->GetScanHitCandidates(hits);
+    }
+}
+
+void Dx12ResourceValueTrackingConsumer::GetNeedleAllocations(
+    std::map<format::HandleId, Dx12CaptureAllocation>& allocations)
+{
+    if (GetResourceValueMapper() != nullptr)
+    {
+        GetResourceValueMapper()->GetNeedleAllocations(allocations);
+    }
+}
+
+void Dx12ResourceValueTrackingConsumer::GetUnresolvedGpuVaValues(
+    std::unordered_map<uint64_t, format::HandleId>& values)
+{
+    if (GetResourceValueMapper() != nullptr)
+    {
+        GetResourceValueMapper()->GetUnresolvedGpuVaValues(values);
+    }
+}
+
+void Dx12ResourceValueTrackingConsumer::SetResourceValuePerturbation(PerturbationPatchMap&&  patches,
+                                                                     Dx12PerturbationPlan&& plan)
+{
+    if (GetResourceValueMapper() != nullptr)
+    {
+        perturbation_patches_ = std::move(patches);
+        GetResourceValueMapper()->SetPerturbationDecode(std::move(plan));
+    }
+}
+
+void Dx12ResourceValueTrackingConsumer::GetPerturbationResults(Dx12PerturbationResults& results)
+{
+    if (GetResourceValueMapper() != nullptr)
+    {
+        GetResourceValueMapper()->GetPerturbationResults(results);
+    }
+}
+
+const uint8_t*
+Dx12ResourceValueTrackingConsumer::ApplyResourceValuePerturbation(uint64_t base_offset, uint64_t size, const uint8_t* data)
+{
+    if (perturbation_patches_.empty() || (data == nullptr))
+    {
+        return data;
+    }
+
+    auto patches_iter = perturbation_patches_.find(GetCurrentBlockIndex());
+    if (patches_iter == perturbation_patches_.end())
+    {
+        return data;
+    }
+
+    perturbation_buffer_.assign(data, data + size);
+    for (const auto& patch : patches_iter->second)
+    {
+        if (patch.first < base_offset)
+        {
+            continue;
+        }
+        uint64_t relative_offset = patch.first - base_offset;
+        if ((relative_offset + sizeof(patch.second)) <= size)
+        {
+            util::platform::MemoryCopy(perturbation_buffer_.data() + relative_offset,
+                                       sizeof(patch.second),
+                                       &patch.second,
+                                       sizeof(patch.second));
+        }
+    }
+    return perturbation_buffer_.data();
+}
+
+void Dx12ResourceValueTrackingConsumer::ProcessFillMemoryCommand(uint64_t       memory_id,
+                                                                 uint64_t       offset,
+                                                                 uint64_t       size,
+                                                                 const uint8_t* data)
+{
+    data = ApplyResourceValuePerturbation(offset, size, data);
+    Dx12ReplayConsumer::ProcessFillMemoryCommand(memory_id, offset, size, data);
+}
+
+void Dx12ResourceValueTrackingConsumer::ProcessInitSubresourceCommand(
+    const format::InitSubresourceCommandHeader& command_header, const uint8_t* data)
+{
+    data = ApplyResourceValuePerturbation(0, command_header.data_size, data);
+    Dx12ReplayConsumer::ProcessInitSubresourceCommand(command_header, data);
+}
+
 void Dx12ResourceValueTrackingConsumer::Process_ID3D12GraphicsCommandList4_CopyRaytracingAccelerationStructure(
     const ApiCallInfo&                                call_info,
     format::HandleId                                  object_id,
@@ -126,6 +221,21 @@ void Dx12ResourceValueTrackingConsumer::OverrideExecuteIndirect(DxObjectInfo* co
 
     auto  command_list_extra_info = GetExtraInfo<D3D12CommandListInfo>(command_list_object_info);
     auto& resource_value_infos    = command_list_extra_info->resource_value_info_map[argument_buffer_object_info];
+
+    if (resource_value_infos.empty())
+    {
+        // This call executes in tracking passes. Record the argument/count ranges so the perturbation pass
+        // never tags candidate bytes an executed indirect call would consume.
+        auto command_signature_extra_info = GetExtraInfo<D3D12CommandSignatureInfo>(command_signature_object_info);
+        uint64_t argument_span = static_cast<uint64_t>(max_command_count) * command_signature_extra_info->byte_stride;
+        non_rv_ei_ranges_[argument_buffer_object_info->capture_id].insert(
+            { argument_buffer_offset, argument_buffer_offset + argument_span });
+        if (count_buffer_object_info != nullptr)
+        {
+            non_rv_ei_ranges_[count_buffer_object_info->capture_id].insert(
+                { count_buffer_offset, count_buffer_offset + sizeof(uint32_t) });
+        }
+    }
 
     if (resource_value_infos.empty() || replay_resource_value_calls_)
     {

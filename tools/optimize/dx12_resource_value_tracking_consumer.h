@@ -26,6 +26,12 @@
 #include "generated/generated_dx12_replay_consumer.h"
 #include "util/defines.h"
 
+#include <map>
+#include <set>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
 
 // Although this class lives in the optimize tool project, it is derived from decode::Dx12ReplayConsumer so put it in
@@ -49,6 +55,28 @@ class Dx12ResourceValueTrackingConsumer : public Dx12ReplayConsumer
                                        Dx12UnassociatedResourceValueMap&& unassociated_values);
 
     void GetResourceValueAuditSummary(Dx12ResourceValueAuditSummary& summary);
+
+    // Second-pass exports for the perturbation (verification) pass.
+    void GetResourceValueScanHits(std::vector<Dx12ScanHitCandidate>& hits);
+    void GetNeedleAllocations(std::map<format::HandleId, Dx12CaptureAllocation>& allocations);
+    void GetUnresolvedGpuVaValues(std::unordered_map<uint64_t, format::HandleId>& values);
+
+    // Argument/count buffer byte ranges consumed by executed (non-RV) ExecuteIndirect calls, keyed by
+    // resource. Candidates in these ranges must not be tagged: a perturbed count or argument executes.
+    typedef std::map<format::HandleId, std::set<std::pair<uint64_t, uint64_t>>> NonRvExecuteIndirectRanges;
+    const NonRvExecuteIndirectRanges& GetNonRvExecuteIndirectRanges() const { return non_rv_ei_ranges_; }
+
+    // Enter the verification pass: tagged bytes are patched into fill/init payloads before normal
+    // processing, and the mapper decodes use-site observations against the plan.
+    typedef std::unordered_map<uint64_t, std::vector<std::pair<uint64_t, uint64_t>>> PerturbationPatchMap;
+    void SetResourceValuePerturbation(PerturbationPatchMap&& patches, Dx12PerturbationPlan&& plan);
+    void GetPerturbationResults(Dx12PerturbationResults& results);
+
+    virtual void
+    ProcessFillMemoryCommand(uint64_t memory_id, uint64_t offset, uint64_t size, const uint8_t* data) override;
+
+    virtual void ProcessInitSubresourceCommand(const format::InitSubresourceCommandHeader& command_header,
+                                               const uint8_t*                              data) override;
 
     virtual void Process_ID3D12GraphicsCommandList4_CopyRaytracingAccelerationStructure(
         const ApiCallInfo&                                call_info,
@@ -86,7 +114,17 @@ class Dx12ResourceValueTrackingConsumer : public Dx12ReplayConsumer
     void EnableReplayOfResourceValueCalls(bool enable) { replay_resource_value_calls_ = enable; }
 
   private:
+    // Returns data, or a patched copy of it when perturbation entries exist for the current block.
+    // base_offset is the payload's offset within the annotation space (the fill's memory offset; 0 for
+    // init subresource payloads).
+    const uint8_t* ApplyResourceValuePerturbation(uint64_t base_offset, uint64_t size, const uint8_t* data);
+
+  private:
     bool replay_resource_value_calls_;
+
+    PerturbationPatchMap       perturbation_patches_;
+    std::vector<uint8_t>       perturbation_buffer_;
+    NonRvExecuteIndirectRanges non_rv_ei_ranges_;
 };
 
 GFXRECON_END_NAMESPACE(decode)

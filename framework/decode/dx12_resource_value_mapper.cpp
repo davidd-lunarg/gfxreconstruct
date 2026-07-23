@@ -226,6 +226,48 @@ void Dx12ResourceValueMapper::SetUnassociatedResourceValues(Dx12FillCommandResou
     resource_value_tracker_->SetUnassociatedResourceValues(std::move(tracked_values), std::move(unassociated_values));
 }
 
+void Dx12ResourceValueMapper::GetScanHitCandidates(std::vector<Dx12ScanHitCandidate>& hits)
+{
+    if (resource_value_tracker_ != nullptr)
+    {
+        resource_value_tracker_->GetScanHitCandidates(hits);
+    }
+}
+
+void Dx12ResourceValueMapper::GetNeedleAllocations(std::map<format::HandleId, Dx12CaptureAllocation>& allocations)
+{
+    if (resource_value_tracker_ != nullptr)
+    {
+        resource_value_tracker_->GetNeedleAllocations(allocations);
+    }
+}
+
+void Dx12ResourceValueMapper::GetUnresolvedGpuVaValues(std::unordered_map<uint64_t, format::HandleId>& values)
+{
+    if (resource_value_tracker_ != nullptr)
+    {
+        resource_value_tracker_->GetUnresolvedGpuVaValues(values);
+    }
+}
+
+void Dx12ResourceValueMapper::SetPerturbationDecode(Dx12PerturbationPlan&& plan)
+{
+    GFXRECON_ASSERT(resource_value_tracker_ != nullptr);
+
+    // The verification pass observes without writing, like the audit pass; the tracker decodes each
+    // observation against the plan instead of classifying it for the ledger.
+    mode_ = Mode::kAuditValues;
+    resource_value_tracker_->SetPerturbationDecode(std::move(plan));
+}
+
+void Dx12ResourceValueMapper::GetPerturbationResults(Dx12PerturbationResults& results)
+{
+    if (resource_value_tracker_ != nullptr)
+    {
+        resource_value_tracker_->GetPerturbationResults(results);
+    }
+}
+
 void Dx12ResourceValueMapper::GetAuditSummary(Dx12ResourceValueAuditSummary& summary)
 {
     if (resource_value_tracker_ != nullptr)

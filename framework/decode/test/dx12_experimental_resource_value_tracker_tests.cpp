@@ -87,6 +87,19 @@ bool HasValue(const std::vector<Dx12FillCommandResourceValue>& values, uint64_t 
     return count == 1;
 }
 
+bool HasScanHit(const std::vector<Dx12ScanHitCandidate>& hits, uint64_t offset, ResourceValueType type)
+{
+    size_t count = 0;
+    for (const auto& hit : hits)
+    {
+        if ((hit.offset == offset) && (hit.type == type))
+        {
+            ++count;
+        }
+    }
+    return count == 1;
+}
+
 } // namespace
 
 TEST_CASE("FindResourceValues finds IDs and unaligned VA values", "[dx12][experimental-tracker]")
@@ -185,17 +198,25 @@ TEST_CASE("FindResourceValuesThreaded finds values straddling chunk boundaries",
     fill_command.offset                   = 1000;
     fill_command.size                     = data.size();
 
-    tracker.FindResourceValuesThreaded(fill_command, data.data(), data.size());
+    tracker.FindResourceValuesThreaded(fill_command, 7, data.data(), data.size());
 
-    Dx12FillCommandResourceValueMap results;
-    tracker.GetTrackedResourceValues(results);
+    std::vector<Dx12ScanHitCandidate> hits;
+    tracker.GetScanHitCandidates(hits);
 
-    REQUIRE(results.find(99) != results.end());
-    const auto& values = results[99];
-    CHECK(values.size() == 3);
-    CHECK(HasValue(values, 1000 + 1008, ResourceValueType::kShaderIdentifier));
-    CHECK(HasValue(values, 1000 + 3072, ResourceValueType::kShaderIdentifier));
-    CHECK(HasValue(values, 1000 + 2044, ResourceValueType::kGpuVirtualAddress));
+    CHECK(hits.size() == 3);
+    CHECK(HasScanHit(hits, 1000 + 1008, ResourceValueType::kShaderIdentifier));
+    CHECK(HasScanHit(hits, 1000 + 3072, ResourceValueType::kShaderIdentifier));
+    CHECK(HasScanHit(hits, 1000 + 2044, ResourceValueType::kGpuVirtualAddress));
+    for (const auto& hit : hits)
+    {
+        CHECK(hit.block_index == 99);
+        CHECK(hit.location_resource_id == 7);
+        if (hit.type == ResourceValueType::kGpuVirtualAddress)
+        {
+            CHECK(hit.value == kCaptureVaStart + 0x20);
+            CHECK(hit.target_resource_id == kVaResourceId);
+        }
+    }
 }
 
 TEST_CASE("GetAuditSummary classifies use-site observations in resolve mode", "[dx12][experimental-tracker]")
@@ -231,7 +252,7 @@ TEST_CASE("GetAuditSummary classifies use-site observations in resolve mode", "[
     fill_command.original_offset          = 0;
     fill_command.offset                   = 0;
     fill_command.size                     = scan_data.size();
-    tracker.FindResourceValuesThreaded(fill_command, scan_data.data(), scan_data.size());
+    tracker.FindResourceValuesThreaded(fill_command, 8, scan_data.data(), scan_data.size());
 
     // Capture-side VA map used to distinguish dead capture VAs from live ones.
     graphics::Dx12GpuVaMap va_map;
@@ -283,6 +304,125 @@ TEST_CASE("GetAuditSummary classifies use-site observations in resolve mode", "[
     REQUIRE(summary.unresolved_by_resource.find(99) != summary.unresolved_by_resource.end());
     CHECK(summary.unresolved_by_resource[99] == 3);
     CHECK(summary.unresolved_by_resource.find(7) == summary.unresolved_by_resource.end());
+}
+
+TEST_CASE("BuildPerturbationPlan assigns collision-free in-allocation deltas", "[dx12][experimental-tracker]")
+{
+    std::map<format::HandleId, Dx12CaptureAllocation> allocations;
+    allocations[42] = { kCaptureVaStart, kVaWidth };
+
+    std::map<format::HandleId, std::vector<uint64_t>> candidates;
+    // Two ordinary values, plus one at the end of the allocation with no positive delta room.
+    candidates[42] = { kCaptureVaStart + 0x100, kCaptureVaStart + 0x200, kCaptureVaStart + kVaWidth - 8 };
+    // A target with no known allocation: its values must come back untested.
+    candidates[43] = { 0x900000000ULL };
+
+    std::map<format::HandleId, std::vector<uint64_t>> unresolved;
+    unresolved[42] = { kCaptureVaStart + 0x8000 };
+
+    Dx12PerturbationPlan plan;
+    Dx12ExperimentalResourceValueTracker::BuildPerturbationPlan(candidates, unresolved, allocations, plan);
+
+    REQUIRE(plan.value_to_tagged.size() == 3);
+    CHECK(plan.untested_values.size() == 1);
+    CHECK(plan.untested_values.count(0x900000000ULL) == 1);
+    CHECK(plan.unresolved_values.count(kCaptureVaStart + 0x8000) == 1);
+    CHECK(plan.ambiguous_expectations == 0);
+
+    std::set<uint64_t> deltas;
+    for (const auto& value_pair : plan.value_to_tagged)
+    {
+        uint64_t value  = value_pair.first;
+        uint64_t tagged = value_pair.second;
+        // Tagged values stay inside the allocation, are distinct from all originals, and round-trip.
+        CHECK(tagged >= kCaptureVaStart);
+        CHECK(tagged < (kCaptureVaStart + kVaWidth));
+        CHECK(plan.value_to_tagged.count(tagged) == 0);
+        CHECK(plan.unresolved_values.count(tagged) == 0);
+        REQUIRE(plan.tagged_to_value.find(tagged) != plan.tagged_to_value.end());
+        CHECK(plan.tagged_to_value.at(tagged) == value);
+        uint64_t delta = tagged - value;
+        CHECK((delta % 16) == 0);
+        deltas.insert(delta);
+    }
+    // Deltas are distinct within the allocation so a derived decode names exactly one base.
+    CHECK(deltas.size() == 3);
+    // The end-of-allocation value can only tag downward.
+    CHECK(plan.value_to_tagged.at(kCaptureVaStart + kVaWidth - 8) < (kCaptureVaStart + kVaWidth - 8));
+
+    // One derived expectation per (unresolved, base) pair, keyed by unresolved + base's delta.
+    REQUIRE(plan.derived_expectations.size() == 3);
+    for (const auto& expectation_pair : plan.derived_expectations)
+    {
+        const auto& expectation = expectation_pair.second;
+        CHECK(expectation.unresolved_value == kCaptureVaStart + 0x8000);
+        uint64_t base_delta = plan.value_to_tagged.at(expectation.base_value) - expectation.base_value;
+        CHECK(expectation_pair.first == (expectation.unresolved_value + base_delta));
+    }
+}
+
+TEST_CASE("SetPerturbationDecode classifies use-site observations", "[dx12][experimental-tracker]")
+{
+    uint64_t                             block_index = 1;
+    Dx12ExperimentalResourceValueTracker tracker(NullObjectLookup, [&block_index]() { return block_index; });
+
+    std::map<format::HandleId, Dx12CaptureAllocation> allocations;
+    allocations[42] = { kCaptureVaStart, kVaWidth };
+    std::map<format::HandleId, std::vector<uint64_t>> candidates;
+    candidates[42] = { kCaptureVaStart + 0x100, kCaptureVaStart + 0x200 };
+    std::map<format::HandleId, std::vector<uint64_t>> unresolved;
+    unresolved[42] = { kCaptureVaStart + 0x8000 };
+
+    Dx12PerturbationPlan plan;
+    Dx12ExperimentalResourceValueTracker::BuildPerturbationPlan(candidates, unresolved, allocations, plan);
+
+    uint64_t tagged_first      = plan.value_to_tagged.at(kCaptureVaStart + 0x100);
+    uint64_t second_base_delta = plan.value_to_tagged.at(kCaptureVaStart + 0x200) - (kCaptureVaStart + 0x200);
+    uint64_t derived_expected  = kCaptureVaStart + 0x8000 + second_base_delta;
+
+    tracker.SetPerturbationDecode(std::move(plan));
+
+    graphics::Dx12GpuVaMap unused_map;
+    std::vector<uint8_t>   value_bytes(8);
+
+    // A tagged candidate observed at a use site: the copied chain confirms the first value.
+    WriteU64(value_bytes, 0, tagged_first);
+    CHECK_FALSE(
+        tracker.AddTrackedResourceValue(9, ResourceValueType::kGpuVirtualAddress, 0, value_bytes.data(), unused_map));
+
+    // An unresolved value plus the second base's delta: the derived chain confirms the second value.
+    WriteU64(value_bytes, 0, derived_expected);
+    CHECK_FALSE(
+        tracker.AddTrackedResourceValue(9, ResourceValueType::kGpuVirtualAddress, 8, value_bytes.data(), unused_map));
+
+    // A raw candidate value: flow from an unperturbed location.
+    WriteU64(value_bytes, 0, kCaptureVaStart + 0x100);
+    CHECK_FALSE(
+        tracker.AddTrackedResourceValue(9, ResourceValueType::kGpuVirtualAddress, 16, value_bytes.data(), unused_map));
+
+    // A raw unresolved value: its derivation chain roots in no tagged location.
+    WriteU64(value_bytes, 0, kCaptureVaStart + 0x8000);
+    CHECK_FALSE(
+        tracker.AddTrackedResourceValue(9, ResourceValueType::kGpuVirtualAddress, 24, value_bytes.data(), unused_map));
+
+    // A value outside the verification's scope.
+    WriteU64(value_bytes, 0, kCaptureVaStart + 0x4000);
+    CHECK_FALSE(
+        tracker.AddTrackedResourceValue(9, ResourceValueType::kGpuVirtualAddress, 32, value_bytes.data(), unused_map));
+
+    Dx12PerturbationResults results;
+    tracker.GetPerturbationResults(results);
+
+    CHECK(results.copied_decodes == 1);
+    CHECK(results.derived_decodes == 1);
+    CHECK(results.untagged_candidate_observations == 1);
+    CHECK(results.unverified_unresolved_observations == 1);
+    CHECK(results.confirmed_values.size() == 2);
+    CHECK(results.confirmed_values.count(kCaptureVaStart + 0x100) == 1);
+    CHECK(results.confirmed_values.count(kCaptureVaStart + 0x200) == 1);
+    CHECK(results.derived_confirmed_values.count(kCaptureVaStart + 0x8000) == 1);
+    CHECK(results.observed_untagged_values.count(kCaptureVaStart + 0x100) == 1);
+    CHECK(results.unverified_unresolved_values.count(kCaptureVaStart + 0x8000) == 1);
 }
 
 TEST_CASE("GetTrackedResourceValues applies exclusions after a range empties a block", "[dx12][experimental-tracker]")
