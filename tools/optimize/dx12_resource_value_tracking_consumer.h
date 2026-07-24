@@ -91,6 +91,13 @@ class Dx12ResourceValueTrackingConsumer : public Dx12ReplayConsumer
         StructPointerDecoder<Decoded_D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS>* build_inputs,
         const uint8_t*                                                                      build_inputs_data) override;
 
+    virtual void Process_ID3D12GraphicsCommandList4_EmitRaytracingAccelerationStructurePostbuildInfo(
+        const ApiCallInfo& call_info,
+        format::HandleId   object_id,
+        StructPointerDecoder<Decoded_D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC>* pDesc,
+        UINT                                       NumSourceAccelerationStructures,
+        PointerDecoder<D3D12_GPU_VIRTUAL_ADDRESS>* pSourceAccelerationStructureData) override;
+
     virtual void OverrideExecuteIndirect(DxObjectInfo* command_list_object_info,
                                          DxObjectInfo* command_signature_object_info,
                                          UINT          max_command_count,

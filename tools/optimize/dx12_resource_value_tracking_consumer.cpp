@@ -192,10 +192,27 @@ void Dx12ResourceValueTrackingConsumer::ProcessInitDx12AccelerationStructureComm
 {
     dxr_workload_ = true;
 
+    // Execute state-load AS init even when DXR replay is disabled: its build inputs are handle mapped (no
+    // runtime mapping dependency), and valid state-load structures keep unskippable inline raytracing off
+    // uninitialized memory. Frame builds remain skipped; their stale top levels can only reference
+    // state-load bottom levels, so never-built structures stay unreachable.
+    Dx12ReplayConsumer::ProcessInitDx12AccelerationStructureCommand(
+        command_header, geometry_descs, build_inputs, build_inputs_data);
+}
+
+void Dx12ResourceValueTrackingConsumer::Process_ID3D12GraphicsCommandList4_EmitRaytracingAccelerationStructurePostbuildInfo(
+    const ApiCallInfo&                                                                          call_info,
+    format::HandleId                                                                            object_id,
+    StructPointerDecoder<Decoded_D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC>*  pDesc,
+    UINT                                                                                        NumSourceAccelerationStructures,
+    PointerDecoder<D3D12_GPU_VIRTUAL_ADDRESS>*                                                  pSourceAccelerationStructureData)
+{
+    // Postbuild info reads the source structures' internal headers on the GPU, which faults on structures
+    // whose builds were skipped; its output only feeds compaction copies that are skipped with it.
     if (replay_resource_value_calls_)
     {
-        Dx12ReplayConsumer::ProcessInitDx12AccelerationStructureCommand(
-            command_header, geometry_descs, build_inputs, build_inputs_data);
+        Dx12ReplayConsumer::Process_ID3D12GraphicsCommandList4_EmitRaytracingAccelerationStructurePostbuildInfo(
+            call_info, object_id, pDesc, NumSourceAccelerationStructures, pSourceAccelerationStructureData);
     }
 }
 
