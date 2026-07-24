@@ -76,7 +76,8 @@ void CreateResourceValueTrackingConsumer(
     decode::FileProcessor*                                      file_processor,
     std::unique_ptr<decode::Dx12ResourceValueTrackingConsumer>& dx12_replay_consumer,
     std::shared_ptr<application::Application>&                  application,
-    const decode::Dx12OptimizationOptions&                      options)
+    const decode::Dx12OptimizationOptions&                      options,
+    bool                                                        replay_resource_value_calls)
 {
     std::string app_string = "GFXReconstruct Optimizer - analyzing file";
     if (options.optimize_resource_values_experimental)
@@ -95,7 +96,7 @@ void CreateResourceValueTrackingConsumer(
     // Create the replay consumer.
     dx12_replay_consumer = std::make_unique<decode::Dx12ResourceValueTrackingConsumer>(
         application, dx_replay_options, options.optimize_resource_values_experimental);
-    if (options.optimize_resource_values_experimental)
+    if (options.optimize_resource_values_experimental && !replay_resource_value_calls)
     {
         dx12_replay_consumer->EnableReplayOfResourceValueCalls(false);
     }
@@ -312,8 +313,11 @@ bool GetDxrOptimizationInfo(const std::string&               input_filename,
         decode::Dx12Decoder                                        dxr_pass_decoder;
         std::unique_ptr<decode::Dx12ResourceValueTrackingConsumer> resource_value_tracking_consumer = nullptr;
 
+        // The first (track) pass runs with resource value mapping active, so DXR/EI calls execute like a
+        // plain --dxr pass; skipping them leaves garbage BVHs that unskippable inline raytracing walks.
+        // The later passes do not patch the GPU and keep those calls disabled.
         CreateResourceValueTrackingConsumer(
-            &dxr_pass_file_processor, resource_value_tracking_consumer, application, options);
+            &dxr_pass_file_processor, resource_value_tracking_consumer, application, options, first_pass);
 
         // If this is a second pass, set unassociated resource values on Dx12ResourceValueTracker.
         if (first_pass)
@@ -427,7 +431,7 @@ bool RunDxrPerturbationPass(const std::string&                                  
         decode::Dx12Decoder                                        decoder;
         std::unique_ptr<decode::Dx12ResourceValueTrackingConsumer> consumer = nullptr;
 
-        CreateResourceValueTrackingConsumer(&file_processor, consumer, application, options);
+        CreateResourceValueTrackingConsumer(&file_processor, consumer, application, options, false);
 
         GFXRECON_WRITE_CONSOLE("Verifying DXR/EI optimization candidates with a perturbation replay.");
         consumer->SetResourceValuePerturbation(std::move(patches), std::move(plan));
