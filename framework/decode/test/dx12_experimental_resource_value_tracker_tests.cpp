@@ -198,6 +198,93 @@ TEST_CASE("FindResourceValuesThreaded finds values straddling chunk boundaries",
     CHECK(HasValue(values, 1000 + 2044, ResourceValueType::kGpuVirtualAddress));
 }
 
+TEST_CASE("GetAuditSummary classifies use-site observations in resolve mode", "[dx12][experimental-tracker]")
+{
+    uint64_t                             block_index = 5;
+    Dx12ExperimentalResourceValueTracker tracker(NullObjectLookup, [&block_index]() { return block_index; });
+
+    // Seed fill provenance for resource 7 in track mode so a later observation can be walk-attributed.
+    std::vector<uint8_t> fill_data(256, 0);
+    tracker.PostProcessFillMemoryCommand(7, 0, fill_data.size(), fill_data.data());
+
+    auto covered_id_bytes    = MakeShaderIdBytes(0x05);
+    auto unresolved_id_bytes = MakeShaderIdBytes(0x06);
+
+    // Enter resolve mode with an ID needle and a VA needle, then register the VA map entry and range gate.
+    Dx12FillCommandResourceValueMap    tracked;
+    Dx12UnassociatedResourceValueMap   unassociated;
+    Dx12UnassociatedResourceValueGroup group;
+    group.block_index = 1;
+    group.values.push_back(MakeUnassociatedShaderId(covered_id_bytes));
+    group.values.push_back(MakeUnassociatedGpuVa(kVaResourceId));
+    unassociated[7].push_back(group);
+    tracker.SetUnassociatedResourceValues(std::move(tracked), std::move(unassociated));
+    tracker.AddResourceGpuVa(kVaResourceId, kReplayVaStart, kVaWidth, kCaptureVaStart);
+
+    // Scan a payload holding one VA and one shader ID: these become the candidate content sets.
+    std::vector<uint8_t> scan_data(1024, 0);
+    WriteU64(scan_data, 64, kCaptureVaStart + 0x100);
+    memcpy(scan_data.data() + 128, covered_id_bytes.data(), covered_id_bytes.size());
+
+    Dx12ResourceValueTracker::TrackedFillCommandInfo fill_command;
+    fill_command.fill_command_block_index = 11;
+    fill_command.original_offset          = 0;
+    fill_command.offset                   = 0;
+    fill_command.size                     = scan_data.size();
+    tracker.FindResourceValuesThreaded(fill_command, scan_data.data(), scan_data.size());
+
+    // Capture-side VA map used to distinguish dead capture VAs from live ones.
+    graphics::Dx12GpuVaMap va_map;
+    va_map.Add(kVaResourceId, kCaptureVaStart, kVaWidth, kReplayVaStart);
+
+    std::vector<uint8_t> value_bytes(8);
+
+    // Walk-attributed: resource 7 has fill provenance covering offset 16.
+    WriteU64(value_bytes, 0, kCaptureVaStart + 0x300);
+    CHECK(tracker.AddTrackedResourceValue(7, ResourceValueType::kGpuVirtualAddress, 16, value_bytes.data(), va_map));
+
+    // Candidate-covered: resource 99 has no provenance, but the value was found by the scan.
+    WriteU64(value_bytes, 0, kCaptureVaStart + 0x100);
+    CHECK_FALSE(
+        tracker.AddTrackedResourceValue(99, ResourceValueType::kGpuVirtualAddress, 0, value_bytes.data(), va_map));
+
+    // Dead capture VA: the value falls in no tracked allocation.
+    WriteU64(value_bytes, 0, kCaptureVaStart - 0x1000);
+    CHECK_FALSE(
+        tracker.AddTrackedResourceValue(99, ResourceValueType::kGpuVirtualAddress, 8, value_bytes.data(), va_map));
+
+    // Unresolved: a live VA the scan never found, observed twice to verify distinct counting.
+    WriteU64(value_bytes, 0, kCaptureVaStart + 0x200);
+    CHECK_FALSE(
+        tracker.AddTrackedResourceValue(99, ResourceValueType::kGpuVirtualAddress, 24, value_bytes.data(), va_map));
+    CHECK_FALSE(
+        tracker.AddTrackedResourceValue(99, ResourceValueType::kGpuVirtualAddress, 32, value_bytes.data(), va_map));
+
+    // Shader IDs: one covered by the scan, one unresolved.
+    CHECK_FALSE(tracker.AddTrackedResourceValue(
+        99, ResourceValueType::kShaderIdentifier, 64, covered_id_bytes.data(), va_map));
+    CHECK_FALSE(tracker.AddTrackedResourceValue(
+        99, ResourceValueType::kShaderIdentifier, 128, unresolved_id_bytes.data(), va_map));
+
+    Dx12ResourceValueAuditSummary summary;
+    tracker.GetAuditSummary(summary);
+
+    CHECK(summary.gpu_va.total == 5);
+    CHECK(summary.gpu_va.satisfied_by_walk == 1);
+    CHECK(summary.gpu_va.covered_by_candidate == 1);
+    CHECK(summary.gpu_va.dead_capture_va == 1);
+    CHECK(summary.gpu_va.unresolved == 2);
+    CHECK(summary.shader_id.total == 2);
+    CHECK(summary.shader_id.covered_by_candidate == 1);
+    CHECK(summary.shader_id.unresolved == 1);
+    CHECK(summary.distinct_unresolved_gpu_vas == 1);
+    CHECK(summary.distinct_dead_capture_vas == 1);
+    CHECK(summary.distinct_unresolved_shader_ids == 1);
+    REQUIRE(summary.unresolved_by_resource.find(99) != summary.unresolved_by_resource.end());
+    CHECK(summary.unresolved_by_resource[99] == 3);
+    CHECK(summary.unresolved_by_resource.find(7) == summary.unresolved_by_resource.end());
+}
+
 TEST_CASE("GetTrackedResourceValues applies exclusions after a range empties a block", "[dx12][experimental-tracker]")
 {
     uint64_t                             block_index = 5;

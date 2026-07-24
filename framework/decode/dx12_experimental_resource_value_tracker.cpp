@@ -82,7 +82,108 @@ bool Dx12ExperimentalResourceValueTracker::AddTrackedResourceValue(format::Handl
         values_group.values.push_back(std::move(unassociated_value));
     }
 
+    if (resolve_unassociated_values_)
+    {
+        AuditResourceValue(resource_id, type, resource_value_data, gpu_va_map, success);
+    }
+
     return success;
+}
+
+void Dx12ExperimentalResourceValueTracker::AuditResourceValue(format::HandleId              resource_id,
+                                                              ResourceValueType             type,
+                                                              const uint8_t*                resource_value_data,
+                                                              const graphics::Dx12GpuVaMap& gpu_va_map,
+                                                              bool                          walk_attributed)
+{
+    Dx12ResourceValueAuditCounts* counts = nullptr;
+    switch (type)
+    {
+        case ResourceValueType::kGpuVirtualAddress:
+            counts = &audit_summary_.gpu_va;
+            break;
+        case ResourceValueType::kGpuDescriptorHandle:
+            counts = &audit_summary_.descriptor_handle;
+            break;
+        case ResourceValueType::kShaderIdentifier:
+            counts = &audit_summary_.shader_id;
+            break;
+        default:
+            return;
+    }
+
+    ++counts->total;
+
+    if (walk_attributed)
+    {
+        ++counts->satisfied_by_walk;
+        return;
+    }
+
+    if (type == ResourceValueType::kShaderIdentifier)
+    {
+        auto shader_id = graphics::PackDx12ShaderIdentifier(resource_value_data);
+        if (scanned_candidate_shader_ids_.count(shader_id) > 0)
+        {
+            ++counts->covered_by_candidate;
+        }
+        else
+        {
+            ++counts->unresolved;
+            unresolved_shader_id_values_.insert(shader_id);
+            ++audit_summary_.unresolved_by_resource[resource_id];
+        }
+        return;
+    }
+
+    uint64_t value = 0;
+    util::platform::MemoryCopy(&value, sizeof(value), resource_value_data, sizeof(value));
+
+    format::HandleId target_resource_id = format::kNullHandleId;
+    if (type == ResourceValueType::kGpuVirtualAddress)
+    {
+        bool found = false;
+        gpu_va_map.Map(value, &target_resource_id, &found);
+        if (!found)
+        {
+            // The capture address falls in no tracked allocation: an application-side stale pointer into
+            // memory freed before the capture range. The runtime mapper also cannot map these, so no
+            // annotation can ever cover them and the correct optimized emission is the unchanged value.
+            ++counts->dead_capture_va;
+            dead_capture_va_values_.insert(value);
+            return;
+        }
+    }
+
+    const auto& candidates =
+        (type == ResourceValueType::kGpuVirtualAddress) ? scanned_candidate_gpu_vas_ : scanned_candidate_descriptors_;
+    if (candidates.count(value) > 0)
+    {
+        ++counts->covered_by_candidate;
+    }
+    else
+    {
+        ++counts->unresolved;
+        if (type == ResourceValueType::kGpuVirtualAddress)
+        {
+            ++audit_summary_.unresolved_by_target_resource[target_resource_id];
+            if (unresolved_gpu_va_values_.insert(value).second &&
+                (audit_summary_.unresolved_gpu_va_samples.size() < kMaxUnresolvedValueSamples))
+            {
+                audit_summary_.unresolved_gpu_va_samples.push_back(
+                    { value, target_resource_id, get_current_block_index_func_() });
+            }
+        }
+        ++audit_summary_.unresolved_by_resource[resource_id];
+    }
+}
+
+void Dx12ExperimentalResourceValueTracker::GetAuditSummary(Dx12ResourceValueAuditSummary& summary)
+{
+    summary                                = audit_summary_;
+    summary.distinct_unresolved_gpu_vas    = unresolved_gpu_va_values_.size();
+    summary.distinct_dead_capture_vas      = dead_capture_va_values_.size();
+    summary.distinct_unresolved_shader_ids = unresolved_shader_id_values_.size();
 }
 
 void Dx12ExperimentalResourceValueTracker::GetTrackedResourceValues(Dx12FillCommandResourceValueMap& tracked_values)
@@ -379,6 +480,27 @@ void Dx12ExperimentalResourceValueTracker::FindResourceValuesThreaded(
             thread_data.thread.join();
             for (const auto& found_resource_value : thread_data.found_resource_values)
             {
+                // Record the found value's content so the audit ledger can classify use-site observations
+                // as covered by a content-scan candidate.
+                const uint8_t* value_data = data + thread_data.data_offset + found_resource_value.first;
+                if (found_resource_value.second == ResourceValueType::kShaderIdentifier)
+                {
+                    scanned_candidate_shader_ids_.insert(graphics::PackDx12ShaderIdentifier(value_data));
+                }
+                else
+                {
+                    uint64_t value = 0;
+                    util::platform::MemoryCopy(&value, sizeof(value), value_data, sizeof(value));
+                    if (found_resource_value.second == ResourceValueType::kGpuVirtualAddress)
+                    {
+                        scanned_candidate_gpu_vas_.insert(value);
+                    }
+                    else
+                    {
+                        scanned_candidate_descriptors_.insert(value);
+                    }
+                }
+
                 AddBlockResourceValue(tracked_fill_command.fill_command_block_index,
                                       tracked_fill_command.original_offset + thread_data.data_offset +
                                           found_resource_value.first,

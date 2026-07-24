@@ -38,7 +38,10 @@
 #include "decode/custom_ags_replay_consumer.h"
 #endif // GFXRECON_AGS_SUPPORT
 
+#include <algorithm>
+#include <cinttypes>
 #include <map>
+#include <vector>
 
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
 
@@ -179,6 +182,106 @@ bool GetUnreferencedObjectOptimizationInfo(const std::string&               inpu
     return ref_scan_result;
 }
 
+void WriteDxrAuditCounts(const char* type_name, const decode::Dx12ResourceValueAuditCounts& counts)
+{
+    if (counts.total == 0)
+    {
+        return;
+    }
+    GFXRECON_WRITE_CONSOLE("  %s: %" PRIu64 " observed = %" PRIu64 " walk-attributed + %" PRIu64
+                           " candidate-covered + %" PRIu64 " dead capture VA + %" PRIu64 " unresolved",
+                           type_name,
+                           counts.total,
+                           counts.satisfied_by_walk,
+                           counts.covered_by_candidate,
+                           counts.dead_capture_va,
+                           counts.unresolved);
+    GFXRECON_WRITE_CONSOLE("  %s: post-execution readback checked %" PRIu64 " value(s), %" PRIu64
+                           " changed during the submission that consumed them%s",
+                           type_name,
+                           counts.post_exec_checked,
+                           counts.post_exec_changed,
+                           (counts.post_exec_changed > 0) ? "; their recorded identity may be stale" : "");
+}
+
+// Report only; the emitted annotations are unchanged.
+void WriteDxrAuditReport(const decode::Dx12ResourceValueAuditSummary& summary)
+{
+    uint64_t total_observed = summary.gpu_va.total + summary.descriptor_handle.total + summary.shader_id.total;
+
+    GFXRECON_WRITE_CONSOLE("DXR/EI value audit (report only, annotations unchanged):");
+    if (total_observed == 0)
+    {
+        GFXRECON_WRITE_CONSOLE("  No resource values were observed at use sites.");
+        return;
+    }
+
+    WriteDxrAuditCounts("GPU VAs", summary.gpu_va);
+    WriteDxrAuditCounts("descriptor handles", summary.descriptor_handle);
+    WriteDxrAuditCounts("shader IDs", summary.shader_id);
+
+    if (summary.gpu_va.dead_capture_va > 0)
+    {
+        GFXRECON_WRITE_CONSOLE("  Dead capture VAs reference %" PRIu64
+                               " distinct freed address(es); replay leaves these unchanged and no annotation "
+                               "can cover them.",
+                               summary.distinct_dead_capture_vas);
+    }
+
+    uint64_t total_unresolved =
+        summary.gpu_va.unresolved + summary.descriptor_handle.unresolved + summary.shader_id.unresolved;
+    if (total_unresolved == 0)
+    {
+        GFXRECON_WRITE_CONSOLE("  All observed values are covered by walk attribution or content-scan candidates. "
+                               "Candidate coverage is a content match only and is not yet verified.");
+    }
+    else
+    {
+        GFXRECON_WRITE_CONSOLE("  UNRESOLVED: %" PRIu64 " value observation(s) (%" PRIu64 " distinct GPU VAs, %" PRIu64
+                               " distinct shader IDs) have no walk attribution and no content-scan coverage. "
+                               "The optimized file will not map these values.",
+                               total_unresolved,
+                               summary.distinct_unresolved_gpu_vas,
+                               summary.distinct_unresolved_shader_ids);
+
+        // Top unresolved counts by the resource read from (use site) and by the resource pointed into (target).
+        const size_t kMaxListedResources = 10;
+        auto         write_resource_counts = [](const char*                                 label,
+                                        const std::map<format::HandleId, uint64_t>& counts_by_resource) {
+            std::vector<std::pair<uint64_t, format::HandleId>> resource_counts;
+            for (const auto& resource_pair : counts_by_resource)
+            {
+                resource_counts.emplace_back(resource_pair.second, resource_pair.first);
+            }
+            std::sort(resource_counts.rbegin(), resource_counts.rend());
+            for (size_t i = 0; (i < resource_counts.size()) && (i < kMaxListedResources); ++i)
+            {
+                GFXRECON_WRITE_CONSOLE("    %s resource id=%" PRIu64 ": %" PRIu64 " unresolved observation(s)",
+                                       label,
+                                       resource_counts[i].second,
+                                       resource_counts[i].first);
+            }
+            if (resource_counts.size() > kMaxListedResources)
+            {
+                GFXRECON_WRITE_CONSOLE("    (%zu additional %s resource(s) not listed)",
+                                       resource_counts.size() - kMaxListedResources,
+                                       label);
+            }
+        };
+        write_resource_counts("use-site", summary.unresolved_by_resource);
+        write_resource_counts("target", summary.unresolved_by_target_resource);
+
+        for (const auto& sample : summary.unresolved_gpu_va_samples)
+        {
+            GFXRECON_WRITE_CONSOLE("    sample VA 0x%" PRIx64 " -> target resource id=%" PRIu64
+                                   ", first seen at block %" PRIu64,
+                                   sample.value,
+                                   sample.target_resource_id,
+                                   sample.first_seen_block);
+        }
+    }
+}
+
 bool GetDxrOptimizationInfo(const std::string&               input_filename,
                             Dx12OptimizationInfo&            info,
                             bool                             first_pass,
@@ -245,6 +348,13 @@ bool GetDxrOptimizationInfo(const std::string&               input_filename,
         {
             resource_value_tracking_consumer->GetTrackedResourceValues(info.fill_command_resource_values);
             resource_value_tracking_consumer->GetUnassociatedResourceValues(info.unassociated_resource_values);
+
+            if (!first_pass)
+            {
+                decode::Dx12ResourceValueAuditSummary audit_summary;
+                resource_value_tracking_consumer->GetResourceValueAuditSummary(audit_summary);
+                WriteDxrAuditReport(audit_summary);
+            }
 
             if (BypassResourceValueOptimization(*resource_value_tracking_consumer, options, info))
             {

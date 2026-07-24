@@ -66,6 +66,15 @@ void Dx12ResourceValueTrackingConsumer::SetUnassociatedResourceValues(
     }
 }
 
+void Dx12ResourceValueTrackingConsumer::GetResourceValueAuditSummary(Dx12ResourceValueAuditSummary& summary)
+{
+    // For already DXR-optimized file, Dx12ResourceValueMapper is nullptr
+    if (GetResourceValueMapper() != nullptr)
+    {
+        GetResourceValueMapper()->GetAuditSummary(summary);
+    }
+}
+
 void Dx12ResourceValueTrackingConsumer::Process_ID3D12GraphicsCommandList4_CopyRaytracingAccelerationStructure(
     const ApiCallInfo&                                call_info,
     format::HandleId                                  object_id,

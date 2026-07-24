@@ -48,6 +48,8 @@ class Dx12ResourceValueTrackingConsumer : public Dx12ReplayConsumer
     void SetUnassociatedResourceValues(Dx12FillCommandResourceValueMap&&  tracked_values,
                                        Dx12UnassociatedResourceValueMap&& unassociated_values);
 
+    void GetResourceValueAuditSummary(Dx12ResourceValueAuditSummary& summary);
+
     virtual void Process_ID3D12GraphicsCommandList4_CopyRaytracingAccelerationStructure(
         const ApiCallInfo&                                call_info,
         format::HandleId                                  object_id,

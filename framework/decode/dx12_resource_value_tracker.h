@@ -73,6 +73,48 @@ struct Dx12UnassociatedResourceValueGroup
 typedef std::unordered_map<format::HandleId, std::vector<Dx12UnassociatedResourceValueGroup>>
     Dx12UnassociatedResourceValueMap;
 
+// Closure-ledger counts for one resource value type, from the audit pass. Each observed use-site value is
+// classified into exactly one of walk/candidate/dead/unresolved; post_exec_* are independent observations
+// of the same values.
+struct Dx12ResourceValueAuditCounts
+{
+    uint64_t total{ 0 };                ///< Use-site values observed by the mapper.
+    uint64_t satisfied_by_walk{ 0 };    ///< Attributed to a fill/init block by the offset walk.
+    uint64_t covered_by_candidate{ 0 }; ///< Not walk-attributed, but the exact value was found by the content scan.
+    uint64_t dead_capture_va{ 0 };      ///< Capture address falls in no tracked allocation; can never be mapped.
+    uint64_t unresolved{ 0 };           ///< No walk attribution and no content-scan coverage.
+    uint64_t post_exec_checked{ 0 };    ///< Values compared between pre- and post-execution readbacks.
+    uint64_t post_exec_changed{ 0 };    ///< Values whose bytes changed during the submission that consumed them.
+};
+
+// One distinct unresolved GPU VA, recorded the first time it is observed.
+struct Dx12UnresolvedValueSample
+{
+    uint64_t         value{ 0 };
+    format::HandleId target_resource_id{ format::kNullHandleId }; ///< Resource the VA points into.
+    uint64_t         first_seen_block{ 0 };
+};
+
+struct Dx12ResourceValueAuditSummary
+{
+    Dx12ResourceValueAuditCounts gpu_va;
+    Dx12ResourceValueAuditCounts descriptor_handle;
+    Dx12ResourceValueAuditCounts shader_id;
+
+    uint64_t distinct_unresolved_gpu_vas{ 0 };
+    uint64_t distinct_dead_capture_vas{ 0 };
+    uint64_t distinct_unresolved_shader_ids{ 0 };
+
+    // Unresolved observation counts keyed by the resource the value was read from.
+    std::map<format::HandleId, uint64_t> unresolved_by_resource;
+
+    // Unresolved GPU VA observation counts keyed by the resource the value points into.
+    std::map<format::HandleId, uint64_t> unresolved_by_target_resource;
+
+    // First-seen samples of distinct unresolved GPU VAs (bounded; for diagnosing the residue).
+    std::vector<Dx12UnresolvedValueSample> unresolved_gpu_va_samples;
+};
+
 class Dx12ResourceValueTracker
 {
   public:
@@ -158,6 +200,10 @@ class Dx12ResourceValueTracker
     virtual void SetUnassociatedResourceValues(Dx12FillCommandResourceValueMap&&          tracked_values,
                                                decode::Dx12UnassociatedResourceValueMap&& unassociated_values)
     {}
+
+    // Report-only closure ledger from the audit pass; the mapper merges its post-execution readback counts
+    // into the same summary.
+    virtual void GetAuditSummary(Dx12ResourceValueAuditSummary& summary) {}
 
     virtual void AddShaderRecordData(format::HandleId                 resource_id,
                                      uint64_t                         offset,

@@ -33,6 +33,7 @@
 #include "graphics/dx12_gpu_va_map.h"
 #include "util/defines.h"
 
+#include <unordered_set>
 #include <utility>
 
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
@@ -85,6 +86,8 @@ class Dx12ExperimentalResourceValueTracker : public Dx12ResourceValueTracker
     // is a second pass.
     virtual void SetUnassociatedResourceValues(Dx12FillCommandResourceValueMap&&          tracked_values,
                                                decode::Dx12UnassociatedResourceValueMap&& unassociated_values) override;
+
+    virtual void GetAuditSummary(Dx12ResourceValueAuditSummary& summary) override;
 
     virtual void AddShaderRecordData(format::HandleId                 resource_id,
                                      uint64_t                         offset,
@@ -152,7 +155,18 @@ class Dx12ExperimentalResourceValueTracker : public Dx12ResourceValueTracker
                                     uint64_t         resource_max_offset);
 
   private:
+    // Classify one use-site observation for the report-only audit ledger (resolve mode with the mapper in
+    // audit mode). walk_attributed is the result of the base offset walk for the same observation.
+    void AuditResourceValue(format::HandleId              resource_id,
+                            ResourceValueType             type,
+                            const uint8_t*                resource_value_data,
+                            const graphics::Dx12GpuVaMap& gpu_va_map,
+                            bool                          walk_attributed);
+
     const uint64_t kMinDataAlignment = 4;
+
+    // Bound on first-seen unresolved-value samples kept for the audit report.
+    static const size_t kMaxUnresolvedValueSamples = 32;
 
     struct FindResourceValuesThreadData
     {
@@ -193,6 +207,18 @@ class Dx12ExperimentalResourceValueTracker : public Dx12ResourceValueTracker
 
     // Temp vector to reduce allocations.
     std::vector<std::pair<uint64_t, format::ResourceValueType>> temp_found_shader_record_values_;
+
+    // Audit ledger state for the resolve pass: exact values the content scan found in fill/init payloads,
+    // classified against by AuditResourceValue. Distinct unresolved/dead values are kept as sets so the
+    // report can distinguish a few recurring values from a broad failure.
+    std::set<graphics::Dx12ShaderIdentifier> scanned_candidate_shader_ids_;
+    std::unordered_set<uint64_t>             scanned_candidate_gpu_vas_;
+    std::unordered_set<uint64_t>             scanned_candidate_descriptors_;
+
+    Dx12ResourceValueAuditSummary            audit_summary_;
+    std::unordered_set<uint64_t>             unresolved_gpu_va_values_;
+    std::unordered_set<uint64_t>             dead_capture_va_values_;
+    std::set<graphics::Dx12ShaderIdentifier> unresolved_shader_id_values_;
 };
 
 GFXRECON_END_NAMESPACE(decode)

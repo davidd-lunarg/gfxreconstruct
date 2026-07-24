@@ -182,7 +182,7 @@ Dx12ResourceValueMapper::Dx12ResourceValueMapper(std::function<DxObjectInfo*(for
                                                  const graphics::Dx12GpuVaMap&                     gpu_va_map,
                                                  const decode::Dx12DescriptorMap&                  descriptor_map) :
     get_object_info_func_(get_object_info_func),
-    shader_id_map_(shader_id_map), gpu_va_map_(gpu_va_map), descriptor_map_(descriptor_map), do_value_mapping_(true)
+    shader_id_map_(shader_id_map), gpu_va_map_(gpu_va_map), descriptor_map_(descriptor_map)
 {}
 
 void Dx12ResourceValueMapper::EnableResourceValueTracker(std::function<uint64_t(void)> get_current_block_index_func,
@@ -221,10 +221,24 @@ void Dx12ResourceValueMapper::SetUnassociatedResourceValues(Dx12FillCommandResou
 {
     GFXRECON_ASSERT(resource_value_tracker_ != nullptr);
 
-    // Don't do value mapping on the second pass of optimization processing. tracked_values should contain the resource
-    // values found and mapped by the first pass.
-    do_value_mapping_ = false;
+    // tracked_values should contain the resource values found and mapped by the first pass.
+    mode_ = Mode::kAuditValues;
     resource_value_tracker_->SetUnassociatedResourceValues(std::move(tracked_values), std::move(unassociated_values));
+}
+
+void Dx12ResourceValueMapper::GetAuditSummary(Dx12ResourceValueAuditSummary& summary)
+{
+    if (resource_value_tracker_ != nullptr)
+    {
+        resource_value_tracker_->GetAuditSummary(summary);
+    }
+
+    summary.gpu_va.post_exec_checked = audit_post_exec_checked_[ResourceValueType::kGpuVirtualAddress];
+    summary.gpu_va.post_exec_changed = audit_post_exec_changed_[ResourceValueType::kGpuVirtualAddress];
+    summary.descriptor_handle.post_exec_checked = audit_post_exec_checked_[ResourceValueType::kGpuDescriptorHandle];
+    summary.descriptor_handle.post_exec_changed = audit_post_exec_changed_[ResourceValueType::kGpuDescriptorHandle];
+    summary.shader_id.post_exec_checked         = audit_post_exec_checked_[ResourceValueType::kShaderIdentifier];
+    summary.shader_id.post_exec_changed         = audit_post_exec_changed_[ResourceValueType::kShaderIdentifier];
 }
 
 void Dx12ResourceValueMapper::PostProcessCommandListReset(DxObjectInfo* command_list_object_info)
@@ -270,45 +284,43 @@ void Dx12ResourceValueMapper::PreProcessExecuteCommandLists(
     bool&                                     needs_mapping)
 {
     needs_mapping = false;
-    if (do_value_mapping_)
+
+    auto command_queue            = static_cast<ID3D12CommandQueue*>(command_queue_object_info->object);
+    auto command_queue_extra_info = GetExtraInfo<D3D12CommandQueueInfo>(command_queue_object_info);
+
+    GFXRECON_ASSERT(command_queue_extra_info != nullptr);
+
+    if (command_queue_extra_info->resource_value_map_fence == nullptr)
     {
-        auto command_queue            = static_cast<ID3D12CommandQueue*>(command_queue_object_info->object);
-        auto command_queue_extra_info = GetExtraInfo<D3D12CommandQueueInfo>(command_queue_object_info);
+        InitializeRequiredObjects(command_queue, command_queue_extra_info);
+    }
 
-        GFXRECON_ASSERT(command_queue_extra_info != nullptr);
+    // Determine if there are values that need to be mapped in resources referenced by the command list.
+    for (UINT i = 0; (i < num_command_lists) && !needs_mapping; ++i)
+    {
+        auto command_list_extra_info =
+            GetExtraInfo<D3D12CommandListInfo>(get_object_info_func_(command_lists_decoder->GetPointer()[i]));
+        GFXRECON_ASSERT(command_list_extra_info != nullptr);
 
-        if (command_queue_extra_info->resource_value_map_fence == nullptr)
+        for (auto& resource_value_info_pair : command_list_extra_info->resource_value_info_map)
         {
-            InitializeRequiredObjects(command_queue, command_queue_extra_info);
-        }
-
-        // Determine if there are values that need to be mapped in resources referenced by the command list.
-        for (UINT i = 0; (i < num_command_lists) && !needs_mapping; ++i)
-        {
-            auto command_list_extra_info =
-                GetExtraInfo<D3D12CommandListInfo>(get_object_info_func_(command_lists_decoder->GetPointer()[i]));
-            GFXRECON_ASSERT(command_list_extra_info != nullptr);
-
-            for (auto& resource_value_info_pair : command_list_extra_info->resource_value_info_map)
+            if (!resource_value_info_pair.second.empty())
             {
-                if (!resource_value_info_pair.second.empty())
-                {
-                    needs_mapping = true;
-                    break;
-                }
+                needs_mapping = true;
+                break;
             }
         }
+    }
 
-        if (needs_mapping)
-        {
-            // Signal the resource_value_map_fence to indicate it is safe to begin mapping, then wait for the
-            // resource_value_map_fence to ensure mapping has completed. No other objects should be signaling or waiting
-            // on this fence, so no events need to be added to the command queue's pending events list.
-            command_queue->Signal(command_queue_extra_info->resource_value_map_fence,
-                                  command_queue_extra_info->resource_value_map_fence_value);
-            command_queue->Wait(command_queue_extra_info->resource_value_map_fence,
-                                command_queue_extra_info->resource_value_map_fence_value + 1);
-        }
+    if (needs_mapping)
+    {
+        // Signal the resource_value_map_fence to indicate it is safe to begin mapping, then wait for the
+        // resource_value_map_fence to ensure mapping has completed. No other objects should be signaling or waiting
+        // on this fence, so no events need to be added to the command queue's pending events list.
+        command_queue->Signal(command_queue_extra_info->resource_value_map_fence,
+                              command_queue_extra_info->resource_value_map_fence_value);
+        command_queue->Wait(command_queue_extra_info->resource_value_map_fence,
+                            command_queue_extra_info->resource_value_map_fence_value + 1);
     }
 }
 
@@ -1092,7 +1104,8 @@ void Dx12ResourceValueMapper::ProcessResourceMappings(ProcessResourceMappingsArg
 
     auto resource_value_info_map = std::move(args.resource_value_info_map);
     args.resource_value_info_map.clear();
-    std::map<DxObjectInfo*, MappedResourceRevertInfo> resource_data_to_revert;
+    std::map<DxObjectInfo*, MappedResourceRevertInfo>        resource_data_to_revert;
+    std::vector<std::pair<DxObjectInfo*, ResourceAuditInfo>> resources_to_audit;
     while (!resource_value_info_map.empty())
     {
         // Process resource copies so values are mapped in the source resource.
@@ -1100,18 +1113,22 @@ void Dx12ResourceValueMapper::ProcessResourceMappings(ProcessResourceMappingsArg
 
         // Apply the resource value mappings to the resources on the GPU.
         ResourceValueInfoMap indirect_values_map;
-        MapResources(resource_value_info_map, resource_data_to_revert, indirect_values_map);
+        MapResources(resource_value_info_map, resource_data_to_revert, indirect_values_map, resources_to_audit);
 
         // If indirect_values_map is not empty, another pass of mapping is required.
         resource_value_info_map = std::move(indirect_values_map);
     }
 
-    // Track mapped values that were copied to other resources.
-    const auto copies_size = args.resource_copies.size();
-    for (size_t i = 0; i < copies_size; ++i)
+    if (mode_ == Mode::kMapValues)
     {
-        auto& copy_info = args.resource_copies[i];
-        CopyMappedResourceValues(copy_info);
+        // Track mapped values that were copied to other resources. Audit mode maps nothing, so it has
+        // nothing to propagate.
+        const auto copies_size = args.resource_copies.size();
+        for (size_t i = 0; i < copies_size; ++i)
+        {
+            auto& copy_info = args.resource_copies[i];
+            CopyMappedResourceValues(copy_info);
+        }
     }
 
     // Signal to the command queue that the mapping is completed.
@@ -1148,6 +1165,49 @@ void Dx12ResourceValueMapper::ProcessResourceMappings(ProcessResourceMappingsArg
         {
             GFXRECON_LOG_ERROR("Failed to revert data for mapped resource %" PRIu64,
                                resource_data_pair.first->capture_id);
+        }
+    }
+
+    // Audit mode has nothing to revert; instead compare the pre-execution snapshots against a post-execution
+    // readback. Values changed by the submission that consumed them are invisible to pre-execution tracking,
+    // so a nonzero count flags observations whose recorded identity may be stale.
+    for (auto& audit_pair : resources_to_audit)
+    {
+        auto& audit_info = audit_pair.second;
+        auto  resource   = static_cast<ID3D12Resource*>(audit_pair.first->object);
+
+        std::vector<uint8_t>  post_data;
+        std::vector<uint64_t> subresource_offsets;
+        std::vector<uint64_t> subresource_sizes;
+        HRESULT               hr = resource_data_util_->ReadFromResource(resource,
+                                                          true,
+                                                          audit_info.states,
+                                                          audit_info.states,
+                                                          post_data,
+                                                          subresource_offsets,
+                                                          subresource_sizes);
+
+        if (FAILED(hr))
+        {
+            GFXRECON_LOG_ERROR("Failed to read post-execution data for auditing values in resource (id=%" PRIu64 ")",
+                               audit_pair.first->capture_id);
+            continue;
+        }
+
+        for (const auto& entry : audit_info.entries)
+        {
+            auto value_size = GetResourceValueSize(entry.type);
+            if ((entry.offset + value_size) > post_data.size())
+            {
+                continue;
+            }
+            ++audit_post_exec_checked_[entry.type];
+            if (util::platform::MemoryCompare(audit_info.pre_data.data() + entry.offset,
+                                              post_data.data() + entry.offset,
+                                              value_size) != 0)
+            {
+                ++audit_post_exec_changed_[entry.type];
+            }
         }
     }
 
@@ -1199,6 +1259,11 @@ bool Dx12ResourceValueMapper::MapValue(const ResourceValueInfo& value_info,
         {
             resource_value_tracker_->AddTrackedResourceValue(
                 resource_id, value_info.type, final_offset, result_data.data() + final_offset, gpu_va_map_);
+        }
+
+        if (mode_ == Mode::kAuditValues)
+        {
+            temp_audit_entries_.push_back({ final_offset, value_info.type });
         }
 
         // If the current value at the given offset matches the result of a previous mapping, don't attempt to map
@@ -1268,6 +1333,11 @@ bool Dx12ResourceValueMapper::MapValue(const ResourceValueInfo& value_info,
         {
             resource_value_tracker_->AddTrackedResourceValue(
                 resource_id, ResourceValueType::kShaderIdentifier, final_offset, shader_id_ptr, gpu_va_map_);
+        }
+
+        if (mode_ == Mode::kAuditValues)
+        {
+            temp_audit_entries_.push_back({ final_offset, ResourceValueType::kShaderIdentifier });
         }
 
         // Map the shader ID if it wasn't previously mapped.
@@ -1473,9 +1543,11 @@ bool Dx12ResourceValueMapper::MapValue(const ResourceValueInfo& value_info,
     return false;
 }
 
-void Dx12ResourceValueMapper::MapResources(const ResourceValueInfoMap&                        resource_value_info_map,
-                                           std::map<DxObjectInfo*, MappedResourceRevertInfo>& resource_data_to_revert,
-                                           ResourceValueInfoMap&                              indirect_values_map)
+void Dx12ResourceValueMapper::MapResources(
+    const ResourceValueInfoMap&                               resource_value_info_map,
+    std::map<DxObjectInfo*, MappedResourceRevertInfo>&        resource_data_to_revert,
+    ResourceValueInfoMap&                                     indirect_values_map,
+    std::vector<std::pair<DxObjectInfo*, ResourceAuditInfo>>& resources_to_audit)
 {
     for (const auto& resource_value_infos : resource_value_info_map)
     {
@@ -1532,6 +1604,8 @@ void Dx12ResourceValueMapper::MapResources(const ResourceValueInfoMap&          
             revert_info.mapped_gpu_addresses = resource_extra_info->mapped_gpu_addresses;
             revert_info.mapped_shader_ids    = resource_extra_info->mapped_shader_ids;
 
+            temp_audit_entries_.clear();
+
             bool write_back = false;
             for (const auto& value_info : value_infos)
             {
@@ -1557,7 +1631,23 @@ void Dx12ResourceValueMapper::MapResources(const ResourceValueInfoMap&          
                 }
             }
 
-            if (write_back == true)
+            if (mode_ == Mode::kAuditValues)
+            {
+                // No write-back: restore the bookkeeping so it only reflects values actually written, and
+                // keep the pre-execution snapshot for the post-execution compare.
+                resource_extra_info->mapped_gpu_addresses = std::move(revert_info.mapped_gpu_addresses);
+                resource_extra_info->mapped_shader_ids    = std::move(revert_info.mapped_shader_ids);
+
+                if (!temp_audit_entries_.empty())
+                {
+                    ResourceAuditInfo audit_info;
+                    audit_info.pre_data = std::move(revert_info.data);
+                    audit_info.states   = std::move(revert_info.states);
+                    audit_info.entries  = std::move(temp_audit_entries_);
+                    resources_to_audit.emplace_back(resource_object_info, std::move(audit_info));
+                }
+            }
+            else if (write_back == true)
             {
                 resource_data_to_revert[resource_value_infos.first] = std::move(revert_info);
                 hr                                                  = resource_data_util_->WriteToResource(resource,

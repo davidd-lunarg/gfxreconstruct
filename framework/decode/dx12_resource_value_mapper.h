@@ -58,6 +58,10 @@ class Dx12ResourceValueMapper
     void SetUnassociatedResourceValues(Dx12FillCommandResourceValueMap&&  tracked_values,
                                        Dx12UnassociatedResourceValueMap&& unassociated_values);
 
+    // Report-only audit ledger: the tracker's classification counts merged with the mapper's post-execution
+    // readback counts.
+    void GetAuditSummary(Dx12ResourceValueAuditSummary& summary);
+
     // Sets needs_mapping = true if the command lists contain resources that need to be mapped.
     void PreProcessExecuteCommandLists(DxObjectInfo*                             command_queue_object_info,
                                        UINT                                      num_command_lists,
@@ -151,6 +155,16 @@ class Dx12ResourceValueMapper
     bool PerformedRvMapping() { return performed_rv_mapping_; };
 
   private:
+    // In kMapValues mode (normal replay) mapped values are patched into resources on the GPU and reverted
+    // after execution. In kAuditValues mode (second experimental optimization pass) the full use-site
+    // machinery runs -- discovery, readback, and mapping of the CPU copy, which record traversal requires --
+    // but nothing is written to the GPU; observations feed the report-only audit ledger instead.
+    enum class Mode
+    {
+        kMapValues,
+        kAuditValues,
+    };
+
     struct ProcessResourceMappingsArgs
     {
         ID3D12Fence*                  fence{ nullptr };
@@ -166,6 +180,20 @@ class Dx12ResourceValueMapper
         std::vector<graphics::dx12::ResourceStateInfo>     states;
         std::map<uint64_t, uint64_t>                       mapped_gpu_addresses;
         std::map<uint64_t, graphics::Dx12ShaderIdentifier> mapped_shader_ids;
+    };
+
+    struct AuditValueEntry
+    {
+        uint64_t          offset{ 0 };
+        ResourceValueType type{ ResourceValueType::kUnknown };
+    };
+
+    // Pre-execution snapshot of a resource read in audit mode, compared against a post-execution readback.
+    struct ResourceAuditInfo
+    {
+        std::vector<uint8_t>                           pre_data;
+        std::vector<graphics::dx12::ResourceStateInfo> states;
+        std::vector<AuditValueEntry>                   entries; ///< Resource-absolute value locations.
     };
 
     static void CopyResourceValues(const ResourceCopyInfo& copy_info, ResourceValueInfoMap& resource_value_info_map);
@@ -185,9 +213,10 @@ class Dx12ResourceValueMapper
 
     bool IsNonEmptyShaderRecord(const std::vector<uint8_t>& data, uint64_t offset, uint64_t size);
 
-    void MapResources(const ResourceValueInfoMap&                        resource_value_info_map,
-                      std::map<DxObjectInfo*, MappedResourceRevertInfo>& resource_data_to_revert,
-                      ResourceValueInfoMap&                              indirect_values_map);
+    void MapResources(const ResourceValueInfoMap&                            resource_value_info_map,
+                      std::map<DxObjectInfo*, MappedResourceRevertInfo>&     resource_data_to_revert,
+                      ResourceValueInfoMap&                                  indirect_values_map,
+                      std::vector<std::pair<DxObjectInfo*, ResourceAuditInfo>>& resources_to_audit);
 
     void InitializeRequiredObjects(ID3D12CommandQueue* command_queue, D3D12CommandQueueInfo* command_queue_extra_info);
 
@@ -235,7 +264,13 @@ class Dx12ResourceValueMapper
     const graphics::Dx12GpuVaMap&    gpu_va_map_;
     const decode::Dx12DescriptorMap& descriptor_map_;
 
-    bool do_value_mapping_;
+    Mode mode_{ Mode::kMapValues };
+
+    // Audit-mode state: value locations observed while mapping the current resource's CPU copy, and the
+    // pre/post-execution comparison counts merged into the audit summary.
+    std::vector<AuditValueEntry>          temp_audit_entries_;
+    std::map<ResourceValueType, uint64_t> audit_post_exec_checked_;
+    std::map<ResourceValueType, uint64_t> audit_post_exec_changed_;
 
     // Temporary vectors to reduce allocations.
     std::vector<uint8_t>                           temp_resource_data;
