@@ -250,7 +250,9 @@ void WriteDxrAuditReport(const decode::Dx12ResourceValueAuditSummary& summary)
     {
         GFXRECON_WRITE_CONSOLE("  UNRESOLVED: %" PRIu64 " value observation(s) (%" PRIu64 " distinct GPU VAs, %" PRIu64
                                " distinct shader IDs) have no walk attribution and no content-scan coverage. "
-                               "The optimized file will not map these values.",
+                               "The optimized file will not map these values. Values the verification pass proves "
+                               "GPU-derived from patched bases are regenerated at replay and need no mapping (see "
+                               "the GPU-derived residue line).",
                                total_unresolved,
                                summary.distinct_unresolved_gpu_vas,
                                summary.distinct_unresolved_shader_ids);
@@ -691,13 +693,16 @@ void VerifyDxrOptimizationCandidates(const std::string&                     inpu
                                dropped_by_halving.size());
     }
     GFXRECON_WRITE_CONSOLE("  GPU-derived residue: %zu of %zu distinct unresolved value(s) proven derived from "
-                           "tagged bases",
+                           "tagged bases; replay recomputes these from the patched bases, so their locations need "
+                           "no annotation",
                            results.derived_confirmed_values.size(),
                            info.unresolved_gpu_vas.size());
     if (!results.unverified_unresolved_values.empty())
     {
         GFXRECON_WRITE_CONSOLE("  STILL UNVERIFIED: %zu unresolved value(s) observed unchanged (%" PRIu64
-                               " observation(s)); their derivation chains do not root in any tagged location.",
+                               " observation(s)); their derivation chains do not root in any tagged location. "
+                               "Chains rooted in walk-patched bases also land here; only values with no patched "
+                               "root replay stale.",
                                results.unverified_unresolved_values.size(),
                                results.unverified_unresolved_observations);
     }
