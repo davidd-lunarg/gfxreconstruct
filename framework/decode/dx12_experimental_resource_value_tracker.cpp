@@ -255,6 +255,27 @@ void Dx12ExperimentalResourceValueTracker::GetPerturbationResults(Dx12Perturbati
 
 void Dx12ExperimentalResourceValueTracker::GetScanHitCandidates(std::vector<Dx12ScanHitCandidate>& hits)
 {
+    // Apply the non-DXR exclusions here, after the pass has seen every IB/VB bind and texture copy: hits in
+    // index/vertex/texture staging bytes are content coincidences, and mapping them would rewrite geometry
+    // data. Mirrors the walk-value exclusion in GetTrackedResourceValues.
+    auto end_iter = std::remove_if(
+        scan_hit_candidates_.begin(), scan_hit_candidates_.end(), [this](const Dx12ScanHitCandidate& hit) {
+            auto ranges_iter = non_dxr_fill_command_data_.find(hit.block_index);
+            if (ranges_iter == non_dxr_fill_command_data_.end())
+            {
+                return false;
+            }
+            for (const auto& range : ranges_iter->second)
+            {
+                if ((hit.offset >= range.first) && (hit.offset < range.second))
+                {
+                    return true;
+                }
+            }
+            return false;
+        });
+    scan_hit_candidates_.erase(end_iter, scan_hit_candidates_.end());
+
     hits = std::move(scan_hit_candidates_);
     scan_hit_candidates_.clear();
 }

@@ -219,6 +219,50 @@ TEST_CASE("FindResourceValuesThreaded finds values straddling chunk boundaries",
     }
 }
 
+TEST_CASE("GetScanHitCandidates applies non-DXR exclusions", "[dx12][experimental-tracker]")
+{
+    uint64_t                             block_index = 21;
+    Dx12ExperimentalResourceValueTracker tracker(NullObjectLookup, [&block_index]() { return block_index; });
+
+    auto id_bytes = MakeShaderIdBytes(0x07);
+
+    // Seed fill provenance for resource 7 at block 21 in track mode so non-DXR ranges can map onto it.
+    std::vector<uint8_t> data(512, 0);
+    WriteU64(data, 64, kCaptureVaStart + 0x40);
+    memcpy(data.data() + 128, id_bytes.data(), id_bytes.size());
+    tracker.PostProcessFillMemoryCommand(7, 0, data.size(), data.data());
+
+    // Enter resolve mode with an ID needle and a VA needle.
+    Dx12FillCommandResourceValueMap    tracked;
+    Dx12UnassociatedResourceValueMap   unassociated;
+    Dx12UnassociatedResourceValueGroup group;
+    group.block_index = 21;
+    group.values.push_back(MakeUnassociatedShaderId(id_bytes));
+    group.values.push_back(MakeUnassociatedGpuVa(kVaResourceId));
+    unassociated[7].push_back(group);
+    tracker.SetUnassociatedResourceValues(std::move(tracked), std::move(unassociated));
+    tracker.AddResourceGpuVa(kVaResourceId, kReplayVaStart, kVaWidth, kCaptureVaStart);
+
+    // One VA hit at 64 and one shader ID hit at 128.
+    Dx12ResourceValueTracker::TrackedFillCommandInfo fill_command;
+    fill_command.fill_command_block_index = 21;
+    fill_command.original_offset          = 0;
+    fill_command.offset                   = 0;
+    fill_command.size                     = data.size();
+    tracker.FindResourceValuesThreaded(fill_command, 7, data.data(), data.size());
+
+    // [0, 96) of resource 7 is non-DXR data (e.g. later bound as an index buffer): the VA hit inside it must
+    // not be exported. A range on a resource with no fill provenance must not affect anything.
+    tracker.AddNonDxrFillCommandBlocks(7, 0, 96);
+    tracker.AddNonDxrFillCommandBlocks(22, 0, 512);
+
+    std::vector<Dx12ScanHitCandidate> hits;
+    tracker.GetScanHitCandidates(hits);
+
+    REQUIRE(hits.size() == 1);
+    CHECK(HasScanHit(hits, 128, ResourceValueType::kShaderIdentifier));
+}
+
 TEST_CASE("GetAuditSummary classifies use-site observations in resolve mode", "[dx12][experimental-tracker]")
 {
     uint64_t                             block_index = 5;
