@@ -133,8 +133,11 @@ bool Dx12ResourceValueTracker::AddTrackedResourceValue(format::HandleId         
     }
     else
     {
-        GFXRECON_LOG_ERROR_ONCE(
-            "Failed to find the required data for DXR optimization. The optimized result may be invalid.");
+        if (log_unattributed_error_)
+        {
+            GFXRECON_LOG_ERROR_ONCE(
+                "Failed to find the required data for DXR optimization. The optimized result may be invalid.");
+        }
         return false;
     }
 }

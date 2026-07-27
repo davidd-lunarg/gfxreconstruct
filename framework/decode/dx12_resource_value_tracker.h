@@ -237,6 +237,10 @@ class Dx12ResourceValueTracker
 
     std::map<format::HandleId, std::map<uint64_t, TrackedFillCommandInfo>> tracked_fill_commands_;
 
+    // A failed walk is terminal for this tracker, so AddTrackedResourceValue logs an error. The experimental
+    // tracker clears this: it recovers the value for the brute-force search or reports it in the audit ledger.
+    bool log_unattributed_error_{ true };
+
     Dx12FillCommandResourceValueMap tracked_resource_values_;
 
     std::function<DxObjectInfo*(format::HandleId id)> get_object_info_func_;

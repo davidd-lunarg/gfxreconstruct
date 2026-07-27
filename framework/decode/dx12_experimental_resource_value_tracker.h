@@ -49,7 +49,9 @@ class Dx12ExperimentalResourceValueTracker : public Dx12ResourceValueTracker
         min_gpu_va_(std::numeric_limits<uint64_t>::max()), max_gpu_va_(0),
         min_gpu_descriptor_(std::numeric_limits<uint64_t>::max()), max_gpu_descriptor_(0),
         min_gpu_descriptor_alignment_(std::numeric_limits<uint64_t>::max())
-    {}
+    {
+        log_unattributed_error_ = false;
+    }
 
     virtual bool AddTrackedResourceValue(format::HandleId              resource_id,
                                          ResourceValueType             type,
