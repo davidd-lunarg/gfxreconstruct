@@ -236,14 +236,18 @@ void Dx12ResourceValueTrackingConsumer::OverrideExecuteIndirect(DxObjectInfo* co
         count_buffer = static_cast<ID3D12Resource*>(count_buffer_object_info->object);
     }
 
-    auto  command_list_extra_info = GetExtraInfo<D3D12CommandListInfo>(command_list_object_info);
-    auto& resource_value_infos    = command_list_extra_info->resource_value_info_map[argument_buffer_object_info];
+    auto command_list_extra_info      = GetExtraInfo<D3D12CommandListInfo>(command_list_object_info);
+    auto command_signature_extra_info = GetExtraInfo<D3D12CommandSignatureInfo>(command_signature_object_info);
 
-    if (resource_value_infos.empty())
+    // Classify the call by its own signature. The command list's resource_value_info_map is not usable here:
+    // PostProcessExecuteIndirect files this call's entry after this override runs, and count-buffer calls
+    // file it under the count buffer, so checking the argument-buffer entry misclassifies both.
+    bool consumes_resource_values = !command_signature_extra_info->resource_value_infos.empty();
+
+    if (!consumes_resource_values)
     {
-        // This call executes in tracking passes. Record the argument/count ranges so the perturbation pass
-        // never tags candidate bytes an executed indirect call would consume.
-        auto command_signature_extra_info = GetExtraInfo<D3D12CommandSignatureInfo>(command_signature_object_info);
+        // This call executes in every tracking pass. Record the argument/count ranges so the perturbation
+        // pass never tags candidate bytes an executed indirect call would consume.
         uint64_t argument_span = static_cast<uint64_t>(max_command_count) * command_signature_extra_info->byte_stride;
         non_rv_ei_ranges_[argument_buffer_object_info->capture_id].insert(
             { argument_buffer_offset, argument_buffer_offset + argument_span });
@@ -254,7 +258,7 @@ void Dx12ResourceValueTrackingConsumer::OverrideExecuteIndirect(DxObjectInfo* co
         }
     }
 
-    if (resource_value_infos.empty() || replay_resource_value_calls_)
+    if (!consumes_resource_values || replay_resource_value_calls_)
     {
         command_list->ExecuteIndirect(command_signature,
                                       max_command_count,
