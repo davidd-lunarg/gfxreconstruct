@@ -575,6 +575,7 @@ void VerifyDxrOptimizationCandidates(const std::string&                     inpu
 
     decode::Dx12PerturbationResults results;
     std::unordered_set<uint64_t>    tested_values;
+    std::unordered_set<uint64_t>    dropped_by_halving;
     uint64_t                        untested_value_count = 0;
     uint64_t                        ambiguous_count      = 0;
     bool                            verified             = false;
@@ -616,11 +617,17 @@ void VerifyDxrOptimizationCandidates(const std::string&                     inpu
         }
         else if ((attempt + 1) < kMaxAttempts)
         {
-            // A tagged false positive broke the replay; halve every target's tested set to contain it.
+            // A tagged false positive broke the replay; halve every target's tested set to contain it. Keep
+            // the removed values so the report can account for them: they end the run untested, not refuted.
             GFXRECON_WRITE_CONSOLE("Retrying perturbation verification with half the tested candidates.");
             for (auto& target_pair : tested)
             {
-                target_pair.second.resize((target_pair.second.size() + 1) / 2);
+                size_t keep = (target_pair.second.size() + 1) / 2;
+                for (size_t i = keep; i < target_pair.second.size(); ++i)
+                {
+                    dropped_by_halving.insert(target_pair.second[i]);
+                }
+                target_pair.second.resize(keep);
             }
         }
     }
@@ -677,6 +684,12 @@ void VerifyDxrOptimizationCandidates(const std::string&                     inpu
                            results.confirmed_values.size(),
                            emitted_va_locations,
                            refuted_value_count);
+    if (!dropped_by_halving.empty())
+    {
+        GFXRECON_WRITE_CONSOLE("  WARNING: %zu candidate value(s) dropped UNTESTED by retry halving; their "
+                               "locations are not emitted. Rerunning optimization may recover them.",
+                               dropped_by_halving.size());
+    }
     GFXRECON_WRITE_CONSOLE("  GPU-derived residue: %zu of %zu distinct unresolved value(s) proven derived from "
                            "tagged bases",
                            results.derived_confirmed_values.size(),
