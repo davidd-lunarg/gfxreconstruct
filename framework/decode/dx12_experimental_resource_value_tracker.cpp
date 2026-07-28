@@ -226,6 +226,7 @@ void Dx12ExperimentalResourceValueTracker::DecodeResourceValue(ResourceValueType
     if (perturbation_plan_.untested_values.count(value) > 0)
     {
         ++perturbation_results_.untested_observations;
+        perturbation_results_.observed_untested_values.insert(value);
         return;
     }
 

@@ -686,6 +686,14 @@ void VerifyDxrOptimizationCandidates(const std::string&                     inpu
                            results.confirmed_values.size(),
                            emitted_va_locations,
                            refuted_value_count);
+    if (untested_value_count > 0)
+    {
+        GFXRECON_WRITE_CONSOLE("  %zu of %" PRIu64 " untested value(s) observed at use sites (%" PRIu64
+                               " observation(s)); genuine mappings among them are dropped unverified",
+                               results.observed_untested_values.size(),
+                               untested_value_count,
+                               results.untested_observations);
+    }
     if (!dropped_by_halving.empty())
     {
         GFXRECON_WRITE_CONSOLE("  WARNING: %zu candidate value(s) dropped UNTESTED by retry halving; their "

@@ -166,6 +166,7 @@ struct Dx12PerturbationResults
     std::unordered_set<uint64_t> confirmed_values;         ///< Candidate values proven to reach a use site.
     std::unordered_set<uint64_t> derived_confirmed_values; ///< Unresolved values proven derived from a tagged base.
     std::unordered_set<uint64_t> observed_untagged_values;
+    std::unordered_set<uint64_t> observed_untested_values; ///< Untested values seen at use sites; dropped unverified.
     std::unordered_set<uint64_t> unverified_unresolved_values;
 };
 
