@@ -115,6 +115,7 @@ struct MappedSubresource
     void*     data{ nullptr };
     uintptr_t shadow_allocation{ util::PageGuardManager::kNullShadowHandle };
     int32_t   map_count{ 0 };
+    bool      layer_map_held{ false }; // the layer's own Map, held while tracking outlives the app's mapping
 };
 
 // DxDescriptorInfos are contained by DxDescriptorHeapInfo.

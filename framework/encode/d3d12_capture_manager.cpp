@@ -1431,6 +1431,47 @@ void D3D12CaptureManager::PostProcess_ID3D12Resource_Map(
                 std::lock_guard<std::mutex> lock(GetMappedMemoryLock());
                 if (++mapped_subresource.map_count == 1)
                 {
+                    if ((GetMemoryTrackingMode() == CaptureSettings::MemoryTrackingMode::kPageGuard) &&
+                        (mapped_subresource.data != nullptr))
+                    {
+                        // Tracking outlived the previous Unmap (page_guard_track_after_unmap). It carries on when
+                        // the runtime hands back the same address and the entry watches the real memory (write
+                        // watch); a shadow entry would skip copy-on-map and could hand the application stale GPU
+                        // results from a CPU-readable custom heap, so it is flushed and rebuilt, as is an entry
+                        // whose address changed, the address being the key.
+                        util::PageGuardManager* manager   = util::PageGuardManager::Get();
+                        auto                    memory_id = reinterpret_cast<uint64_t>(mapped_subresource.data);
+                        assert(manager != nullptr);
+
+                        if ((mapped_subresource.data == (*data)) && info->has_write_watch)
+                        {
+                            if (!manager->GetTrackedMemory(memory_id, data))
+                            {
+                                GFXRECON_LOG_ERROR(
+                                    "Failed to find tracked memory object for a resource tracked across Unmap.")
+                            }
+                            return;
+                        }
+
+                        manager->ProcessMemoryEntry(
+                            memory_id, [this](uint64_t memory_id, void* start_address, size_t offset, size_t size) {
+                                if (RvAnnotationActive() == true)
+                                {
+                                    resource_value_annotator_->ScanForGPUVA(
+                                        memory_id, reinterpret_cast<uint8_t*>(start_address) + offset, size, offset);
+                                }
+                                WriteFillMemoryCmd(memory_id, offset, size, start_address);
+                            });
+                        manager->RemoveTrackedMemory(memory_id);
+
+                        if (mapped_subresource.layer_map_held)
+                        {
+                            wrapper->GetWrappedObjectAs<ID3D12Resource>()->Unmap(subresource,
+                                                                                 &graphics::dx12::kZeroRange);
+                            mapped_subresource.layer_map_held = false;
+                        }
+                    }
+
                     mapped_subresource.data = (*data);
 
                     if (GetMemoryTrackingMode() == CaptureSettings::MemoryTrackingMode::kPageGuard)
@@ -1465,6 +1506,23 @@ void D3D12CaptureManager::PostProcess_ID3D12Resource_Map(
                                                             mapped_subresource.shadow_allocation,
                                                             use_shadow_memory,
                                                             use_write_watch);
+
+                        if (GetPageGuardTrackAfterUnmap())
+                        {
+                            // Tracking will outlive the application's last Unmap. Hold a Map of the layer's own so
+                            // the pages stay addressable, and write that Map into the capture too: the replay then
+                            // keeps its mapping as well and applies the fills that arrive while the application
+                            // has the resource unmapped. Released with the tracking.
+                            void* held = nullptr;
+                            if (SUCCEEDED(wrapper->GetWrappedObjectAs<ID3D12Resource>()->Map(
+                                    subresource, &graphics::dx12::kZeroRange, &held)))
+                            {
+                                mapped_subresource.layer_map_held = true;
+                                void* capture_address             = mapped_subresource.data;
+                                Encode_ID3D12Resource_Map(
+                                    wrapper, S_OK, subresource, &graphics::dx12::kZeroRange, &capture_address);
+                            }
+                        }
                     }
                     else if (GetMemoryTrackingMode() == CaptureSettings::MemoryTrackingMode::kUnassisted)
                     {
@@ -1554,6 +1612,8 @@ void D3D12CaptureManager::PreProcess_ID3D12Resource_Unmap(ID3D12Resource_Wrapper
                 {
                     if ((--mapped_subresource.map_count == 0) && (mapped_subresource.data != nullptr))
                     {
+                        bool keep_tracking = false;
+
                         if (GetMemoryTrackingMode() == CaptureSettings::MemoryTrackingMode::kPageGuard)
                         {
                             util::PageGuardManager* manager = util::PageGuardManager::Get();
@@ -1574,7 +1634,16 @@ void D3D12CaptureManager::PreProcess_ID3D12Resource_Unmap(ID3D12Resource_Wrapper
                                     WriteFillMemoryCmd(memory_id, offset, size, start_address);
                                 });
 
-                            manager->RemoveTrackedMemory(memory_id);
+                            if (GetPageGuardTrackAfterUnmap())
+                            {
+                                // Keep the entry: the application may still write through the pointer before the
+                                // next ExecuteCommandLists, whose flush then catches it. Dropped with the resource.
+                                keep_tracking = true;
+                            }
+                            else
+                            {
+                                manager->RemoveTrackedMemory(memory_id);
+                            }
                         }
                         else if (GetMemoryTrackingMode() == CaptureSettings::MemoryTrackingMode::kUnassisted)
                         {
@@ -1617,7 +1686,10 @@ void D3D12CaptureManager::PreProcess_ID3D12Resource_Unmap(ID3D12Resource_Wrapper
                             }
                         }
 
-                        mapped_subresource.data = nullptr;
+                        if (!keep_tracking)
+                        {
+                            mapped_subresource.data = nullptr;
+                        }
                     }
                 }
                 else

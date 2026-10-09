@@ -398,6 +398,10 @@ class CommonCaptureManager
     {
         return page_guard_track_ahb_memory_;
     }
+    bool GetPageGuardTrackAfterUnmap() const
+    {
+        return page_guard_track_after_unmap_;
+    }
     PageGuardMemoryMode GetPageGuardMemoryMode() const
     {
         return page_guard_memory_mode_;
@@ -622,6 +626,7 @@ class CommonCaptureManager
     bool                                    page_guard_separate_read_;
     bool                                    page_guard_copy_on_map_;
     bool                                    page_guard_external_memory_;
+    bool                                    page_guard_track_after_unmap_;
     bool                                    trim_enabled_;
     CaptureSettings::TrimBoundary           trim_boundary_;
     std::vector<util::UintRange>            trim_ranges_;

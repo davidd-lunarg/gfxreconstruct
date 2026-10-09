@@ -88,6 +88,7 @@ const char kQuitAfterFramesEnvVar[]                          = GFXRECON_OPTION_S
 const char kPageGuardCopyOnMapEnvVar[]                       = GFXRECON_OPTION_STR(PAGE_GUARD_COPY_ON_MAP);
 const char kPageGuardSeparateReadEnvVar[]                    = GFXRECON_OPTION_STR(PAGE_GUARD_SEPARATE_READ);
 const char kPageGuardPersistentMemoryEnvVar[]                = GFXRECON_OPTION_STR(PAGE_GUARD_PERSISTENT_MEMORY);
+const char kPageGuardTrackAfterUnmapEnvVar[]                 = GFXRECON_OPTION_STR(PAGE_GUARD_TRACK_AFTER_UNMAP);
 const char kPageGuardAlignBufferSizesEnvVar[]                = GFXRECON_OPTION_STR(PAGE_GUARD_ALIGN_BUFFER_SIZES);
 const char kPageGuardTrackAhbMemoryEnvVar[]                  = GFXRECON_OPTION_STR(PAGE_GUARD_TRACK_AHB_MEMORY);
 const char kPageGuardExternalMemoryEnvVar[]                  = GFXRECON_OPTION_STR(PAGE_GUARD_EXTERNAL_MEMORY);
@@ -159,6 +160,7 @@ const std::string kOptionKeyCaptureUseAssetFile                      = std::stri
 const std::string kOptionKeyPageGuardCopyOnMap                       = std::string(kSettingsFilter) + std::string(PAGE_GUARD_COPY_ON_MAP_LOWER);
 const std::string kOptionKeyPageGuardSeparateRead                    = std::string(kSettingsFilter) + std::string(PAGE_GUARD_SEPARATE_READ_LOWER);
 const std::string kOptionKeyPageGuardPersistentMemory                = std::string(kSettingsFilter) + std::string(PAGE_GUARD_PERSISTENT_MEMORY_LOWER);
+const std::string kOptionKeyPageGuardTrackAfterUnmap                 = std::string(kSettingsFilter) + std::string(PAGE_GUARD_TRACK_AFTER_UNMAP_LOWER);
 const std::string kOptionKeyPageGuardAlignBufferSizes                = std::string(kSettingsFilter) + std::string(PAGE_GUARD_ALIGN_BUFFER_SIZES_LOWER);
 const std::string kOptionKeyPageGuardTrackAhbMemory                  = std::string(kSettingsFilter) + std::string(PAGE_GUARD_TRACK_AHB_MEMORY_LOWER);
 const std::string kOptionKeyPageGuardExternalMemory                  = std::string(kSettingsFilter) + std::string(PAGE_GUARD_EXTERNAL_MEMORY_LOWER);
@@ -323,6 +325,7 @@ void CaptureSettings::LoadOptionsEnvVar(OptionsMap* options, bool load_log_setti
     LoadSingleOptionEnvVar(options, kPageGuardCopyOnMapEnvVar, kOptionKeyPageGuardCopyOnMap);
     LoadSingleOptionEnvVar(options, kPageGuardSeparateReadEnvVar, kOptionKeyPageGuardSeparateRead);
     LoadSingleOptionEnvVar(options, kPageGuardPersistentMemoryEnvVar, kOptionKeyPageGuardPersistentMemory);
+    LoadSingleOptionEnvVar(options, kPageGuardTrackAfterUnmapEnvVar, kOptionKeyPageGuardTrackAfterUnmap);
     LoadSingleOptionEnvVar(options, kPageGuardAlignBufferSizesEnvVar, kOptionKeyPageGuardAlignBufferSizes);
     LoadSingleOptionEnvVar(options, kPageGuardTrackAhbMemoryEnvVar, kOptionKeyPageGuardTrackAhbMemory);
     LoadSingleOptionEnvVar(options, kPageGuardExternalMemoryEnvVar, kOptionKeyPageGuardExternalMemory);
@@ -523,6 +526,9 @@ void CaptureSettings::ProcessOptions(OptionsMap* options, CaptureSettings* setti
     settings->trace_settings_.page_guard_persistent_memory =
         ParseBoolString(FindOption(options, kOptionKeyPageGuardPersistentMemory),
                         settings->trace_settings_.page_guard_persistent_memory);
+    settings->trace_settings_.page_guard_track_after_unmap =
+        ParseBoolString(FindOption(options, kOptionKeyPageGuardTrackAfterUnmap),
+                        settings->trace_settings_.page_guard_track_after_unmap);
     settings->trace_settings_.page_guard_align_buffer_sizes =
         ParseBoolString(FindOption(options, kOptionKeyPageGuardAlignBufferSizes),
                         settings->trace_settings_.page_guard_align_buffer_sizes);

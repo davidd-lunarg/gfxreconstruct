@@ -110,6 +110,8 @@ GFXRECON_BEGIN_NAMESPACE(encode)
 #define PAGE_GUARD_SEPARATE_READ_UPPER                       "PAGE_GUARD_SEPARATE_READ"
 #define PAGE_GUARD_PERSISTENT_MEMORY_LOWER                   "page_guard_persistent_memory"
 #define PAGE_GUARD_PERSISTENT_MEMORY_UPPER                   "PAGE_GUARD_PERSISTENT_MEMORY"
+#define PAGE_GUARD_TRACK_AFTER_UNMAP_LOWER                   "page_guard_track_after_unmap"
+#define PAGE_GUARD_TRACK_AFTER_UNMAP_UPPER                   "PAGE_GUARD_TRACK_AFTER_UNMAP"
 #define PAGE_GUARD_ALIGN_BUFFER_SIZES_LOWER                  "page_guard_align_buffer_sizes"
 #define PAGE_GUARD_ALIGN_BUFFER_SIZES_UPPER                  "PAGE_GUARD_ALIGN_BUFFER_SIZES"
 #define PAGE_GUARD_TRACK_AHB_MEMORY_LOWER                    "page_guard_track_ahb_memory"
@@ -240,6 +242,7 @@ class CaptureSettings
         bool                         page_guard_copy_on_map{ util::PageGuardManager::kDefaultEnableCopyOnMap };
         bool                         page_guard_separate_read{ util::PageGuardManager::kDefaultEnableSeparateRead };
         bool                         page_guard_persistent_memory{ false };
+        bool                         page_guard_track_after_unmap{ false };
         bool                         page_guard_align_buffer_sizes{ true };
         bool                         page_guard_track_ahb_memory{ false };
         bool                         page_guard_unblock_sigsegv{ false };

@@ -758,9 +758,16 @@ void Dx12StateWriter::WriteResourceCreationState(
         for (UINT i = 0; i < resource_info->num_subresources; ++i)
         {
             resource_size += resource_info->subresource_sizes[i];
-            if (resource_info->mapped_subresources[i].map_count > 0)
+            const auto& mapped_subresource = resource_info->mapped_subresources[i];
+            if (mapped_subresource.map_count > 0)
             {
-                mapped_subresources.push_back({ resource_wrapper, i, resource_info->mapped_subresources[i].map_count });
+                mapped_subresources.push_back({ resource_wrapper, i, mapped_subresource.map_count });
+            }
+            else if ((mapped_subresource.data != nullptr) && D3D12CaptureManager::Get()->GetPageGuardTrackAfterUnmap())
+            {
+                // Tracking outlived the application's last Unmap: one Map call keeps the replay's mapping alive for
+                // the fills that follow, as the extra Map written when tracking began does in a full capture.
+                mapped_subresources.push_back({ resource_wrapper, i, 1 });
             }
         }
 

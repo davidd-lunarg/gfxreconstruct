@@ -197,6 +197,7 @@ class ApiCaptureManager
     }
     bool GetPageGuardAlignBufferSizes() const { return common_manager_->GetPageGuardAlignBufferSizes(); }
     bool GetPageGuardTrackAhbMemory() const { return common_manager_->GetPageGuardTrackAhbMemory(); }
+    bool GetPageGuardTrackAfterUnmap() const { return common_manager_->GetPageGuardTrackAfterUnmap(); }
     CommonCaptureManager::PageGuardMemoryMode GetPageGuardMemoryMode() const
     {
         return common_manager_->GetPageGuardMemoryMode();
