@@ -1007,6 +1007,27 @@ void PageGuardManager::ProcessActiveRange(uint64_t                  memory_id,
     }
 }
 
+bool PageGuardManager::WriteWatchPagesModified(void* address, size_t size) const
+{
+#if defined(_WIN32)
+    void*  aligned_address = AlignToPageStart(address);
+    size_t aligned_range   = size + GetOffsetFromPageStart(address);
+
+    std::vector<void*> modified_pages((aligned_range >> system_page_pot_shift_) + 1);
+    ULONG_PTR          modified_count = modified_pages.size();
+    DWORD              granularity    = 0;
+
+    if (GetWriteWatch(0, aligned_address, aligned_range, modified_pages.data(), &modified_count, &granularity) == 0)
+    {
+        return modified_count > 0;
+    }
+#else
+    GFXRECON_UNREFERENCED_PARAMETER(address);
+    GFXRECON_UNREFERENCED_PARAMETER(size);
+#endif
+    return false;
+}
+
 bool PageGuardManager::GetTrackedMemory(uint64_t memory_id, void** memory)
 {
     assert(memory != nullptr);

@@ -1482,6 +1482,21 @@ void D3D12CaptureManager::PostProcess_ID3D12Resource_Map(
                         uint64_t size = info->subresource_sizes[subresource];
                         GFXRECON_CHECK_CONVERSION_DATA_LOSS(size_t, size);
 
+                        // Tracking ended at the last Unmap, which reset the write-watch bits; a bit set now means
+                        // the application wrote the resource while it was unmapped, which the GPU saw and the
+                        // capture did not. Say so once and name the option that captures such writes.
+                        if (!GetPageGuardTrackAfterUnmap() && info->has_write_watch &&
+                            (mapped_subresource.last_mapped == mapped_subresource.data) &&
+                            manager->WriteWatchPagesModified(mapped_subresource.data, static_cast<size_t>(size)))
+                        {
+                            GFXRECON_LOG_WARNING_ONCE(
+                                "Resource %" PRIx64 " was written while unmapped (pages changed between its last "
+                                "Unmap and this Map); the GPU sees those writes but the capture does not. Set "
+                                "GFXRECON_PAGE_GUARD_TRACK_AFTER_UNMAP=true to capture them.",
+                                wrapper->GetCaptureId());
+                        }
+                        mapped_subresource.last_mapped = mapped_subresource.data;
+
                         bool use_shadow_memory = true;
                         bool use_write_watch   = false;
 

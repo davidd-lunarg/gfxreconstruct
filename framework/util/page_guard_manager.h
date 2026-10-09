@@ -109,6 +109,11 @@ class PageGuardManager
 
     bool GetTrackedMemory(uint64_t memory_id, void** memory);
 
+    // True when a page of [address, address + size) carries the OS write-watch bit. The bits are reset by the last
+    // ProcessMemoryEntry on the range, so a set bit on a range that is not tracked means a write landed since; the
+    // query does not reset them. Windows only; false elsewhere.
+    bool WriteWatchPagesModified(void* address, size_t size) const;
+
     // The use_write_watch parameter is ignored on all platforms except Windows, and is ignored on Windows if
     // shadow_memory is true.
     //
