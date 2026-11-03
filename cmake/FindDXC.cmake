@@ -9,6 +9,7 @@
 #  DXC_INCLUDE_DIR  : The location of the DXC header file.
 #  DXC_LIBRARY_PATH : Location of the DXC library.
 #  DXC_DLL_PATH     : Location of the DXC DLL.
+#  DXC_EXE_PATH     : Location of the DXC command-line compiler.
 
 if (${D3D12_SUPPORT})
 
@@ -82,6 +83,14 @@ if (${D3D12_SUPPORT})
         endif()
         find_file(DXC_DLL_PATH NAME "dxcompiler.dll" PATHS "${DXC_SDK_DIR}/bin/${DXC_ARCH}" NO_DEFAULT_PATH)
         mark_as_advanced(DXC_DLL_PATH)
+
+        # If the cached compiler path doesn't exist, unset variable.
+        if(DEFINED CACHE{DXC_EXE_PATH} AND NOT EXISTS "${DXC_EXE_PATH}")
+            message("Current DXC_EXE_PATH '${DXC_EXE_PATH}' does not exist. Resetting DXC_EXE_PATH.")
+            unset(DXC_EXE_PATH CACHE)
+        endif()
+        find_file(DXC_EXE_PATH NAMES "dxc.exe" PATHS "${DXC_SDK_DIR}/bin/${DXC_ARCH}" NO_DEFAULT_PATH)
+        mark_as_advanced(DXC_EXE_PATH)
         
     endif()
 
