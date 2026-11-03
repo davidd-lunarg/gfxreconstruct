@@ -111,6 +111,8 @@ class ShaderTable
     std::vector<uint8_t> bytes_;
 };
 
+struct DxrScene;
+
 class D3d12TestApp
 {
   public:
@@ -175,6 +177,9 @@ class D3d12TestApp
     // A fence the queue waits for right before this frame's submission (work the app executed on another queue);
     // the set is cleared after the submission.
     void WaitBefore(ID3D12Fence* fence, uint64_t value) { pre_waits_.push_back({ fence, value }); }
+
+    // The shared quad / TLAS / state object / shader tables (dxr_scene.h), created on the open command list.
+    DxrScene CreateDxrScene();
 
     // One slot of the shader-visible CBV/SRV/UAV heap.
     DescriptorHandle AllocateDescriptor();
