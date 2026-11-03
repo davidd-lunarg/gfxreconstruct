@@ -33,6 +33,8 @@ function(gfxrecon_d3d12_shader target hlsl profile entry variable)
     target_include_directories(${target} PRIVATE ${shader_dir})
 endfunction()
 
+add_subdirectory(dxgi-object-order)
+
 if (DXC_EXE_PATH)
     add_subdirectory(common)
     if (GFXRECON_D3D12_TESTAPP_GPU_WRITTEN_TILES)
