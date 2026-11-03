@@ -440,6 +440,10 @@ if (NOT BUILD_STATIC)
 endif ()
 add_subdirectory(tools)
 
+if (D3D12_SUPPORT)
+    add_subdirectory(test/test_apps/d3d12)
+endif ()
+
 if (GFXRECON_INCLUDE_TEST_APPS)
     add_subdirectory(external/Vulkan-Headers)
     add_subdirectory(test)
