@@ -37,10 +37,10 @@ that is the GFXR build itself nothing is built, and the suite may write there
 (the results, a --warp-dll beside the apps). The suite stops at the first sign
 of a device loss, so nothing runs on a GPU in an unknown state. Results go to
 <output-dir>/<label>.json, with the logs, captures and screenshots under
-<output-dir>/<label>/<app>/. The output directory defaults to
-<build-dir>/testapp_suite and the label to the tested branch and the time.
-The suite refuses a destination that exists and never deletes or overwrites
-a file it did not create.
+<output-dir>/<label>/<app>/, and --xlsx adds <output-dir>/<label>.xlsx. The
+output directory defaults to <build-dir>/testapp_suite and the label to the
+tested branch and the time. The suite refuses a destination that exists and
+never deletes or overwrites a file it did not create.
 '''
 
 import argparse
@@ -57,6 +57,8 @@ import subprocess
 import sys
 import time
 import traceback
+
+import testapp_sheet
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..', '..', '..'))
@@ -561,6 +563,10 @@ def main():
     parser.add_argument('--label',
                         default='',
                         help='name of the results (default: branch and time)')
+    parser.add_argument('--xlsx',
+                        action='store_true',
+                        help='also write the results as a spreadsheet with '
+                        'testapp_sheet.py (needs openpyxl)')
     parser.add_argument('--verbose',
                         action='store_true',
                         help='print every command and its output')
@@ -569,6 +575,9 @@ def main():
 
     if not require('PIL', 'Pillow', 'testapp_suite.py',
                    ['-r', os.path.join(SCRIPT_DIR, 'requirements.txt')]):
+        return 2
+    if args.xlsx and not require('openpyxl', 'openpyxl', '--xlsx',
+                                 ['openpyxl']):
         return 2
 
     if not args.gfxr_build_dir:
@@ -621,8 +630,9 @@ def main():
     label = args.label or default_label(gfxr_rev, args.warp)
     run_dir = os.path.join(output_dir, label)
     out_path = run_dir + '.json'
-    for path in (run_dir, out_path):
-        if os.path.lexists(path):
+    xlsx_path = run_dir + '.xlsx' if args.xlsx else None
+    for path in (run_dir, out_path, xlsx_path):
+        if path and os.path.lexists(path):
             say('%s already exists; pick another --label or --output-dir' %
                 path)
             return 2
@@ -727,6 +737,9 @@ def main():
 
     summary(result)
     say('%.0f s; results: %s' % (time.time() - started, out_path))
+    if xlsx_path:
+        testapp_sheet.write_xlsx(result, xlsx_path)
+        say('spreadsheet: ' + xlsx_path)
     if result['stopped']:
         return 1
     if any('error' in info for entry in result['apps'].values()
